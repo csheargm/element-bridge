@@ -13,10 +13,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from github import LEVEL_EVENT, REPO
+
 ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
-USERS = ["anna", "betty", "anna-agent", "betty-agent"]
+USERS = ["anna", "betty", "anna-agent", "betty-agent", "loop-bot"]
 ROOM_ALIAS = "lounge"
 
 
@@ -96,7 +98,22 @@ def main():
         }, token=anna)["room_id"]
         print(f"created room {alias}")
     api("POST", f"/_matrix/client/v3/join/{urllib.request.quote(room_id)}", {}, token=betty)
+    setup_loop_bot(anna, login("loop-bot", env["PW_LOOP_BOT"]), urllib.request.quote(room_id))
     print(f"room ready: {alias} ({room_id}); passwords in .env")
+
+
+def setup_loop_bot(admin, bot, room):
+    """loop-bot joins the room as moderator (to write the loop-level state event); level starts off."""
+    bot_id = f"@loop-bot:{SERVER_NAME}"
+    api("POST", f"/_matrix/client/v3/rooms/{room}/invite", {"user_id": bot_id}, token=admin)
+    api("POST", f"/_matrix/client/v3/join/{room}", {}, token=bot)
+    pl = api("GET", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", token=admin)
+    if pl.get("users", {}).get(bot_id) != 50:
+        pl.setdefault("users", {})[bot_id] = 50
+        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", pl, token=admin)
+    level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", token=admin)
+    if "level" not in level:
+        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", {"level": "off", "repo": REPO}, token=admin)
 
 
 if __name__ == "__main__":

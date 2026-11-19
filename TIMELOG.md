@@ -37,3 +37,22 @@ restarts (stored in `rooms/<owner>/<room>/.bridge-session.json`), verified by th
 | 08:57 | GPT (Codex CLI) review of commit abc4cb4: 11 findings, none an injection |
 | 08:59:31 | Hardened bridge restarted via `./start.sh` (owner-only default, Claude tool limits, invitee/DM checks, session-id validation, hash workdirs, concurrency cap) |
 | 09:00:40 | 17 unit tests + 7 e2e checks pass (new: anna-agent ignores betty) |
+
+## Step 2: autonomous GitHub loop
+
+| Time | Event | From step-2 start |
+|---|---|---|
+| 09:02:13 | Step 2 start (read sandbox repo: 14 open `agent-ok` issues, `main` **unprotected**, your-account is ADMIN) | 0:00 |
+| 09:03 | Setup steps for the owner sent (second-account login command, collaborator, ruleset) | ~1 |
+| 09:06:44 | Code done: `loop.py` 203 + `tasks.py` 112 + `github.py` 81 lines, bridge +35, fake gh + tests | 4:31 |
+| 09:07 | Run 1: `!level` refused — matrix-nio ignores room v12 creator power (creators aren't in `power_levels.users`) | |
+| 09:08:56 | Fix: read the create event for v12 creators (+4 tests); rerun | 6:43 |
+| 09:09:21 | Run 2: build → PR → review requested all pass (PR opened in 14 s); test matcher bug | |
+| 09:09:29 | Run 3: approve passes; merge step hit a duplicate build from a **replayed old task** | |
+| 09:12:11 | Fix: drop events older than process start + accept results only for the current stage/agent (+4 tests); rerun | 9:58 |
+| **09:13:12** | **Loop e2e ALL PASS**: issue → claim → PR → other agent reviews → GitHub-approved → merged in **20 s** (Autonomous); Assist stops at "ready — a person merges" | **11:00** |
+| 09:13:30 | `start.sh` now also runs loop-bot; step-1 e2e (7 checks) still passes | |
+| 09:14:16 | Real read against your-name/hagency-demo-sandbox OK; anna-agent identity OK, betty-agent awaiting the owner's login | |
+
+Fix cycles in step 2: edit→rerun of the full loop test was about 1 minute each (49 s test). Most of
+the time went to diagnosis, not waiting on builds.

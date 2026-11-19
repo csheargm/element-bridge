@@ -1,0 +1,81 @@
+"""GitHub access for agents: every call runs the `gh` CLI (no shell) under that agent's own
+identity, i.e. its own GH_CONFIG_DIR in .gh/<agent>/ (git-ignored; tokens stay in the keyring).
+
+GitHub — not this code — is the merge gate: a PR is merge-ready only when GitHub itself
+reports it MERGEABLE + CLEAN + APPROVED, which needs the repo's branch protection / ruleset.
+Without required reviews GitHub never reports APPROVED, so the loop fails closed.
+"""
+import asyncio
+import json
+import os
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+REPO = os.environ.get("LOOP_REPO", "your-name/hagency-demo-sandbox")
+LABEL = "agent-ok"
+GH_BIN = os.environ.get("GH_BIN", "gh")          # tests point this at tests/fake_gh.py
+IDENTITY_ROOT = Path(os.environ.get("GH_IDENTITY_ROOT", ROOT / ".gh"))
+CMD_TIMEOUT_S = 120
+
+# Event content keys shared by loop.py and the bridges.
+TASK_KEY = "org.elementbridge.task"
+RESULT_KEY = "org.elementbridge.result"
+LEVEL_EVENT = "org.elementbridge.loop"
+LEVELS = ("off", "assist", "autonomous")
+LOOP_BOT = "loop-bot"            # Matrix localpart of the coordinator (loop.py)
+
+
+class GitHubError(RuntimeError):
+    pass
+
+
+def identity_dir(agent: str) -> Path | None:
+    """The agent's gh config dir, or None if the person hasn't signed that identity in."""
+    d = IDENTITY_ROOT / agent
+    return d if (d / "hosts.yml").exists() else None
+
+
+async def run(args: list[str], agent: str | None = None, cwd: Path | None = None,
+              program: str | None = None) -> str:
+    """Run gh (or git) as `agent`; agent=None uses the ambient login (read-only use only)."""
+    env = dict(os.environ)
+    if agent is not None:
+        d = identity_dir(agent)
+        if d is None:
+            raise GitHubError(f"{agent} has no GitHub identity (.gh/{agent}/ not signed in)")
+        env["GH_CONFIG_DIR"] = str(d)
+        env.pop("GH_TOKEN", None)
+        env.pop("GITHUB_TOKEN", None)
+    argv = [program or GH_BIN, *args]
+    proc = await asyncio.create_subprocess_exec(*argv, cwd=cwd, env=env, stdin=asyncio.subprocess.DEVNULL,
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), CMD_TIMEOUT_S)
+    except asyncio.TimeoutError as e:
+        proc.kill()
+        await proc.wait()
+        raise GitHubError(f"{argv[0]} {args[0]} timed out") from e
+    if proc.returncode != 0:
+        msg = (err.decode(errors="replace").strip() or out.decode(errors="replace").strip())[-300:]
+        raise GitHubError(f"{Path(argv[0]).name} {' '.join(args[:2])} failed: {msg}")
+    return out.decode(errors="replace")
+
+
+async def run_json(args: list[str], agent: str | None = None) -> object:
+    return json.loads(await run(args, agent))
+
+
+async def git(args: list[str], agent: str, cwd: Path) -> str:
+    """git with gh as the credential helper, so pushes use the agent's identity."""
+    helper = f"!{GH_BIN} auth git-credential"
+    return await run(["-c", "credential.helper=", "-c", f"credential.helper={helper}", *args],
+                     agent, cwd, program="git")
+
+
+async def merge_ready(pr: int, agent: str | None = None) -> tuple[bool, dict]:
+    """GitHub's own verdict on whether PR can merge now (needs required-review protection)."""
+    info = await run_json(["pr", "view", str(pr), "-R", REPO, "--json",
+                           "state,mergeable,mergeStateStatus,reviewDecision"], agent)
+    ok = (info.get("state") == "OPEN" and info.get("mergeable") == "MERGEABLE"
+          and info.get("mergeStateStatus") == "CLEAN" and info.get("reviewDecision") == "APPROVED")
+    return ok, info

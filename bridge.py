@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import time
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Mego
                  RoomMessageText)
 
 import agents
+import github
+import tasks
 
 ROOT = Path(__file__).parent
 HOMESERVER = "http://127.0.0.1:8648"
@@ -25,6 +28,7 @@ TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapse
 TYPING_TIMEOUT_MS = 30_000
 MAX_REPLY_CHARS = 30_000
 MAX_CONCURRENT_TURNS = 3     # CLI processes per bridge across all rooms
+CLOCK_SKEW_MS = 5_000        # tolerance when dropping events from before startup
 
 log = logging.getLogger("bridge")
 
@@ -49,6 +53,7 @@ class Bridge:
         self.warned_e2ee: set[str] = set()
         self.tasks: set[asyncio.Task] = set()
         self.turns = asyncio.Semaphore(MAX_CONCURRENT_TURNS)
+        self.started_ms = int(time.time() * 1000)
 
     # --- trigger rules -------------------------------------------------------------
     def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
@@ -91,6 +96,12 @@ class Bridge:
                         "Please use an unencrypted room.")
 
     async def on_message(self, room: MatrixRoom, event: RoomMessageText) -> None:
+        if is_stale(event, self.started_ms):
+            return   # seen replays of pre-start events after restarts; never re-run old tasks/turns
+        task = event.source.get("content", {}).get(github.TASK_KEY)
+        if isinstance(task, dict):
+            self.on_task(room, event, task)
+            return
         name = room.user_name(event.sender) or event.sender
         line = f"{name} ({event.sender}): {event.body}"
         if not self.is_addressed(room, event):
@@ -104,6 +115,29 @@ class Bridge:
         task = asyncio.create_task(self.answer_locked(room, event, line))  # don't block sync
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
+
+    def on_task(self, room: MatrixRoom, event: RoomMessageText, task: dict) -> None:
+        """Loop tasks: only from loop-bot, only addressed to this agent, only from a joined member."""
+        if (event.sender != f"@{github.LOOP_BOT}:{SERVER_NAME}" or task.get("agent") != self.user_id
+                or event.sender not in room.users or event.sender in room.invited_users):
+            log.info("ignored loop task in %s from %s", room.room_id, event.sender)
+            return
+        job = asyncio.create_task(self.run_task(room.room_id, task))
+        self.tasks.add(job)
+        job.add_done_callback(self.tasks.discard)
+
+    async def run_task(self, room_id: str, task: dict) -> None:
+        what = f"PR #{task.get('pr')}" if task.get("pr") else f"#{task.get('issue')}"
+        await self.send(room_id, f"{task.get('kind')}: claimed {what}")
+        typing = asyncio.create_task(self.keep_typing(room_id))
+        try:
+            async with self.turns:
+                base = ROOT / "rooms" / self.owner / "work"
+                result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task)
+        finally:
+            typing.cancel()
+            await self.client.room_typing(room_id, False)
+        await self.send(room_id, result["line"], extra={github.RESULT_KEY: result})
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
@@ -138,13 +172,15 @@ class Bridge:
         digest = hashlib.sha256(room_id.encode()).hexdigest()[:12]   # sanitizing alone is lossy
         return ROOT / "rooms" / self.owner / f"{safe}-{digest}"
 
-    async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None) -> None:
+    async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None,
+                   extra: dict | None = None) -> None:
         html = markdown.markdown(body, extensions=["fenced_code", "tables"])
         content = {"msgtype": "m.text", "body": body,
                    "format": "org.matrix.custom.html", "formatted_body": html}
         if reply_to is not None:
             content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to.event_id}}
             content["m.mentions"] = {"user_ids": [reply_to.sender]}
+        content.update(extra or {})
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not hasattr(resp, "event_id"):
             raise RuntimeError(f"failed to send to {room_id}: {resp}")
@@ -163,6 +199,10 @@ class Bridge:
         self.client.add_event_callback(self.on_encrypted, MegolmEvent)
         log.info("%s online (backend=%s, allow_members=%s)", self.user_id, self.backend, self.allow_members)
         await self.client.sync_forever(timeout=30_000)
+
+
+def is_stale(event, started_ms: int) -> bool:
+    return event.server_timestamp < started_ms - CLOCK_SKEW_MS
 
 
 def main() -> None:

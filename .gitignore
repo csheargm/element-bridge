@@ -5,3 +5,5 @@ rooms/
 __pycache__/
 *.log
 logs/
+loop-state.json
+.gh/

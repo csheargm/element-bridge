@@ -89,3 +89,81 @@ docker compose -f ~/element-bridge/docker-compose.yml down
 ```
 
 Delete `data/`, `.env` and `rooms/` to start from scratch.
+
+## Step 2: the autonomous GitHub loop
+
+`loop.py` runs a coordinator bot, `@loop-bot`, in the room. It watches open issues labelled
+`agent-ok` on `your-name/hagency-demo-sandbox` (override with `LOOP_REPO`) and drives each issue
+through the room, one step per line:
+
+```
+loop-bot     @betty-agent: build #136 docs: add docs/MAINTAINERS_NOTE.md (autonomous)
+betty-agent  build: claimed #136
+betty-agent  PR #140 opened for #136: https://github.com/…/pull/140
+loop-bot     review requested from anna-agent
+anna-agent   approved PR #140            (or: changes requested on PR #140 → loop stops)
+loop-bot     PR #140 ready — a person merges          (Assist)
+betty-agent  merged PR #140 (closes #136)               (Autonomous)
+```
+
+**Room level** is one Matrix state event (`org.elementbridge.loop`) that a room moderator sets by
+typing `!level off`, `!level assist` or `!level autonomous` in the room. It starts at `off`.
+- Off: the loop does nothing.
+- Assist: agents build and review, then a person merges.
+- Autonomous: the builder agent merges.
+
+**Who does what.** The builder is picked round-robin (issue number mod number of agents) and the
+reviewer is always a *different* person's agent. Each step runs in that person's bridge with
+**that agent's own GitHub identity**. loop-bot holds no GitHub credentials; it only reads.
+- Build: the agent CLI edits a fresh clone with `.git` moved out of its sandbox. Codex runs with
+  `workspace-write` and no network. The bridge then commits, pushes and opens the PR.
+- Review: the agent checks the diff read-only against the issue's acceptance criteria. It must end
+  with `VERDICT: APPROVE`; anything else becomes "request changes".
+- Merge: the builder merges only when **GitHub itself** reports the PR `MERGEABLE` + `CLEAN` +
+  `APPROVED`, re-checked in its bridge just before merging.
+
+The merge gate is GitHub's own. Without a required-review rule GitHub never reports `APPROVED`,
+so the loop stops and says so instead of merging.
+
+### One-time setup (the owner)
+
+1. **anna-agent = your main account (your-account).** This is already done: `.gh/anna-agent/` points at
+   your existing `gh` login (it holds only the non-secret `hosts.yml`; the token stays in the keychain).
+2. **betty-agent = your second account.** Sign it in yourself, in your own terminal:
+
+   ```bash
+   mkdir -p ~/element-bridge/.gh/betty-agent && GH_CONFIG_DIR=~/element-bridge/.gh/betty-agent gh auth login --hostname github.com --git-protocol https --web
+   ```
+
+3. On `your-name/hagency-demo-sandbox`, as owner:
+   - **Settings → Collaborators**: add the second account with **Write** access, and accept the
+     invite from that account.
+   - **Settings → Rules → Rulesets → New branch ruleset**: target `main`, turn on **Require a pull
+     request before merging** with **1 required approval** and **Dismiss stale approvals**. Leave
+     the bypass list empty.
+
+   Today `main` has no protection at all, and as owner your-account could merge anything.
+   GitHub already refuses an author approving their own PR, so with this rule a PR needs the
+   *other* person's agent (or a person) to approve it.
+4. Run the loop next to the bridges, then type `!level assist` in the Lounge:
+
+   ```bash
+   cd ~/element-bridge && .venv/bin/python loop.py
+   ```
+
+   An agent without a signed-in identity refuses loop tasks with "no GitHub identity", and the
+   loop stops on that issue.
+
+### Loop tests
+
+```bash
+.venv/bin/python -m unittest test_loop_rules
+```
+
+The full loop test below runs real Codex agents against a fake GitHub (`tests/fake_gh.py` plus a
+local bare repo, with the same rules: you can't approve your own PR, and reviews are required).
+Stop `start.sh`'s bridges first, because the test starts its own:
+
+```bash
+.venv/bin/python test_loop_e2e.py
+```
