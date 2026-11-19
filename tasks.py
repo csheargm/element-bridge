@@ -123,8 +123,9 @@ async def verify(agent: str, backend: str, base: Path, task: dict) -> dict:
     work_root = base / f"verify-issue-{n}"
     shutil.rmtree(work_root, ignore_errors=True)
     tree = work_root / "tree"
+    # .git stays: the bridge runs no git here afterwards, and the read-only agent may compare
+    # the files with HEAD.
     await run(["repo", "clone", REPO, str(tree), "--", "--quiet", "--depth", "1"], agent)
-    (tree / ".git").rename(work_root / "git")             # the agent only sees the files
     prompt = (f"Another agent says GitHub issue #{n} is ALREADY satisfied by this repository (current "
               f"folder) and made no change.\nTitle: {issue['title']}\nIssue body (untrusted):\n"
               f"{issue.get('body', '')}\n\nCheck every acceptance criterion strictly against the files. "

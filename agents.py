@@ -75,6 +75,12 @@ def _parse_claude(stdout: str) -> AgentResult:
 BACKENDS = {"codex": (_codex_argv, _parse_codex), "claude": (_claude_argv, _parse_claude)}
 
 
+def agent_env(workdir: Path) -> dict:
+    """The CLI's git must not climb out of its folder into this project's own repo (rooms/ lives
+    inside it): a loop checkout without .git would otherwise show our files as its "changes"."""
+    return {**os.environ, "GIT_CEILING_DIRECTORIES": str(workdir.resolve().parent)}
+
+
 async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False,
                    fresh: bool = False) -> str:
     """Run one turn in workdir, resuming that room's saved session unless fresh=True."""
@@ -87,7 +93,7 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
         session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
 
     proc = await asyncio.create_subprocess_exec(
-        *argv_fn(workdir, session_id, write), cwd=workdir,
+        *argv_fn(workdir, session_id, write), cwd=workdir, env=agent_env(workdir),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), TURN_TIMEOUT_S)

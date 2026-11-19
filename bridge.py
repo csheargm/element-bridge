@@ -18,6 +18,7 @@ from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Mego
 
 import agents
 import github
+import lifecycle
 import tasks
 
 ROOT = Path(__file__).parent
@@ -54,6 +55,7 @@ class Bridge:
         self.tasks: set[asyncio.Task] = set()
         self.turns = asyncio.Semaphore(MAX_CONCURRENT_TURNS)
         self.started_ms = int(time.time() * 1000)
+        self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
         self.seen_tasks: set[str] = set()     # event ids: a redelivered task never runs twice
 
     # --- trigger rules -------------------------------------------------------------
@@ -97,8 +99,8 @@ class Bridge:
                         "Please use an unencrypted room.")
 
     async def on_message(self, room: MatrixRoom, event: RoomMessageText) -> None:
-        if is_stale(event, self.started_ms):
-            return   # seen replays of pre-start events after restarts; never re-run old tasks/turns
+        if is_stale(event, self.started_ms) or not self.sync_point.first_time(event.event_id):
+            return   # pre-start replays, or handled by the previous process before a restart
         task = event.source.get("content", {}).get(github.TASK_KEY)
         if isinstance(task, dict):
             self.on_task(room, event, task)
@@ -206,14 +208,16 @@ class Bridge:
         resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"login failed for {self.user_id}: {resp}")
-        # Pending invites go through the same check as live ones; messages from before
-        # startup are skipped (message callbacks are registered after the first sync).
+        # Pending invites go through the same check as live ones. Messages from before startup are
+        # skipped, except those sent while a previous process was restarting (lifecycle hand-off).
         self.client.add_event_callback(self.on_invite, InviteMemberEvent)
-        await self.client.sync(timeout=0, full_state=True)
-        self.client.add_event_callback(self.on_message, RoomMessageText)
-        self.client.add_event_callback(self.on_encrypted, MegolmEvent)
+
+        def register() -> None:
+            self.client.add_event_callback(self.on_message, RoomMessageText)
+            self.client.add_event_callback(self.on_encrypted, MegolmEvent)
+        self.started_ms = await lifecycle.first_sync(self.client, f"{self.owner}-agent", self.sync_point, register)
         log.info("%s online (backend=%s, allow_members=%s)", self.user_id, self.backend, self.allow_members)
-        await self.client.sync_forever(timeout=30_000)
+        await lifecycle.serve(self.client, f"{self.owner}-agent", self.sync_point, self.tasks)
 
 
 def is_stale(event, started_ms: int) -> bool:

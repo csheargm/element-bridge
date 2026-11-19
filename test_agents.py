@@ -41,5 +41,18 @@ class Argv(unittest.TestCase):
             self.assertEqual(saved["codex"], "0123abcd-0000")
 
 
+class GitFence(unittest.TestCase):
+    def test_agent_git_does_not_find_the_enclosing_project_repo(self):
+        import subprocess
+        import tempfile
+        root = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        tree = root / "rooms" / "anna" / "work" / "issue-1" / "tree"
+        tree.mkdir(parents=True)
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=tree, env=agents.agent_env(tree),
+                           capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0, f"git escaped to {r.stdout.strip()}")
+
+
 if __name__ == "__main__":
     unittest.main()

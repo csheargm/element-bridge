@@ -18,7 +18,8 @@ from github import LEVEL_EVENT, REPO
 ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
-USERS = ["anna", "betty", "anna-agent", "betty-agent", "loop-bot"]
+PEOPLE = ["anna", "betty"]                       # each gets a <person>-agent and a bridge
+USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), "loop-bot"]
 ROOM_ALIAS = "lounge"
 
 

@@ -22,6 +22,7 @@ from nio import (AsyncClient, LoginResponse, MatrixRoom, RoomGetStateEventRespon
                  RoomMessageText)
 
 import github
+import lifecycle
 from loop_progress import Progress
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -41,6 +42,7 @@ class Loop(Progress):
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="LOOP_BOT")
         self.state: dict = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
         self.started_ms = int(time.time() * 1000)
+        self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
 
     def save(self) -> None:
         tmp = STATE_FILE.with_suffix(".tmp")
@@ -49,7 +51,8 @@ class Loop(Progress):
 
     async def dispatch(self, room_id: str, item: dict, agent: str, body: str, task: dict) -> None:
         """Send a task to one agent; only a result echoing this task_id can advance the item."""
-        item["task_id"] = uuid.uuid4().hex
+        # agent/body/task are kept so the watchdog can resend a step that never got an answer.
+        item.update(task_id=uuid.uuid4().hex, agent=agent, body=body, task=task, sent_at=time.time(), sends=1)
         self.save()
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
 
@@ -76,7 +79,7 @@ class Loop(Progress):
 
     # --- chat: level command and agent results -----------------------------------------
     async def on_message(self, room: MatrixRoom, event: RoomMessageText) -> None:
-        if is_stale(event, self.started_ms):
+        if is_stale(event, self.started_ms) or not self.sync_point.first_time(event.event_id):
             return
         body = event.body.strip()
         if body.startswith("!level"):
@@ -181,17 +184,18 @@ class Loop(Progress):
         resp = await self.client.login(read_env()["PW_LOOP_BOT"], device_name="loop-bot")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"loop-bot login failed: {resp}")
-        await self.client.sync(timeout=0, full_state=True)       # skip history
-        self.client.add_event_callback(self.on_message, RoomMessageText)
+        self.started_ms = await lifecycle.first_sync(
+            self.client, github.LOOP_BOT, self.sync_point, lambda: self.client.add_event_callback(self.on_message, RoomMessageText))
         log.info("loop-bot online for %s (poll %ss)", github.REPO, POLL_S)
-        sync = asyncio.create_task(self.client.sync_forever(timeout=30_000))
-        while not sync.done():
+        await lifecycle.serve(self.client, github.LOOP_BOT, self.sync_point, set(), side=self.poll_forever())
+
+    async def poll_forever(self) -> None:
+        while True:
             try:
                 await self.tick()
             except github.GitHubError as e:
                 log.error("tick failed: %s", e)   # transient gh/network errors: retry next tick
             await asyncio.sleep(POLL_S)
-        await sync
 
 
 def main() -> None:

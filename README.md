@@ -66,10 +66,24 @@ without a mention. In an encrypted room the agent says it can't read it (no E2EE
 - Typing indicator is refreshed every 20 s while the CLI runs; the reply is posted as a Matrix
   reply with markdown rendered to HTML.
 
+## Live code changes
+
+`start.sh` runs the bridges and loop-bot under `supervise.py`. Save any `.py` file and they
+restart by themselves within a second; you never restart the server. A file with a syntax error
+is not loaded; the running version stays up and the error is printed. On restart, each process
+finishes the answer or loop step it is in the middle of, and the new one picks up messages sent
+in between, so nothing is lost or answered twice (`lifecycle.py`). A process that crashes is
+restarted with a growing delay.
+
+The loop never waits forever either. A step that gets no answer is sent again once, then the
+loop stops on that issue. An approved PR with merge conflicts, or one GitHub keeps blocking for
+15 minutes, also stops the issue. A stopped issue always posts "a person takes over" and the loop
+moves on to the next one.
+
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest test_rules test_agents
+.venv/bin/python -m unittest test_rules test_agents test_loop_rules test_loop_watchdog test_lifecycle test_github_setup
 ```
 
 ```bash
@@ -81,6 +95,10 @@ non-members, other agents, malformed mentions) and CLI argv/session-state safety
 drives the real flow over the Matrix API with the bridges running: anna and betty @mention their
 agents, checks replies, typing, per-room memory across turns, that the other agent stays quiet,
 that anna's agent ignores betty, and the encrypted-room warning.
+
+`test_restart_e2e.py` (stop `start.sh` first) saves a code file between two questions and checks
+both are answered exactly once, then kills the builder's bridge mid-step and checks the loop
+resends the step and the issue is still merged.
 
 ## Stop / reset
 

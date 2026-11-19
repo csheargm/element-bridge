@@ -2,14 +2,25 @@
 
 Mixed into loop.Loop (which supplies client, state, save, say, dispatch, level, agents_in).
 """
+import os
+import time
+
 from nio import MatrixRoom
 
+import agents
 import github
 
 # Stages in which an item is still in flight (anything else is done/stopped).
 ACTIVE = ("building", "reviewing", "approved", "ready", "merging", "merge_sent",
           "verifying", "confirmed_done", "close_ready", "closing", "close_sent")
 CLOSE_STAGES = ("confirmed_done", "close_ready", "close_sent")
+AGENT_STAGES = ("building", "reviewing", "verifying", "merging", "closing")   # waiting on an agent
+GITHUB_STAGES = ("approved", "merge_sent", "close_sent")                    # waiting on GitHub
+# ("ready" / "close_ready" wait on a person in Assist: no timeout.)
+# A step's answer is overdue once the agent's own turn limit plus its gh/git calls have surely passed.
+STEP_TIMEOUT_S = float(os.environ.get("LOOP_STEP_TIMEOUT_S", agents.TURN_TIMEOUT_S + 600))
+GITHUB_WAIT_S = float(os.environ.get("LOOP_GITHUB_WAIT_S", 900))
+MAX_SENDS = 2                    # first send + one resend, then a person takes over
 
 
 class Progress:
@@ -21,9 +32,37 @@ class Progress:
                 continue
             active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
             for key, item in active:
-                await self.advance(room_id, key, item, lvl)
+                if not await self.watchdog(room_id, key, item):
+                    await self.advance(room_id, key, item, lvl)
             if not active:
                 await self.claim_next(room, lvl)
+
+    async def watchdog(self, room_id: str, key: str, item: dict) -> bool:
+        """Never wait forever: resend a step with no answer once, and stop items GitHub keeps blocked.
+        Returns True if it acted on the item this tick."""
+        now = time.time()
+        if item.get("seen_stage") != item["stage"]:
+            item.update(seen_stage=item["stage"], since=now)
+            self.save()
+        if item["stage"] in AGENT_STAGES and now - (item.get("sent_at") or item["since"]) > STEP_TIMEOUT_S:
+            who = str(item.get("agent", "the agent")).split(":")[0].lstrip("@")
+            if item.get("sends", 1) >= MAX_SENDS or "task" not in item:
+                return await self.stop(room_id, key, item, f"no answer from {who} on #{key}")
+            sends = item["sends"] + 1
+            await self.say(room_id, f"no answer from {who} on #{key} yet; asking again")
+            await self.dispatch(room_id, item, item["agent"], item["body"], item["task"])
+            item["sends"] = sends
+            self.save()
+            return True
+        if item["stage"] in GITHUB_STAGES and now - item["since"] > GITHUB_WAIT_S:
+            return await self.stop(room_id, key, item, f"GitHub still blocks #{key} after {GITHUB_WAIT_S / 60:.0f} min")
+        return False
+
+    async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
+        item["stage"] = "stopped"
+        self.save()
+        await self.say(room_id, f"{why}; loop stopped on #{key}, a person takes over")
+        return True
 
     async def claim_next(self, room: MatrixRoom, lvl: str) -> None:
         issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL,
@@ -52,6 +91,8 @@ class Progress:
             await self.say(room_id, f"PR #{item['pr']} merged by {by}; #{key} done")
         elif item["stage"] == "merge_sent":
             pass                                     # merge requested; wait for GitHub to show MERGED
+        elif item["stage"] == "approved" and info.get("mergeable") == "CONFLICTING":
+            await self.stop(room_id, key, item, f"PR #{item['pr']} has merge conflicts")   # don't block the queue
         elif ok and lvl == "autonomous":
             item["stage"] = "merging"
             await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: merge PR #{item['pr']}",
