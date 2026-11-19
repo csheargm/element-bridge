@@ -22,7 +22,7 @@ class Watchdog(unittest.TestCase):
         sent = time.time() - age_s
         item = {"room": "!r", "stage": stage, "seen_stage": stage, "since": sent, "builder": AGENT,
                 "agent": AGENT, "body": "b", "task": {"kind": "build", "issue": 7}, "sent_at": sent,
-                "sends": 1, "task_id": "OLD", **kw}
+                "sends": 1, "task_id": "OLD", "task_ids": ["OLD"], **kw}
         self.lp.state["7"] = item
         return item
 
@@ -38,8 +38,9 @@ class Watchdog(unittest.TestCase):
         item = self.item("building", loop_progress.STEP_TIMEOUT_S + 1)
         self.assertTrue(self.run_watchdog(item))
         self.assertEqual((item["stage"], item["sends"]), ("building", 2))
-        self.assertNotEqual(item["task_id"], "OLD")      # a late answer to the first send is ignored
-        _, _, agent, task = self.lp.say.call_args.args
+        self.assertNotEqual(item["task_id"], "OLD")
+        self.assertEqual(item["task_ids"], ["OLD", item["task_id"]])   # the slow original still counts
+        _, _, agent, task = self.lp.say.call_args_list[0].args
         self.assertEqual((agent, task["kind"]), (AGENT, "build"))
 
     def test_second_silence_stops_the_item(self):
@@ -54,10 +55,29 @@ class Watchdog(unittest.TestCase):
         self.run_watchdog(item)
         self.assertEqual(item["stage"], "stopped")
 
+    def gh(self, item, info):
+        with mock.patch.object(github, "merge_ready", mock.AsyncMock(return_value=(False, info))):
+            with mock.patch.object(self.lp, "level", mock.AsyncMock(return_value="autonomous")):
+                self.lp.client = mock.Mock(rooms={"!r": None})
+                asyncio.run(self.lp.tick())
+
     def test_github_blocking_too_long_stops(self):
-        item = self.item("approved", loop_progress.GITHUB_WAIT_S + 1)
-        self.assertTrue(self.run_watchdog(item))
+        item = self.item("approved", loop_progress.GITHUB_WAIT_S + 1, pr=9)
+        self.gh(item, {"state": "OPEN", "mergeable": "UNKNOWN", "reviewDecision": "APPROVED"})
         self.assertEqual(item["stage"], "stopped")
+
+    def test_github_finishing_at_the_deadline_is_not_stopped(self):
+        item = self.item("merge_sent", loop_progress.GITHUB_WAIT_S + 1, pr=9)
+        self.gh(item, {"state": "MERGED"})
+        self.assertEqual(item["stage"], "done")
+
+    def test_original_result_still_counts_after_a_resend(self):
+        from types import SimpleNamespace
+        item = self.item("building", 5, task_ids=["OLD", "NEW"], task_id="NEW")
+        result = {"kind": "build", "issue": 7, "already_done": True, "task_id": "OLD"}
+        self.lp.agents_in = lambda room: [AGENT, "@r-agent:x"]
+        asyncio.run(self.lp.on_result(SimpleNamespace(room_id="!r"), AGENT, result))
+        self.assertEqual(item["stage"], "verifying")
 
     def test_person_stages_never_time_out(self):
         for stage in ("ready", "close_ready"):

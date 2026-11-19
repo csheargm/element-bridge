@@ -11,6 +11,8 @@ import os
 import re
 from pathlib import Path
 
+import lifecycle
+
 ROOT = Path(__file__).parent
 REPO = os.environ.get("LOOP_REPO", "your-name/hagency-demo-sandbox")
 LABEL = "agent-ok"
@@ -70,10 +72,8 @@ async def run(args: list[str], agent: str | None = None, cwd: Path | None = None
     proc = await asyncio.create_subprocess_exec(*argv, cwd=cwd, env=env, stdin=asyncio.subprocess.DEVNULL,
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), CMD_TIMEOUT_S)
+        out, err = await lifecycle.communicate(proc, None, CMD_TIMEOUT_S)
     except asyncio.TimeoutError as e:
-        proc.kill()
-        await proc.wait()
         raise GitHubError(f"{argv[0]} {args[0]} timed out") from e
     if proc.returncode != 0:
         msg = (err.decode(errors="replace").strip() or out.decode(errors="replace").strip())[-300:]

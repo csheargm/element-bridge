@@ -48,12 +48,24 @@ class HandOff(unittest.TestCase):
         asyncio.run(client.callbacks[0](SimpleNamespace(next_batch="B2")))
         self.assertEqual((point.token, list(point.handled)), ("B2", []))
 
-    def test_handoff_is_used_once(self):
+    def test_handoff_survives_until_resume_succeeds(self):
         point = lifecycle.SyncPoint(FakeClient())
         point.token = "T"
         lifecycle.save_handoff("x", point)
-        self.assertIsNotNone(lifecycle.take_handoff("x"))
+        self.assertIsNotNone(lifecycle.take_handoff("x"))   # a process killed during startup...
+        self.assertIsNotNone(lifecycle.take_handoff("x"))   # ...leaves it for the next one
+        lifecycle.drop_handoff("x")
         self.assertIsNone(lifecycle.take_handoff("x"))
+
+    def test_handoff_outlives_a_full_drain(self):
+        self.assertGreater(lifecycle.HANDOFF_MAX_AGE_S, lifecycle.DRAIN_TIMEOUT_S)
+
+    def test_handled_ids_are_not_evicted_within_a_batch(self):
+        point = lifecycle.SyncPoint(FakeClient())
+        point.first_time("$question")
+        for i in range(5000):
+            point.first_time(f"$chatter{i}")
+        self.assertFalse(point.first_time("$question"))
 
     def test_old_handoff_means_cold_start(self):
         path = lifecycle.HANDOFF_DIR / "x.json"

@@ -33,7 +33,9 @@ class Progress:
             active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
             for key, item in active:
                 if not await self.watchdog(room_id, key, item):
-                    await self.advance(room_id, key, item, lvl)
+                    before = item["stage"]
+                    await self.advance(room_id, key, item, lvl)        # GitHub's latest state first...
+                    await self.github_timeout(room_id, key, item, before)   # ...then the timeout
             if not active:
                 await self.claim_next(room, lvl)
 
@@ -48,15 +50,15 @@ class Progress:
             who = str(item.get("agent", "the agent")).split(":")[0].lstrip("@")
             if item.get("sends", 1) >= MAX_SENDS or "task" not in item:
                 return await self.stop(room_id, key, item, f"no answer from {who} on #{key}")
-            sends = item["sends"] + 1
-            await self.say(room_id, f"no answer from {who} on #{key} yet; asking again")
-            await self.dispatch(room_id, item, item["agent"], item["body"], item["task"])
-            item["sends"] = sends
-            self.save()
+            await self.dispatch(room_id, item, item["agent"], item["body"], item["task"], resend=True)
+            await self.say(room_id, f"no answer from {who} on #{key} yet; asked again")
             return True
-        if item["stage"] in GITHUB_STAGES and now - item["since"] > GITHUB_WAIT_S:
-            return await self.stop(room_id, key, item, f"GitHub still blocks #{key} after {GITHUB_WAIT_S / 60:.0f} min")
         return False
+
+    async def github_timeout(self, room_id: str, key: str, item: dict, before: str) -> None:
+        """Stop an item GitHub has kept blocked too long, judged AFTER advance() saw GitHub's state."""
+        if item["stage"] == before and before in GITHUB_STAGES and time.time() - item["since"] > GITHUB_WAIT_S:
+            await self.stop(room_id, key, item, f"GitHub still blocks #{key} after {GITHUB_WAIT_S / 60:.0f} min")
 
     async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
         item["stage"] = "stopped"

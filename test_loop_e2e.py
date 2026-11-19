@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from setup_accounts import SERVER_NAME, load_env, login
-from test_e2e import ROOM_ALIAS, api, check
+from test_e2e import api, check, test_room
 
 ROOT = Path(__file__).parent
 STEP_TIMEOUT_S = 420
@@ -67,7 +67,7 @@ def say(token, room_id, body):
 def main():
     env_pw = load_env()
     anna = login("anna", env_pw["PW_ANNA"])
-    room_id = api("GET", "/_matrix/client/v3/directory/room/" + ROOM_ALIAS.replace("#", "%23"), anna)["room_id"]
+    room_id = test_room()
     tmp = Path(tempfile.mkdtemp(prefix="loop-e2e-"))
     env = {**os.environ, **make_fake_github(tmp)}
     py = str(ROOT / ".venv" / "bin" / "python")

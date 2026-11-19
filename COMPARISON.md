@@ -77,3 +77,16 @@ Not adopted, deferred to a real deployment:
   crash a person may need to retry an issue.
 - Restricting who may write the level state event to loop-bot only. Today any room moderator
   can, which is the same group allowed to use `!level`.
+
+### GPT review 3 (live reload, hand-off, watchdog — 80a0a8f)
+
+Adopted, with tests: cutoff set before resumed callbacks run (#1); one lifecycle owner per child in
+the supervisor, no respawn during shutdown, SIGTERM stops children (#2, #6); a resend of a running
+step is coalesced in the bridge and the original's result still counts (#3); loop transitions are
+serialized by one lock and shielded from restart cancellation (#4, #8); CLI/gh children are killed
+on cancellation, not only on timeout (#6); handled ids unbounded per batch (#9); the GitHub timeout
+is judged after GitHub's latest state (#10). Partly: the hand-off is kept until resume succeeds and
+outlives a full drain (#5); Matrix send errors are now raised and retried (#7).
+Deferred: a rolling crash checkpoint and a durable outbox for dispatches (#5, #7), and reconciling
+an existing branch/PR when a resent build finds one (#3) — today such a retry fails and the loop
+stops for a person.

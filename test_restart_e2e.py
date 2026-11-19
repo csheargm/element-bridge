@@ -16,7 +16,7 @@ from pathlib import Path
 
 import test_loop_e2e
 from setup_accounts import SERVER_NAME, load_env, login
-from test_e2e import ROOM_ALIAS, api, check
+from test_e2e import api, check, test_room
 from test_loop_e2e import make_fake_github, say, wait_for
 
 ROOT = Path(__file__).parent
@@ -34,7 +34,7 @@ def replies(token, room_id, sender, word, since_ts):
 
 def main():
     anna = login("anna", load_env()["PW_ANNA"])
-    room_id = api("GET", "/_matrix/client/v3/directory/room/" + ROOM_ALIAS.replace("#", "%23"), anna)["room_id"]
+    room_id = test_room()
     tmp = Path(tempfile.mkdtemp(prefix="restart-e2e-"))
     env = {**os.environ, **make_fake_github(tmp), "LOOP_STEP_TIMEOUT_S": str(STEP_TIMEOUT_S)}
     out = open(tmp / "supervise.log", "w")
@@ -69,8 +69,8 @@ def main():
         pid = subprocess.run(["pgrep", "-f", "bridge.py anna "], capture_output=True, text=True).stdout.split()
         os.kill(int(pid[0]), signal.SIGKILL)
         check("builder bridge killed mid-step", True, f"pid {pid[0]}")
-        body = wait_for(anna, room_id, lambda s, b: s == bot and ("asking again" in b or "stopped" in b), "resend", ts)
-        check("loop resends the step that got no answer", "asking again" in body, body[:100])
+        body = wait_for(anna, room_id, lambda s, b: s == bot and ("asked again" in b or "stopped" in b), "resend", ts)
+        check("loop resends the step that got no answer", "asked again" in body, body[:100])
         body = wait_for(anna, room_id, lambda s, b: s == agent("anna") and b.startswith(("merged", "⚠️")), "merge", ts)
         check("issue still built, reviewed and merged", body.startswith("merged PR #301"), body[:100])
         print("ALL PASS")

@@ -21,6 +21,7 @@ SERVER_NAME = "bridge.localhost"
 PEOPLE = ["anna", "betty"]                       # each gets a <person>-agent and a bridge
 USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), "loop-bot"]
 ROOM_ALIAS = "lounge"
+TEST_ROOM_ALIAS = "bridge-test"          # automated tests talk here, never in the Lounge
 
 
 def api(method, path, body=None, token=None):
@@ -87,20 +88,26 @@ def main():
             print(f"created @{user}:{SERVER_NAME}")
     save_env(env)
 
+    room_id = ensure_room(env, ROOM_ALIAS, "Lounge")
+    print(f"room ready: #{ROOM_ALIAS}:{SERVER_NAME} ({room_id}); passwords in .env")
+
+
+def ensure_room(env: dict, alias_name: str, name: str) -> str:
+    """A room with everyone in it (anna creates it; betty, the agents and loop-bot join)."""
     anna = login("anna", env["PW_ANNA"])
     betty = login("betty", env["PW_BETTY"])
-    alias = f"#{ROOM_ALIAS}:{SERVER_NAME}"
+    alias = f"#{alias_name}:{SERVER_NAME}"
     existing = api("GET", f"/_matrix/client/v3/directory/room/{urllib.request.quote(alias)}", token=anna)
     room_id = existing.get("room_id")
     if not room_id:
         room_id = api("POST", "/_matrix/client/v3/createRoom", {
-            "name": "Lounge", "room_alias_name": ROOM_ALIAS, "preset": "private_chat",
-            "invite": [f"@{u}:{SERVER_NAME}" for u in ("betty", "anna-agent", "betty-agent")],
+            "name": name, "room_alias_name": alias_name, "preset": "private_chat",
+            "invite": [f"@{u}:{SERVER_NAME}" for u in ("betty", *(f"{p}-agent" for p in PEOPLE))],
         }, token=anna)["room_id"]
         print(f"created room {alias}")
     api("POST", f"/_matrix/client/v3/join/{urllib.request.quote(room_id)}", {}, token=betty)
     setup_loop_bot(anna, login("loop-bot", env["PW_LOOP_BOT"]), urllib.request.quote(room_id))
-    print(f"room ready: {alias} ({room_id}); passwords in .env")
+    return room_id
 
 
 def setup_loop_bot(admin, bot, room):

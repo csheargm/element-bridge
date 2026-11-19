@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import lifecycle
+
 TURN_TIMEOUT_S = 600
 SESSION_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z-]{7,63}$")  # codex/claude session UUIDs
 
@@ -96,10 +98,8 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
         *argv_fn(workdir, session_id, write), cwd=workdir, env=agent_env(workdir),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), TURN_TIMEOUT_S)
+        out, err = await lifecycle.communicate(proc, prompt.encode(), TURN_TIMEOUT_S)
     except asyncio.TimeoutError as e:
-        proc.kill()
-        await proc.wait()
         raise AgentError(f"{backend} timed out after {TURN_TIMEOUT_S}s") from e
     stdout = out.decode(errors="replace")
     if proc.returncode != 0:

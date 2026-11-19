@@ -19,7 +19,7 @@ from pathlib import Path
 
 import markdown
 from nio import (AsyncClient, LoginResponse, MatrixRoom, RoomGetStateEventResponse, RoomGetStateResponse,
-                 RoomMessageText)
+                 RoomMessageText, RoomSendResponse)
 
 import github
 import lifecycle
@@ -36,6 +36,10 @@ CHECKER_KINDS = ("review", "verify")      # results only the second agent may re
 log = logging.getLogger("loop")
 
 
+class SendError(RuntimeError):
+    """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
+
+
 class Loop(Progress):
     def __init__(self) -> None:
         self.user_id = f"@{github.LOOP_BOT}:{SERVER_NAME}"
@@ -43,16 +47,25 @@ class Loop(Progress):
         self.state: dict = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
         self.started_ms = int(time.time() * 1000)
         self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
+        # One transition at a time: results and polling never interleave on an item, and a
+        # restart lets an in-flight transition finish (it is in `busy`) instead of cutting it.
+        self.lock = asyncio.Lock()
+        self.busy: set[asyncio.Task] = set()
 
     def save(self) -> None:
         tmp = STATE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.state, indent=1))
         os.replace(tmp, STATE_FILE)
 
-    async def dispatch(self, room_id: str, item: dict, agent: str, body: str, task: dict) -> None:
-        """Send a task to one agent; only a result echoing this task_id can advance the item."""
+    async def dispatch(self, room_id: str, item: dict, agent: str, body: str, task: dict,
+                       resend: bool = False) -> None:
+        """Send a task to one agent; only a result echoing one of this step's task_ids advances it.
+        A resend adds an id (a slow original's result still counts); a new step starts afresh."""
+        task_id = uuid.uuid4().hex
+        ids = [*item.get("task_ids", []), task_id] if resend else [task_id]
         # agent/body/task are kept so the watchdog can resend a step that never got an answer.
-        item.update(task_id=uuid.uuid4().hex, agent=agent, body=body, task=task, sent_at=time.time(), sends=1)
+        item.update(task_id=task_id, task_ids=ids, agent=agent, body=body, task=task, sent_at=time.time(),
+                    sends=item.get("sends", 1) + 1 if resend else 1)
         self.save()
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
 
@@ -65,7 +78,9 @@ class Loop(Progress):
         content.update(format="org.matrix.custom.html", formatted_body=markdown.markdown(source))
         if task is not None:
             content[github.TASK_KEY] = {**task, "agent": mention, "repo": github.REPO}
-        await self.client.room_send(room_id, "m.room.message", content)
+        resp = await self.client.room_send(room_id, "m.room.message", content)
+        if not isinstance(resp, RoomSendResponse):
+            raise SendError(f"could not post to {room_id}: {resp}")
 
     async def level(self, room_id: str) -> str:
         r = await self.client.room_get_state_event(room_id, github.LEVEL_EVENT, "")
@@ -87,12 +102,23 @@ class Loop(Progress):
             return
         result = event.source.get("content", {}).get(github.RESULT_KEY)
         if isinstance(result, dict) and event.sender in self.agents_in(room):
+            await self.guarded(self.take_result(room, event.sender, result))
+
+    async def take_result(self, room: MatrixRoom, sender: str, result: dict) -> None:
+        async with self.lock:
             try:
-                await self.on_result(room, event.sender, result)
-            except (KeyError, TypeError, ValueError) as e:
+                await self.on_result(room, sender, result)
+            except (KeyError, TypeError, ValueError, SendError) as e:
                 # A malformed result from a room member must not kill the sync loop; the item
                 # stays at its stage and a person can see the log line and take over.
-                log.error("bad result from %s: %s", event.sender, e)
+                log.error("bad result from %s: %s", sender, e)
+
+    async def guarded(self, coro) -> None:
+        """Run a transition so a restart can't cut it in half: it finishes even if we are cancelled."""
+        job = asyncio.create_task(coro)
+        self.busy.add(job)
+        job.add_done_callback(self.busy.discard)
+        await asyncio.shield(job)
 
     async def set_level(self, room: MatrixRoom, sender: str, args: list[str]) -> None:
         if not await self.is_moderator(room, sender):
@@ -125,7 +151,7 @@ class Loop(Progress):
         item = self.state.get(key)
         if not isinstance(kind, str) or not item or item["room"] != room.room_id:
             return
-        if item["stage"] != EXPECTED_STAGE.get(kind) or result.get("task_id") != item.get("task_id"):
+        if item["stage"] != EXPECTED_STAGE.get(kind) or result.get("task_id") not in item.get("task_ids", [item.get("task_id")]):
             return   # late/duplicate result for a step that's no longer current
         if sender != item.get("reviewer" if kind in CHECKER_KINDS else "builder"):
             return   # only the agent the step was given to can report on it
@@ -184,18 +210,24 @@ class Loop(Progress):
         resp = await self.client.login(read_env()["PW_LOOP_BOT"], device_name="loop-bot")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"loop-bot login failed: {resp}")
-        self.started_ms = await lifecycle.first_sync(
-            self.client, github.LOOP_BOT, self.sync_point, lambda: self.client.add_event_callback(self.on_message, RoomMessageText))
+        await lifecycle.first_sync(
+            self.client, github.LOOP_BOT, self.sync_point,
+            lambda: self.client.add_event_callback(self.on_message, RoomMessageText),
+            lambda ms: setattr(self, "started_ms", ms))
         log.info("loop-bot online for %s (poll %ss)", github.REPO, POLL_S)
-        await lifecycle.serve(self.client, github.LOOP_BOT, self.sync_point, set(), side=self.poll_forever())
+        await lifecycle.serve(self.client, github.LOOP_BOT, self.sync_point, self.busy, side=self.poll_forever())
 
     async def poll_forever(self) -> None:
         while True:
+            await self.guarded(self.locked_tick())
+            await asyncio.sleep(POLL_S)
+
+    async def locked_tick(self) -> None:
+        async with self.lock:
             try:
                 await self.tick()
-            except github.GitHubError as e:
-                log.error("tick failed: %s", e)   # transient gh/network errors: retry next tick
-            await asyncio.sleep(POLL_S)
+            except (github.GitHubError, SendError) as e:
+                log.error("tick failed: %s", e)   # transient gh/network/Matrix errors: retry next tick
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-"""End-to-end test of the real user flow: humans @mention agents in #lounge over the
+"""End-to-end test of the real user flow: humans @mention agents in #bridge-test over the
 Matrix client API and we check that the right agent replies (and only that agent).
 
 Needs: stack up (./start.sh) and both bridges running. Run: .venv/bin/python test_e2e.py
@@ -8,10 +8,16 @@ import time
 import urllib.parse
 import urllib.request
 
-from setup_accounts import HS, SERVER_NAME, load_env, login
+from setup_accounts import HS, SERVER_NAME, TEST_ROOM_ALIAS, ensure_room, load_env, login
 
-ROOM_ALIAS = f"#lounge:{SERVER_NAME}"
 REPLY_TIMEOUT_S = 300
+
+
+def test_room() -> str:
+    """The tests' own room, so their messages and fake links never show up in the Lounge."""
+    room_id = ensure_room(load_env(), TEST_ROOM_ALIAS, "Bridge tests")
+    time.sleep(3)                          # running bridges accept the agents' invites
+    return room_id
 
 
 def api(method, path, token, body=None):
@@ -54,7 +60,7 @@ def check(name, cond, detail=""):
 def main():
     env = load_env()
     anna, betty = login("anna", env["PW_ANNA"]), login("betty", env["PW_BETTY"])
-    room_id = api("GET", "/_matrix/client/v3/directory/room/" + urllib.parse.quote(ROOM_ALIAS), anna)["room_id"]
+    room_id = test_room()
     anna_agent, betty_agent = f"@anna-agent:{SERVER_NAME}", f"@betty-agent:{SERVER_NAME}"
 
     t0 = time.time()

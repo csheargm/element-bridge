@@ -53,6 +53,7 @@ class Bridge:
         self.locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.warned_e2ee: set[str] = set()
         self.tasks: set[asyncio.Task] = set()
+        self.running_steps: set[tuple] = set()      # loop steps in progress, see step_key()
         self.turns = asyncio.Semaphore(MAX_CONCURRENT_TURNS)
         self.started_ms = int(time.time() * 1000)
         self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
@@ -128,7 +129,13 @@ class Bridge:
         if event.event_id in self.seen_tasks:
             return
         self.seen_tasks.add(event.event_id)
+        step = step_key(task)
+        if step in self.running_steps:     # a resend while the original is still working on it:
+            log.info("already running %s; its result answers the resend too", step)
+            return                         # the loop accepts the original's task_id for this step
+        self.running_steps.add(step)
         job = asyncio.create_task(self.run_task(room.room_id, task))
+        job.add_done_callback(lambda _: self.running_steps.discard(step))
         self.tasks.add(job)
         job.add_done_callback(self.tasks.discard)
 
@@ -215,9 +222,15 @@ class Bridge:
         def register() -> None:
             self.client.add_event_callback(self.on_message, RoomMessageText)
             self.client.add_event_callback(self.on_encrypted, MegolmEvent)
-        self.started_ms = await lifecycle.first_sync(self.client, f"{self.owner}-agent", self.sync_point, register)
+        await lifecycle.first_sync(self.client, f"{self.owner}-agent", self.sync_point, register,
+                                   lambda ms: setattr(self, "started_ms", ms))
         log.info("%s online (backend=%s, allow_members=%s)", self.user_id, self.backend, self.allow_members)
         await lifecycle.serve(self.client, f"{self.owner}-agent", self.sync_point, self.tasks)
+
+
+def step_key(task: dict) -> tuple:
+    """A loop step's identity across resends (each resend has a new task_id)."""
+    return (task.get("kind"), str(task.get("issue")), str(task.get("pr")))
 
 
 def is_stale(event, started_ms: int) -> bool:

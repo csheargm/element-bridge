@@ -41,6 +41,11 @@ class BridgeTaskTrust(unittest.TestCase):
             self.b.on_task(room([ANNA, AGENT, BOT]), ev, {"kind": "build", "agent": AGENT})
         self.assertEqual(len(self.started), 1)
 
+    def test_resend_of_a_running_step_is_not_run_twice(self):
+        self.task_from(BOT, {"kind": "build", "agent": AGENT, "issue": 7})
+        self.task_from(BOT, {"kind": "build", "agent": AGENT, "issue": 7})   # new event id, same step
+        self.assertEqual(len(self.started), 1)
+
     def test_task_from_a_human_is_ignored(self):
         self.task_from(ANNA, {"kind": "build", "agent": AGENT})
         self.assertEqual(self.started, [])
