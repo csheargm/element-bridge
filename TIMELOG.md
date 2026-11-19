@@ -56,3 +56,7 @@ restarts (stored in `rooms/<owner>/<room>/.bridge-session.json`), verified by th
 
 Fix cycles in step 2: edit→rerun of the full loop test was about 1 minute each (49 s test). Most of
 the time went to diagnosis, not waiting on builds.
+| 09:15 | GPT review of the step-2 commit: 10 findings (7 high) |
+| 09:17:19 | Fixes in place (+10 tests, 40 unit tests); loop e2e rerun, now with the fake gh also enforcing commit-pinned reviews/merges |
+| **09:18:17** | **Loop e2e ALL PASS again** (issue → merged in 20 s) |
+| 09:19:12 | `start.sh` restarted (bridges + loop-bot); step-1 e2e 7/7 pass; 40 unit tests pass |

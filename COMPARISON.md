@@ -49,3 +49,31 @@ it, and in room v12 that includes creators. Verified end to end with real Codex 
 GitHub: Autonomous goes from issue to merged in 20 s; Assist stops at ready and doesn't merge.
 **Not yet run against the real sandbox repo**, because betty-agent's identity and the ruleset are
 waiting on the owner.
+
+### GPT review of the loop (R15)
+
+GPT found 10 issues. Adopted, each verified in the code and covered by a test:
+- **Reviews:** the verdict is only an exact final line. A diff that's too large to review in full
+  is never approved.
+- **Commit pinning:** the review is pinned to the head commit (`commit_id`), and the merge uses
+  `--match-head-commit` with that same commit, so a push after approval can't slip in.
+- **Builder's PR:** the loop checks that the PR the builder reports is really the builder's own
+  `agent/<agent>/issue-<n>` branch from the same repo.
+- **Results:** each result must echo its task ID and match the issue's current stage, its
+  assigned agent and its PR. A redelivered task runs once. Malformed results can't break the
+  sync loop.
+- **Merge timing:** the bridge re-reads the room level just before merging. The loop marks an
+  issue done only once GitHub reports `MERGED`.
+- **Isolation:** Claude runs with `--setting-sources user`, so it never loads project `.claude/`
+  hooks or settings from the cloned repo. Host-side git runs without user or system config,
+  without hooks and with fsmonitor off, so an agent-written `.gitattributes` can't trigger a
+  filter.
+- **Identity:** `GH_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GH_HOST` overrides are scrubbed for
+  agent calls.
+
+Not adopted, deferred to a real deployment:
+- OS-level containment (a separate user or container) for the agent CLIs.
+- Durable dispatch with reconciliation after a crash between "send" and "save". Today, after a
+  crash a person may need to retry an issue.
+- Restricting who may write the level state event to loop-bot only. Today any room moderator
+  can, which is the same group allowed to use `!level`.

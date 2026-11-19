@@ -56,8 +56,9 @@ def _claude_argv(workdir: Path, session_id: str | None, write: bool = False) -> 
     # --tools limits built-ins to read-only ones even if user settings pre-approve Bash/Edit;
     # --strict-mcp-config (with no --mcp-config) loads no MCP servers.
     tools, mode = ("Read,Grep,Glob,Edit,Write", "acceptEdits") if write else ("Read,Grep,Glob", "default")
+    # --setting-sources user: never load .claude/ settings or hooks from the (untrusted) project.
     argv = ["claude", "-p", "--output-format", "json", "--permission-mode", mode,
-            "--tools", tools, "--strict-mcp-config"]
+            "--tools", tools, "--strict-mcp-config", "--setting-sources", "user"]
     return argv + (["--resume", session_id] if session_id else [])
 
 

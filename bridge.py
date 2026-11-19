@@ -14,7 +14,7 @@ from pathlib import Path
 
 import markdown
 from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent,
-                 RoomMessageText)
+                 RoomGetStateEventResponse, RoomMessageText)
 
 import agents
 import github
@@ -54,6 +54,7 @@ class Bridge:
         self.tasks: set[asyncio.Task] = set()
         self.turns = asyncio.Semaphore(MAX_CONCURRENT_TURNS)
         self.started_ms = int(time.time() * 1000)
+        self.seen_tasks: set[str] = set()     # event ids: a redelivered task never runs twice
 
     # --- trigger rules -------------------------------------------------------------
     def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
@@ -122,6 +123,9 @@ class Bridge:
                 or event.sender not in room.users or event.sender in room.invited_users):
             log.info("ignored loop task in %s from %s", room.room_id, event.sender)
             return
+        if event.event_id in self.seen_tasks:
+            return
+        self.seen_tasks.add(event.event_id)
         job = asyncio.create_task(self.run_task(room.room_id, task))
         self.tasks.add(job)
         job.add_done_callback(self.tasks.discard)
@@ -133,11 +137,19 @@ class Bridge:
         try:
             async with self.turns:
                 base = ROOT / "rooms" / self.owner / "work"
-                result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task)
+                if task.get("kind") == "merge" and await self.room_level(room_id) != "autonomous":
+                    result = {"kind": "merge", "issue": task.get("issue"), "task_id": task.get("task_id"),
+                              "error": "room is no longer autonomous", "line": "merge skipped: room is no longer autonomous"}
+                else:
+                    result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task)
         finally:
             typing.cancel()
             await self.client.room_typing(room_id, False)
         await self.send(room_id, result["line"], extra={github.RESULT_KEY: result})
+
+    async def room_level(self, room_id: str) -> str:
+        r = await self.client.room_get_state_event(room_id, github.LEVEL_EVENT, "")
+        return r.content.get("level", "off") if isinstance(r, RoomGetStateEventResponse) else "off"
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap

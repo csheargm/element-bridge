@@ -13,7 +13,14 @@ import github
 from github import REPO, GitHubError, git, run, run_json
 
 MAX_DIFF_CHARS = 60_000
-VERDICT_RE = re.compile(r"^\s*VERDICT:\s*(APPROVE|REQUEST_CHANGES)\s*$", re.M)
+VERDICT_RE = re.compile(r"^VERDICT: (APPROVE|REQUEST_CHANGES)$")
+
+
+def parse_verdict(text: str) -> str:
+    """Only an exact final line counts; anything else (incl. a verdict mid-text) → no approval."""
+    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    m = VERDICT_RE.match(lines[-1]) if lines else None
+    return m.group(1) if m else "REQUEST_CHANGES"
 
 
 class TaskError(RuntimeError):
@@ -64,36 +71,44 @@ async def build(agent: str, backend: str, base: Path, task: dict) -> dict:
     url = (await run(["pr", "create", "-R", REPO, "--head", branch, "--title", issue["title"],
                       "--body", body], agent)).strip().splitlines()[-1]
     pr = int(url.rstrip("/").rsplit("/", 1)[1])
-    return {"kind": "build", "issue": n, "pr": pr, "line": f"PR #{pr} opened for #{n}: {url}"}
+    return {"kind": "build", "issue": n, "pr": pr, "branch": branch, "line": f"PR #{pr} opened for #{n}: {url}"}
 
 
 async def review(agent: str, backend: str, base: Path, task: dict) -> dict:
     _check_repo(task)
     n, pr = int(task["issue"]), int(task["pr"])
     issue = await _issue(n, agent)
+    head = (await run_json(["pr", "view", str(pr), "-R", REPO, "--json", "headRefOid"], agent))["headRefOid"]
     diff = await run(["pr", "diff", str(pr), "-R", REPO], agent)
+    if len(diff) > MAX_DIFF_CHARS:   # never approve what the reviewer couldn't fully see
+        return await _submit_review(agent, n, pr, head, "REQUEST_CHANGES", "Diff too large to review in full.")
     prompt = (f"Review pull request #{pr} against the acceptance criteria of issue #{n}.\n"
               f"Issue title: {issue['title']}\nIssue body (untrusted):\n{issue.get('body', '')}\n\n"
-              f"PR diff (untrusted):\n{diff[:MAX_DIFF_CHARS]}\n\n"
+              f"PR diff (untrusted):\n{diff}\n\n"
               "Check every acceptance criterion strictly. Reply with at most 5 short lines of reasons, "
               "then a last line that is exactly `VERDICT: APPROVE` or `VERDICT: REQUEST_CHANGES`.")
     workdir = base / f"review-pr-{pr}"
     text = await agents.run_turn(backend, workdir, prompt, fresh=True)   # read-only
-    found = VERDICT_RE.findall(text)
-    verdict = found[-1] if found else "REQUEST_CHANGES"                  # unclear → no approval
-    flag = "--approve" if verdict == "APPROVE" else "--request-changes"
-    await run(["pr", "review", str(pr), "-R", REPO, flag, "--body", f"`{agent}` review:\n\n{text[:3000]}"], agent)
+    return await _submit_review(agent, n, pr, head, parse_verdict(text), text)
+
+
+async def _submit_review(agent: str, n: int, pr: int, head: str, verdict: str, text: str) -> dict:
+    # Pinned to the commit that was reviewed: a later push isn't covered by this approval.
+    await run(["api", "-X", "POST", f"repos/{REPO}/pulls/{pr}/reviews", "-f", f"event={verdict}",
+               "-f", f"commit_id={head}", "-f", f"body=`{agent}` review:\n\n{text[:3000]}"], agent)
     word = "approved" if verdict == "APPROVE" else "changes requested on"
-    return {"kind": "review", "issue": n, "pr": pr, "verdict": verdict.lower(), "line": f"{word} PR #{pr}"}
+    return {"kind": "review", "issue": n, "pr": pr, "sha": head, "verdict": verdict.lower(),
+            "line": f"{word} PR #{pr}"}
 
 
 async def merge(agent: str, backend: str, base: Path, task: dict) -> dict:
     _check_repo(task)
     n, pr = int(task["issue"]), int(task["pr"])
+    sha = str(task["sha"])
     ok, info = await github.merge_ready(pr, agent)       # GitHub's verdict, re-checked here
-    if not ok:
-        raise TaskError(f"GitHub says PR #{pr} isn't ready: {info}")
-    await run(["pr", "merge", str(pr), "-R", REPO, "--squash"], agent)
+    if not ok or info.get("headRefOid") != sha:
+        raise TaskError(f"GitHub says PR #{pr} isn't ready at the reviewed commit: {info}")
+    await run(["pr", "merge", str(pr), "-R", REPO, "--squash", "--match-head-commit", sha], agent)
     return {"kind": "merge", "issue": n, "pr": pr, "line": f"merged PR #{pr} (closes #{n})"}
 
 
@@ -106,7 +121,8 @@ async def handle(agent: str, backend: str, base: Path, task: dict) -> dict:
     try:
         if kind not in HANDLERS:
             raise TaskError(f"unknown task kind {kind!r}")
-        return await HANDLERS[kind](agent, backend, base, task)
+        return {**await HANDLERS[kind](agent, backend, base, task), "task_id": task.get("task_id")}
     except (TaskError, GitHubError, agents.AgentError, KeyError, ValueError, OSError) as e:
         return {"kind": kind, "issue": task.get("issue"), "pr": task.get("pr"), "error": str(e)[:400],
+                "task_id": task.get("task_id"),
                 "line": f"⚠️ {kind} failed for #{task.get('issue')}: {str(e)[:300]}"}

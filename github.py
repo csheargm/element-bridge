@@ -35,8 +35,14 @@ def identity_dir(agent: str) -> Path | None:
     return d if (d / "hosts.yml").exists() else None
 
 
+# Never let ambient overrides pick a different account/host than the agent's own config dir.
+SCRUBBED_ENV = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST")
+# Host-side git must not run user/system config (filters, fsmonitor, hooks) on agent-edited trees.
+ISOLATED_GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+
 async def run(args: list[str], agent: str | None = None, cwd: Path | None = None,
-              program: str | None = None) -> str:
+              program: str | None = None, extra_env: dict | None = None) -> str:
     """Run gh (or git) as `agent`; agent=None uses the ambient login (read-only use only)."""
     env = dict(os.environ)
     if agent is not None:
@@ -44,8 +50,9 @@ async def run(args: list[str], agent: str | None = None, cwd: Path | None = None
         if d is None:
             raise GitHubError(f"{agent} has no GitHub identity (.gh/{agent}/ not signed in)")
         env["GH_CONFIG_DIR"] = str(d)
-        env.pop("GH_TOKEN", None)
-        env.pop("GITHUB_TOKEN", None)
+        for k in SCRUBBED_ENV:
+            env.pop(k, None)
+    env.update(extra_env or {})
     argv = [program or GH_BIN, *args]
     proc = await asyncio.create_subprocess_exec(*argv, cwd=cwd, env=env, stdin=asyncio.subprocess.DEVNULL,
                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -68,14 +75,15 @@ async def run_json(args: list[str], agent: str | None = None) -> object:
 async def git(args: list[str], agent: str, cwd: Path) -> str:
     """git with gh as the credential helper, so pushes use the agent's identity."""
     helper = f"!{GH_BIN} auth git-credential"
-    return await run(["-c", "credential.helper=", "-c", f"credential.helper={helper}", *args],
-                     agent, cwd, program="git")
+    safe = ["-c", "credential.helper=", "-c", f"credential.helper={helper}",
+            "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false"]
+    return await run([*safe, *args], agent, cwd, program="git", extra_env=ISOLATED_GIT_ENV)
 
 
 async def merge_ready(pr: int, agent: str | None = None) -> tuple[bool, dict]:
     """GitHub's own verdict on whether PR can merge now (needs required-review protection)."""
     info = await run_json(["pr", "view", str(pr), "-R", REPO, "--json",
-                           "state,mergeable,mergeStateStatus,reviewDecision"], agent)
+                           "state,mergeable,mergeStateStatus,reviewDecision,headRefOid"], agent)
     ok = (info.get("state") == "OPEN" and info.get("mergeable") == "MERGEABLE"
           and info.get("mergeStateStatus") == "CLEAN" and info.get("reviewDecision") == "APPROVED")
     return ok, info

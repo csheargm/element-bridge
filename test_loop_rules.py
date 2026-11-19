@@ -28,11 +28,17 @@ class BridgeTaskTrust(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def task_from(self, sender, task, r=None):
-        ev = SimpleNamespace(sender=sender)
+        ev = SimpleNamespace(sender=sender, event_id=f"$e{len(self.started)}{sender}{task.get('agent')}")
         self.b.on_task(r or room([ANNA, AGENT, BOT]), ev, task)
 
     def test_loop_bot_task_for_me_runs(self):
         self.task_from(BOT, {"kind": "build", "agent": AGENT})
+        self.assertEqual(len(self.started), 1)
+
+    def test_redelivered_task_runs_once(self):
+        ev = SimpleNamespace(sender=BOT, event_id="$same")
+        for _ in range(2):
+            self.b.on_task(room([ANNA, AGENT, BOT]), ev, {"kind": "build", "agent": AGENT})
         self.assertEqual(len(self.started), 1)
 
     def test_task_from_a_human_is_ignored(self):
@@ -63,9 +69,26 @@ class TaskRules(unittest.TestCase):
             with self.assertRaises(github.GitHubError):
                 asyncio.run(github.run(["api", "user"], "anna-agent"))
 
-    def test_verdict_must_be_explicit(self):
-        self.assertEqual(tasks.VERDICT_RE.findall("looks fine\nVERDICT: APPROVE"), ["APPROVE"])
-        self.assertEqual(tasks.VERDICT_RE.findall("I would say VERDICT: APPROVE maybe"), [])
+    def test_verdict_must_be_exact_last_line(self):
+        self.assertEqual(tasks.parse_verdict("looks fine\nVERDICT: APPROVE\n"), "APPROVE")
+        self.assertEqual(tasks.parse_verdict("VERDICT: APPROVE\nbut actually no"), "REQUEST_CHANGES")
+        self.assertEqual(tasks.parse_verdict("I would say VERDICT: APPROVE"), "REQUEST_CHANGES")
+        self.assertEqual(tasks.parse_verdict(""), "REQUEST_CHANGES")
+
+    def test_git_runs_without_user_config_or_hooks(self):
+        seen = {}
+
+        async def fake_run(args, agent=None, cwd=None, program=None, extra_env=None):
+            seen.update(args=args, env=extra_env)
+            return ""
+        with mock.patch.object(github, "run", fake_run):
+            asyncio.run(github.git(["status"], "anna-agent", Path("/tmp")))
+        self.assertEqual(seen["env"]["GIT_CONFIG_NOSYSTEM"], "1")
+        self.assertIn("core.fsmonitor=false", seen["args"])
+        self.assertTrue(any(a.startswith("core.hooksPath=") for a in seen["args"]))
+
+    def test_ambient_token_overrides_scrubbed(self):
+        self.assertTrue({"GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GH_HOST"} <= set(github.SCRUBBED_ENV))
 
     def test_merge_ready_needs_github_approval(self):
         async def fake(args, agent=None):
@@ -102,7 +125,8 @@ class LoopResults(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
-        self.lp.state = {"7": {"room": "!r", "stage": "reviewing", "builder": "@b-agent:x", "reviewer": "@r-agent:x", "pr": 9}}
+        self.lp.state = {"7": {"room": "!r", "stage": "reviewing", "builder": "@b-agent:x",
+                               "reviewer": "@r-agent:x", "pr": 9, "task_id": "T"}}
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()
 
@@ -110,11 +134,29 @@ class LoopResults(unittest.TestCase):
         asyncio.run(self.lp.on_result(SimpleNamespace(room_id="!r"), sender, result))
         return self.lp.state["7"]["stage"]
 
+    def approval(self, **kw):
+        return {"kind": "review", "issue": 7, "pr": 9, "sha": "abc", "verdict": "approve", "task_id": "T", **kw}
+
     def test_reviewer_approval_advances(self):
-        self.assertEqual(self.deliver("@r-agent:x", {"kind": "review", "issue": 7, "verdict": "approve"}), "approved")
+        self.assertEqual(self.deliver("@r-agent:x", self.approval()), "approved")
+        self.assertEqual(self.lp.state["7"]["sha"], "abc")
 
     def test_approval_from_builder_is_ignored(self):
-        self.assertEqual(self.deliver("@b-agent:x", {"kind": "review", "issue": 7, "verdict": "approve"}), "reviewing")
+        self.assertEqual(self.deliver("@b-agent:x", self.approval()), "reviewing")
+
+    def test_approval_for_old_task_id_is_ignored(self):
+        self.assertEqual(self.deliver("@r-agent:x", self.approval(task_id="OLD")), "reviewing")
+
+    def test_approval_for_another_pr_is_ignored(self):
+        self.assertEqual(self.deliver("@r-agent:x", self.approval(pr=10)), "reviewing")
+
+    def test_build_result_must_be_builders_own_branch(self):
+        self.lp.state["7"].update(stage="building")
+        async def fake(args, agent=None):
+            return {"headRefName": "agent/x-agent/issue-7", "isCrossRepository": False, "state": "OPEN"}
+        with mock.patch.object(github, "run_json", fake):
+            stage = self.deliver("@b-agent:x", {"kind": "build", "issue": 7, "pr": 9, "task_id": "T"})
+        self.assertEqual(stage, "stopped")
 
     def test_late_build_result_is_ignored(self):
         self.assertEqual(self.deliver("@b-agent:x", {"kind": "build", "issue": 7, "error": "x"}), "reviewing")
