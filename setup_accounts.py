@@ -6,6 +6,7 @@ Idempotent: existing users/room are reused.
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import urllib.error
@@ -45,8 +46,11 @@ def load_env():
 
 def save_env(env):
     lines = [f"{k}={v}" for k, v in env.items()]
-    (ROOT / ".env").write_text("\n".join(lines) + "\n")
-    (ROOT / ".env").chmod(0o600)
+    path = ROOT / ".env"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never world-readable
+    with os.fdopen(fd, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    path.chmod(0o600)
 
 
 def register(user, password, shared_secret):
@@ -73,6 +77,7 @@ def main():
         key = "PW_" + user.upper().replace("-", "_")
         if key not in env:
             env[key] = secrets.token_urlsafe(18)
+            save_env(env)   # persist before registering so a partial failure isn't unrecoverable
             r = register(user, env[key], shared_secret)
             if "_status" in r:
                 raise SystemExit(f"register {user} failed: {r.get('errcode')} {r.get('error')}")

@@ -78,8 +78,19 @@ def main():
     stray = [m for m in msgs if m["sender"] == betty_agent
              and m.get("content", {}).get("m.relates_to", {}).get("m.in_reply_to", {}).get("event_id") == ev]
     check("betty-agent stays quiet when not mentioned", not stray)
+    check_owner_only(betty, room_id, anna_agent)
     check_encrypted_room_warning(anna, anna_agent)
     print("ALL PASS")
+
+
+def check_owner_only(betty, room_id, anna_agent):
+    """By default anna's agent (anna's file access) ignores betty, and says nothing."""
+    ev = send(betty, room_id, "anna-agent: what is 2+2?", anna_agent)
+    time.sleep(15)  # a Codex turn takes ~5 s; give it 3x before concluding it stayed quiet
+    msgs = api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=10", betty)["chunk"]
+    replied = [m for m in msgs if m["sender"] == anna_agent and
+               m.get("content", {}).get("m.relates_to", {}).get("m.in_reply_to", {}).get("event_id") == ev]
+    check("anna-agent ignores betty by default (owner-only)", not replied)
 
 
 def check_encrypted_room_warning(token, agent):

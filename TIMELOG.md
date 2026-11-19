@@ -30,3 +30,10 @@ restarts (stored in `rooms/<owner>/<room>/.bridge-session.json`), verified by th
 | 08:54:53 | Encrypted-room path verified (agent posts "can't read encrypted rooms"), added to `test_e2e.py` |
 | 08:56:01 | `./start.sh` verified end to end (idempotent re-run, both bridges online) |
 | 08:56:35 | Full `test_e2e.py` (6 checks) + `test_rules` (8 tests) pass against `start.sh` bridges |
+
+## Review fixes (GPT review, R15)
+| Time | Event |
+|---|---|
+| 08:57 | GPT (Codex CLI) review of commit abc4cb4: 11 findings, none an injection |
+| 08:59:31 | Hardened bridge restarted via `./start.sh` (owner-only default, Claude tool limits, invitee/DM checks, session-id validation, hash workdirs, concurrency cap) |
+| 09:00:40 | 17 unit tests + 7 e2e checks pass (new: anna-agent ignores betty) |

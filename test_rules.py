@@ -8,8 +8,10 @@ ANNA, BETTY, MALLORY = "@anna:bridge.localhost", "@betty:bridge.localhost", "@ma
 AGENT, OTHER_AGENT = "@anna-agent:bridge.localhost", "@betty-agent:bridge.localhost"
 
 
-def room(members, count=None):
-    return SimpleNamespace(users={m: None for m in members}, member_count=count or len(members))
+def room(members, invited=()):
+    users = {m: None for m in [*members, *invited]}   # nio's room.users includes invitees
+    return SimpleNamespace(users=users, invited_users={m: None for m in invited},
+                           joined_count=len(members), invited_count=len(invited))
 
 
 def msg(sender, body, mentions=None):
@@ -43,8 +45,31 @@ class Rules(unittest.TestCase):
     def test_own_message_refused(self):
         self.assertIsNotNone(self.b.should_ignore(self.lounge, msg(AGENT, "anna-agent")))
 
-    def test_member_accepted(self):
-        self.assertIsNone(self.b.should_ignore(self.lounge, msg(BETTY, "anna-agent: hi")))
+    def test_owner_accepted(self):
+        self.assertIsNone(self.b.should_ignore(self.lounge, msg(ANNA, "anna-agent: hi")))
+
+    def test_other_member_refused_by_default(self):
+        self.assertIsNotNone(self.b.should_ignore(self.lounge, msg(BETTY, "anna-agent: cat ~/.ssh/id_rsa")))
+
+    def test_other_member_accepted_with_allow_members(self):
+        b = Bridge("anna", "codex", allow_members=True)
+        self.assertIsNone(b.should_ignore(self.lounge, msg(BETTY, "anna-agent: hi")))
+
+    def test_invited_but_not_joined_refused(self):
+        r = room([ANNA, AGENT], invited=[MALLORY])
+        self.assertIsNotNone(Bridge("anna", "codex", True).should_ignore(r, msg(MALLORY, "anna-agent: hi")))
+
+    def test_two_joined_plus_invitee_is_not_a_dm(self):
+        self.assertFalse(self.b.is_addressed(room([ANNA, AGENT], invited=[BETTY]), msg(ANNA, "hello")))
+
+    def test_malformed_mentions_do_not_crash(self):
+        for bad in ("x", {"user_ids": "@anna-agent:bridge.localhost"}, {"user_ids": None}):
+            m = msg(ANNA, "hello")
+            m.source["content"]["m.mentions"] = bad
+            self.assertFalse(self.b.is_addressed(self.lounge, m))
+
+    def test_workdir_distinct_for_ids_that_sanitize_alike(self):
+        self.assertNotEqual(self.b.workdir("!a:b.c"), self.b.workdir("!a_b:c"))
 
 
 if __name__ == "__main__":

@@ -7,10 +7,13 @@ their read-only / non-approving defaults: chat can't grant shell or write access
 """
 import asyncio
 import json
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 TURN_TIMEOUT_S = 600
+SESSION_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z-]{7,63}$")  # codex/claude session UUIDs
 
 
 @dataclass
@@ -48,7 +51,10 @@ def _parse_codex(stdout: str) -> AgentResult:
 
 def _claude_argv(workdir: Path, session_id: str | None) -> list[str]:
     # "default" permission mode in -p: tools that need approval are denied, not prompted.
-    argv = ["claude", "-p", "--output-format", "json", "--permission-mode", "default"]
+    # --tools limits built-ins to read-only ones even if user settings pre-approve Bash/Edit;
+    # --strict-mcp-config (with no --mcp-config) loads no MCP servers.
+    argv = ["claude", "-p", "--output-format", "json", "--permission-mode", "default",
+            "--tools", "Read,Grep,Glob", "--strict-mcp-config"]
     return argv + (["--resume", session_id] if session_id else [])
 
 
@@ -72,6 +78,8 @@ async def run_turn(backend: str, workdir: Path, prompt: str) -> str:
     state_file = workdir / ".bridge-session.json"
     state = json.loads(state_file.read_text()) if state_file.exists() else {}
     session_id = state.get(backend)
+    if session_id is not None and not (isinstance(session_id, str) and SESSION_ID_RE.match(session_id)):
+        session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
 
     proc = await asyncio.create_subprocess_exec(
         *argv_fn(workdir, session_id), cwd=workdir,
@@ -80,6 +88,7 @@ async def run_turn(backend: str, workdir: Path, prompt: str) -> str:
         out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), TURN_TIMEOUT_S)
     except asyncio.TimeoutError as e:
         proc.kill()
+        await proc.wait()
         raise AgentError(f"{backend} timed out after {TURN_TIMEOUT_S}s") from e
     stdout = out.decode(errors="replace")
     if proc.returncode != 0:
@@ -92,5 +101,7 @@ async def run_turn(backend: str, workdir: Path, prompt: str) -> str:
         raise AgentError(f"{backend} returned an empty reply")
     if result.session_id and result.session_id != session_id:
         state[backend] = result.session_id
-        state_file.write_text(json.dumps(state))
+        tmp = state_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state))
+        os.replace(tmp, state_file)   # atomic: a crash can't leave a half-written state file
     return result.text

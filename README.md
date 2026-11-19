@@ -41,6 +41,11 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    `@betty-agent` — each agent runs its owner's CLI, keeps its own per-room session, and stays
    quiet when it isn't mentioned.
 
+   **By default an agent only obeys its owner** (betty mentioning `@anna-agent` is ignored),
+   because the CLI runs with the owner's read access to their disk (Codex read-only can still
+   read `~/.ssh`, this `.env`, …). To let every joined room member use the agents:
+   `ALLOW_MEMBERS=1 ./start.sh`.
+
 **Invite the agent somewhere else:** create a room, *turn encryption off* in the create dialog,
 and invite `@anna-agent:bridge.localhost` — it joins automatically. A DM with the agent works
 without a mention. In an encrypted room the agent says it can't read it (no E2EE in v1).
@@ -49,29 +54,33 @@ without a mention. In an encrypted room the agent says it can't read it (no E2EE
 
 - `bridge.py <owner> [--agent codex|claude]` logs in as `<owner>-agent`, auto-joins invites from
   local users, and reacts only to messages that **@mention it** (pill or plain `anna-agent`) or
-  arrive in a 2-person DM, sent by a **joined room member** that is not itself an agent
-  (loop guard). Earlier un-addressed room chatter (last 20 lines) is passed as context.
+  arrive in a 2-person DM, sent by its **owner** (or, with `--allow-members`, any joined room
+  member) that is not itself an agent (loop guard). Pending invites at startup get the same
+  local-server check as live ones; at most 3 CLI turns run at once per bridge. Earlier un-addressed room chatter (last 20 lines) is passed as context.
 - `agents.py` runs the CLI with the prompt on **stdin**, no shell, in `rooms/<owner>/<room>/`,
   and resumes that room's saved session (`codex exec resume <id>` / `claude --resume <id>`).
   Codex runs `sandbox_mode=read-only`, `approval_policy=never`; Claude runs `-p` in `default`
-  permission mode (tools that need approval are denied). Chat can't widen either.
+  permission mode with `--tools Read,Grep,Glob --strict-mcp-config` (no shell/edit tools, no MCP,
+  even if the user's settings pre-approve them). Chat can't widen either. Saved session ids are
+  validated before they reach the CLI's argv.
 - Typing indicator is refreshed every 20 s while the CLI runs; the reply is posted as a Matrix
   reply with markdown rendered to HTML.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest test_rules
+.venv/bin/python -m unittest test_rules test_agents
 ```
 
 ```bash
 .venv/bin/python test_e2e.py
 ```
 
-`test_rules` covers who gets answered (mentions, DMs, non-members, other agents). `test_e2e`
+`test_rules`/`test_agents` cover who gets answered (owner-only, mentions, DMs, invitees,
+non-members, other agents, malformed mentions) and CLI argv/session-state safety. `test_e2e`
 drives the real flow over the Matrix API with the bridges running: anna and betty @mention their
 agents, checks replies, typing, per-room memory across turns, that the other agent stays quiet,
-and the encrypted-room warning.
+that anna's agent ignores betty, and the encrypted-room warning.
 
 ## Stop / reset
 

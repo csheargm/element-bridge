@@ -5,6 +5,7 @@ Usage: python bridge.py anna [--agent codex|claude]
 """
 import argparse
 import asyncio
+import hashlib
 import logging
 import re
 from collections import defaultdict, deque
@@ -23,6 +24,7 @@ CONTEXT_LINES = 20          # recent room lines handed to the agent as context
 TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapses
 TYPING_TIMEOUT_MS = 30_000
 MAX_REPLY_CHARS = 30_000
+MAX_CONCURRENT_TURNS = 3     # CLI processes per bridge across all rooms
 
 log = logging.getLogger("bridge")
 
@@ -37,21 +39,24 @@ def read_env() -> dict[str, str]:
 
 
 class Bridge:
-    def __init__(self, owner: str, backend: str):
-        self.owner, self.backend = owner, backend
+    def __init__(self, owner: str, backend: str, allow_members: bool = False):
+        self.owner, self.backend, self.allow_members = owner, backend, allow_members
+        self.owner_id = f"@{owner}:{SERVER_NAME}"
         self.user_id = f"@{owner}-agent:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{owner.upper()}")
         self.history: dict[str, deque] = defaultdict(lambda: deque(maxlen=CONTEXT_LINES))
         self.locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.warned_e2ee: set[str] = set()
         self.tasks: set[asyncio.Task] = set()
+        self.turns = asyncio.Semaphore(MAX_CONCURRENT_TURNS)
 
     # --- trigger rules -------------------------------------------------------------
     def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
-        if room.member_count == 2:          # DM with the agent
+        if room.joined_count == 2 and room.invited_count == 0:   # DM with the agent
             return True
-        mentions = (event.source.get("content", {}).get("m.mentions") or {}).get("user_ids", [])
-        if self.user_id in mentions:
+        mentions = event.source.get("content", {}).get("m.mentions")
+        user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+        if isinstance(user_ids, list) and self.user_id in user_ids:
             return True
         localpart = re.escape(f"{self.owner}-agent")
         return re.search(rf"@?{localpart}\b", event.body, re.I) is not None
@@ -59,10 +64,13 @@ class Bridge:
     def should_ignore(self, room: MatrixRoom, event: RoomMessageText) -> str | None:
         if event.sender == self.user_id:
             return "own message"
-        if event.sender not in room.users:
+        if event.sender not in room.users or event.sender in room.invited_users:
             return "sender is not a joined room member"
         if event.sender.split(":")[0].endswith("-agent"):
             return "message from another agent (loop guard)"
+        # The CLI runs with the owner's file access, so by default only the owner drives it.
+        if event.sender != self.owner_id and not self.allow_members:
+            return "sender is not the agent's owner (start with --allow-members to open it up)"
         return None
 
     # --- event handlers ------------------------------------------------------------
@@ -98,7 +106,7 @@ class Bridge:
         task.add_done_callback(self.tasks.discard)
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
-        async with self.locks[room.room_id]:   # one turn at a time per room (one CLI session)
+        async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
             await self.answer(room, event, line)
 
     async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
@@ -126,8 +134,9 @@ class Bridge:
             await asyncio.sleep(TYPING_REFRESH_S)
 
     def workdir(self, room_id: str) -> Path:
-        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", room_id)
-        return ROOT / "rooms" / self.owner / safe
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", room_id)[:40]
+        digest = hashlib.sha256(room_id.encode()).hexdigest()[:12]   # sanitizing alone is lossy
+        return ROOT / "rooms" / self.owner / f"{safe}-{digest}"
 
     async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None) -> None:
         html = markdown.markdown(body, extensions=["fenced_code", "tables"])
@@ -146,14 +155,13 @@ class Bridge:
         resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"login failed for {self.user_id}: {resp}")
-        # Skip history: only react to events that arrive after startup.
+        # Pending invites go through the same check as live ones; messages from before
+        # startup are skipped (message callbacks are registered after the first sync).
+        self.client.add_event_callback(self.on_invite, InviteMemberEvent)
         await self.client.sync(timeout=0, full_state=True)
-        for room_id in list(self.client.invited_rooms):
-            await self.client.join(room_id)
         self.client.add_event_callback(self.on_message, RoomMessageText)
         self.client.add_event_callback(self.on_encrypted, MegolmEvent)
-        self.client.add_event_callback(self.on_invite, InviteMemberEvent)
-        log.info("%s online (backend=%s)", self.user_id, self.backend)
+        log.info("%s online (backend=%s, allow_members=%s)", self.user_id, self.backend, self.allow_members)
         await self.client.sync_forever(timeout=30_000)
 
 
@@ -161,10 +169,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("owner", help="person whose agent this is, e.g. anna")
     ap.add_argument("--agent", choices=sorted(agents.BACKENDS), default="codex")
+    ap.add_argument("--allow-members", action="store_true",
+                    help="let every joined room member drive this agent (default: owner only)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{args.owner}-agent] %(message)s")
     logging.getLogger("nio").setLevel(logging.WARNING)
-    bridge = Bridge(args.owner, args.agent)
+    bridge = Bridge(args.owner, args.agent, args.allow_members)
     try:
         asyncio.run(bridge.run())
     except KeyboardInterrupt:
