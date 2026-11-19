@@ -20,7 +20,8 @@ from pathlib import Path
 
 from nio import AsyncClient, SyncResponse
 
-HANDOFF_DIR = Path(__file__).parent / "rooms" / ".handoff"      # git-ignored (rooms/)
+# git-ignored (rooms/); tests point this elsewhere so their hand-offs never reach the real bridges
+HANDOFF_DIR = Path(os.environ.get("HANDOFF_DIR", Path(__file__).parent / "rooms" / ".handoff"))
 DRAIN_TIMEOUT_S = 1200           # agent turn limit (600 s) plus its gh/git calls
 HANDOFF_MAX_AGE_S = DRAIN_TIMEOUT_S + 300   # older hand-offs are ignored: treat it as a cold start
 SYNC_SLACK_MS = 60_000           # events since the token are at most one long-poll older than it

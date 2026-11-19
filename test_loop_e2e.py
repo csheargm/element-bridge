@@ -45,7 +45,8 @@ def make_fake_github(tmp: Path) -> dict:
         (ids / agent).mkdir(parents=True)
         (ids / agent / "hosts.yml").write_text("github.com: {}\n")   # fake identity marker only
     return {"FAKE_GH_STATE": str(state), "GH_BIN": str(ROOT / "tests" / "fake_gh.py"),
-            "GH_IDENTITY_ROOT": str(ids), "LOOP_REPO": "test/sandbox", "LOOP_POLL_S": "3", "LOOP_STATE": str(tmp / "loop-state.json")}
+            "GH_IDENTITY_ROOT": str(ids), "LOOP_REPO": "test/sandbox", "LOOP_POLL_S": "3", "LOOP_STATE": str(tmp / "loop-state.json"),
+            "HANDOFF_DIR": str(tmp / "handoff")}
 
 
 def wait_for(token, room_id, pred, what, since_ts):
