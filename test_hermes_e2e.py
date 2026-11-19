@@ -1,5 +1,5 @@
 """Spike: bring-your-own Hermes. Who may drive the agent is MATRIX_ALLOWED_USERS (its owner, plus
-pm for tasks); there is no room allowlist, so the owner can also DM it. Anna's agent is a Hermes profile (`annaroom`) talking to Matrix
+pm for tasks); there is no room allowlist, so the owner can also DM it. Anna's agent is a Hermes profile (`annatest`, separate from the demo's `annaroom`) talking to Matrix
 through Hermes's own gateway and to the GitHub loop through hagency_mcp.py; betty's agent is the
 Codex bridge. Real Matrix, real Hermes and Codex, fake GitHub. Stop ./start.sh first.
 Run: .venv/bin/python test_hermes_e2e.py
@@ -27,7 +27,7 @@ from test_loop_e2e import make_fake_github, say, wait_for
 ROOT = Path(__file__).parent
 PY = str(ROOT / ".venv" / "bin" / "python")
 HERMES = "anna-hermes-agent"
-PROFILE = hermes_profile.profile_dir("annaroom")
+PROFILE = hermes_profile.profile_dir("annatest")
 STEP_S = 900
 test_loop_e2e.STEP_TIMEOUT_S = STEP_S
 test_loop_e2e.ISSUES = {
@@ -75,7 +75,7 @@ def main():
     for agent in (HERMES,):
         (Path(gh_env["GH_IDENTITY_ROOT"]) / agent).mkdir(parents=True, exist_ok=True)
         (Path(gh_env["GH_IDENTITY_ROOT"]) / agent / "hosts.yml").write_text("github.com: {}\n")
-    hermes_profile.configure("annaroom", owner="anna", agent=HERMES, password=password, home_room=room_id,
+    hermes_profile.configure("annatest", owner="anna", agent=HERMES, password=password, home_room=room_id,
                              mcp_env={"HAGENCY_ROOM": room_id, **gh_env})
     for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # each run starts with no
         path = PROFILE / stale                                                 # memory of earlier runs
@@ -84,7 +84,7 @@ def main():
     logs = open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([PY, *a], cwd=ROOT, env=run_env, stdout=logs, stderr=logs)
              for a in (["bridge.py", "betty"], ["loop.py"])]
-    procs.append(subprocess.Popen(["hermes", "-p", "annaroom", "gateway", "run"], stdout=logs, stderr=logs))
+    procs.append(subprocess.Popen(["hermes", "-p", "annatest", "gateway", "run"], stdout=logs, stderr=logs))
     anna, betty = login("anna", env["PW_ANNA"]), login("betty", env["PW_BETTY"])
     me = f"@{HERMES}:{SERVER_NAME}"
     agent = lambda who: f"@{who}-agent:{SERVER_NAME}"
