@@ -61,3 +61,6 @@ the time went to diagnosis, not waiting on builds.
 | **09:18:17** | **Loop e2e ALL PASS again** (issue → merged in 20 s) |
 | 09:19:12 | `start.sh` restarted (bridges + loop-bot); step-1 e2e 7/7 pass; 40 unit tests pass |
 | 10:50 | Real identities ready: betty-agent → second-account (the owner signed in via device flow; token in keychain, not in hosts.yml), Write collaborator on the sandbox; ruleset <ruleset id> on main (PR + 1 approval, dismiss stale, last-push approval, no bypass) |
+| 10:52 | First live Autonomous run on the real sandbox: #96 already satisfied → builder made no change → loop stopped (correct, but needed a person) |
+| ~11:00–11:10 | the owner's live Autonomous run: #102, #103, #108, #112, #113, #114 → PRs #149–#154, each built by one agent (your-account and second-account), approved by the other, merged by the loop |
+| 11:13:33 | Already-done auto-close + clickable PR/issue links: loop e2e ALL PASS, 12 checks (already-done issue verified by the other agent and closed in 26 s) |
