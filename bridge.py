@@ -132,20 +132,22 @@ class Bridge:
 
     async def run_task(self, room_id: str, task: dict) -> None:
         what = f"PR #{task.get('pr')}" if task.get("pr") else f"#{task.get('issue')}"
-        await self.send(room_id, f"{task.get('kind')}: claimed {what}")
+        claimed = f"{task.get('kind')}: claimed {what}"
+        await self.send(room_id, claimed, source=github.linkify(claimed))
         typing = asyncio.create_task(self.keep_typing(room_id))
         try:
             async with self.turns:
                 base = ROOT / "rooms" / self.owner / "work"
-                if task.get("kind") == "merge" and await self.room_level(room_id) != "autonomous":
-                    result = {"kind": "merge", "issue": task.get("issue"), "task_id": task.get("task_id"),
-                              "error": "room is no longer autonomous", "line": "merge skipped: room is no longer autonomous"}
+                kind = task.get("kind")
+                if kind in tasks.AUTONOMOUS_ONLY and await self.room_level(room_id) != "autonomous":
+                    result = {"kind": kind, "issue": task.get("issue"), "task_id": task.get("task_id"),
+                              "error": "room is no longer autonomous", "line": f"{kind} skipped: room is no longer autonomous"}
                 else:
                     result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task)
         finally:
             typing.cancel()
             await self.client.room_typing(room_id, False)
-        await self.send(room_id, result["line"], extra={github.RESULT_KEY: result})
+        await self.send(room_id, result["line"], extra={github.RESULT_KEY: result}, source=github.linkify(result["line"]))
 
     async def room_level(self, room_id: str) -> str:
         r = await self.client.room_get_state_event(room_id, github.LEVEL_EVENT, "")
@@ -185,8 +187,9 @@ class Bridge:
         return ROOT / "rooms" / self.owner / f"{safe}-{digest}"
 
     async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None,
-                   extra: dict | None = None) -> None:
-        html = markdown.markdown(body, extensions=["fenced_code", "tables"])
+                   extra: dict | None = None, source: str | None = None) -> None:
+        """body is the plain text; source (default body) is the markdown rendered as HTML."""
+        html = markdown.markdown(source or body, extensions=["fenced_code", "tables"])
         content = {"msgtype": "m.text", "body": body,
                    "format": "org.matrix.custom.html", "formatted_body": html}
         if reply_to is not None:

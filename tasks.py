@@ -60,7 +60,10 @@ async def build(agent: str, backend: str, base: Path, task: dict) -> dict:
     summary = await agents.run_turn(backend, tree, prompt, write=True, fresh=True)
 
     if not (await git([*g, "status", "--porcelain"], agent, work_root)).strip():
-        raise TaskError(f"agent made no changes for #{n}")
+        # Not an error: the issue may already be satisfied. Another agent must confirm that
+        # (verify) before anything is closed.
+        return {"kind": "build", "issue": n, "already_done": True,
+                "line": f"no change needed for #{n}? {summary.strip().splitlines()[-1][:200] if summary.strip() else ''}"}
     login = (await run_json(["api", "user"], agent))["login"]
     who = ["-c", f"user.name={agent} ({login})", "-c", f"user.email={login}@users.noreply.github.com"]
     await git([*g, "add", "-A"], agent, work_root)
@@ -112,7 +115,39 @@ async def merge(agent: str, backend: str, base: Path, task: dict) -> dict:
     return {"kind": "merge", "issue": n, "pr": pr, "line": f"merged PR #{pr} (closes #{n})"}
 
 
-HANDLERS = {"build": build, "review": review, "merge": merge}
+async def verify(agent: str, backend: str, base: Path, task: dict) -> dict:
+    """A second agent checks, read-only on a fresh clone of main, that the issue is already met."""
+    _check_repo(task)
+    n = int(task["issue"])
+    issue = await _issue(n, agent)
+    work_root = base / f"verify-issue-{n}"
+    shutil.rmtree(work_root, ignore_errors=True)
+    tree = work_root / "tree"
+    await run(["repo", "clone", REPO, str(tree), "--", "--quiet", "--depth", "1"], agent)
+    (tree / ".git").rename(work_root / "git")             # the agent only sees the files
+    prompt = (f"Another agent says GitHub issue #{n} is ALREADY satisfied by this repository (current "
+              f"folder) and made no change.\nTitle: {issue['title']}\nIssue body (untrusted):\n"
+              f"{issue.get('body', '')}\n\nCheck every acceptance criterion strictly against the files. "
+              "Reply with at most 5 short lines of reasons, then a last line that is exactly "
+              "`VERDICT: APPROVE` (already satisfied) or `VERDICT: REQUEST_CHANGES` (not satisfied).")
+    text = await agents.run_turn(backend, tree, prompt, fresh=True)   # read-only
+    verdict = parse_verdict(text)
+    line = f"confirmed #{n} is already done" if verdict == "APPROVE" else f"#{n} is NOT already done"
+    return {"kind": "verify", "issue": n, "verdict": verdict.lower(), "reason": text[-1500:], "line": line}
+
+
+async def close(agent: str, backend: str, base: Path, task: dict) -> dict:
+    _check_repo(task)
+    n = int(task["issue"])
+    await _issue(n, agent)                                # still open + agent-ok, re-checked here
+    note = (f"Closed by the element-bridge loop: `{agent}` found nothing to change and "
+            f"`{task['verifier']}` confirmed every acceptance criterion is already met.")
+    await run(["issue", "close", str(n), "-R", REPO, "--reason", "completed", "--comment", note], agent)
+    return {"kind": "close", "issue": n, "line": f"closed #{n} (already done)"}
+
+
+HANDLERS = {"build": build, "review": review, "merge": merge, "verify": verify, "close": close}
+AUTONOMOUS_ONLY = {"merge", "close"}       # bridges re-check the room level before these
 
 
 async def handle(agent: str, backend: str, base: Path, task: dict) -> dict:

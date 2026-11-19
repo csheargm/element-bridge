@@ -2,7 +2,8 @@
 fake GitHub (tests/fake_gh.py + a local bare repo). Starts its own anna/betty bridges and
 loop-bot — stop ./start.sh's bridges first. Run: .venv/bin/python test_loop_e2e.py
 
-Flow checked: Autonomous level → issue claimed → PR opened → review requested from the
+Flow checked: Autonomous level → an already-satisfied issue is verified by the other agent and
+closed (not stopped). Then: issue claimed → PR opened → review requested from the
 other agent → approved → merged (file really lands on main). Assist level → second issue
 reaches "ready — a person merges" and is NOT merged.
 """
@@ -20,6 +21,8 @@ from test_e2e import ROOM_ALIAS, api, check
 ROOT = Path(__file__).parent
 STEP_TIMEOUT_S = 420
 ISSUES = {
+    "200": {"title": "docs: README starts with '# sandbox'", "state": "OPEN", "labels": ["agent-ok"],
+            "body": "Acceptance criteria:\n- README.md's first line is exactly '# sandbox'.\n- No other files change."},
     "201": {"title": "docs: add docs/HELLO.md", "state": "OPEN", "labels": ["agent-ok"],
             "body": "Acceptance criteria:\n- New file docs/HELLO.md whose only line is exactly '# Hello'.\n- No other files change."},
     "202": {"title": "docs: add docs/BYE.md", "state": "OPEN", "labels": ["agent-ok"],
@@ -80,6 +83,15 @@ def main():
         say(anna, room_id, "!level autonomous")
         wait_for(anna, room_id, lambda s, b: s == bot and "loop level: autonomous" in b, "level set", ts)
         check("anna sets level autonomous", True, f"{time.time()-t0:.0f}s")
+        # issue 200 is already satisfied: anna-agent builds nothing, betty-agent verifies, anna-agent closes
+        body = wait_for(anna, room_id, lambda s, b: s == agent("anna") and b.startswith(("no change needed for #200", "⚠️")), "no-change", ts)
+        check("anna-agent finds nothing to change for #200", body.startswith("no change"), f"{time.time()-t0:.0f}s: {body[:100]}")
+        body = wait_for(anna, room_id, lambda s, b: s == agent("betty") and ("#200" in b) and not b.startswith("verify:"), "verify", ts)
+        check("betty-agent confirms #200 is already done", body.startswith("confirmed #200"), f"{time.time()-t0:.0f}s: {body[:100]}")
+        body = wait_for(anna, room_id, lambda s, b: s == bot and "#200 closed" in b, "closed", ts)
+        state = json.loads((tmp / "gh.json").read_text())
+        check("autonomous: #200 closed on GitHub by the loop", state["issues"]["200"]["state"] == "CLOSED" and "by the loop" in body,
+              f"{time.time()-t0:.0f}s")
         # issue 201: 201 % 2 agents → betty-agent builds, anna-agent reviews
         wait_for(anna, room_id, lambda s, b: s == agent("betty") and "claimed #201" in b, "claim", ts)
         check("betty-agent claims #201", True, f"{time.time()-t0:.0f}s")

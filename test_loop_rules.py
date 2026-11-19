@@ -167,5 +167,77 @@ class LoopResults(unittest.TestCase):
         self.assertFalse(is_stale(SimpleNamespace(server_timestamp=99_000), 100_000))
 
 
+class AlreadyDone(unittest.TestCase):
+    """An issue the builder found nothing to change for: a second agent must confirm before closing."""
+    def setUp(self):
+        import loop
+        self.lp = loop.Loop.__new__(loop.Loop)
+        self.lp.state = {"7": {"room": "!r", "stage": "building", "builder": "@b-agent:x", "task_id": "T"}}
+        self.lp.save = lambda: None
+        self.lp.say = mock.AsyncMock()
+        self.lp.agents_in = lambda room: ["@b-agent:x", "@r-agent:x"]
+        self.item = self.lp.state["7"]
+
+    def deliver(self, sender, result):
+        asyncio.run(self.lp.on_result(SimpleNamespace(room_id="!r"), sender, {"issue": 7, **result}))
+        return self.item["stage"]
+
+    def test_no_change_build_asks_the_other_agent_to_verify(self):
+        self.assertEqual(self.deliver("@b-agent:x", {"kind": "build", "already_done": True, "task_id": "T"}), "verifying")
+        self.assertEqual(self.item["reviewer"], "@r-agent:x")
+        _, _, agent, task = self.lp.say.call_args.args
+        self.assertEqual((task["kind"], agent), ("verify", "@r-agent:x"))
+
+    def verifying(self):
+        self.item.update(stage="verifying", reviewer="@r-agent:x")
+
+    def test_builder_cannot_confirm_its_own_no_change(self):
+        self.verifying()
+        self.assertEqual(self.deliver("@b-agent:x", {"kind": "verify", "verdict": "approve", "task_id": "T"}), "verifying")
+
+    def test_reviewer_confirms(self):
+        self.verifying()
+        self.assertEqual(self.deliver("@r-agent:x", {"kind": "verify", "verdict": "approve", "task_id": "T"}), "confirmed_done")
+
+    def test_reviewer_disagrees_stops(self):
+        self.verifying()
+        self.assertEqual(self.deliver("@r-agent:x", {"kind": "verify", "verdict": "request_changes", "task_id": "T"}), "stopped")
+
+    def advance(self, lvl, gh_state="OPEN", stage="confirmed_done"):
+        self.item.update(stage=stage, reviewer="@r-agent:x")
+        async def fake(args, agent=None):
+            return {"state": gh_state}
+        with mock.patch.object(github, "run_json", fake):
+            asyncio.run(self.lp.advance("!r", "7", self.item, lvl))
+        return self.item["stage"]
+
+    def test_autonomous_sends_close_to_builder(self):
+        self.assertEqual(self.advance("autonomous"), "closing")
+        _, _, agent, task = self.lp.say.call_args.args
+        self.assertEqual((task["kind"], agent, task["verifier"]), ("close", "@b-agent:x", "@r-agent:x"))
+
+    def test_assist_asks_a_person(self):
+        self.assertEqual(self.advance("assist"), "close_ready")
+        self.assertIn("a person closes", self.lp.say.call_args.args[1])
+
+    def test_done_only_when_github_says_closed(self):
+        self.assertEqual(self.advance("autonomous", stage="close_sent"), "close_sent")
+        self.assertEqual(self.advance("autonomous", "CLOSED", stage="close_sent"), "done")
+
+    def test_bridges_recheck_level_before_close(self):
+        self.assertIn("close", tasks.AUTONOMOUS_ONLY)
+
+
+class Links(unittest.TestCase):
+    def test_pr_and_issue_refs_link_to_the_repo(self):
+        md = github.linkify("merged PR #153 (closes #113)")
+        self.assertIn(f"[PR #153](https://github.com/{github.REPO}/pull/153)", md)
+        self.assertIn(f"[#113](https://github.com/{github.REPO}/issues/113)", md)
+
+    def test_urls_and_words_untouched(self):
+        for text in ("https://x/pull/5#12", "abc#12", "matrix.to/#/@a:b"):
+            self.assertEqual(github.linkify(text), text)
+
+
 if __name__ == "__main__":
     unittest.main()

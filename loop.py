@@ -17,6 +17,7 @@ import time
 import uuid
 from pathlib import Path
 
+import markdown
 from nio import (AsyncClient, LoginResponse, MatrixRoom, RoomGetStateEventResponse, RoomGetStateResponse,
                  RoomMessageText)
 
@@ -26,8 +27,12 @@ from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 POLL_S = float(os.environ.get("LOOP_POLL_S", "30"))
 MODERATOR_LEVEL = 50
 STATE_FILE = Path(os.environ.get("LOOP_STATE", ROOT / "loop-state.json"))   # git-ignored; per-issue progress
-ACTIVE = ("building", "reviewing", "approved", "ready", "merging", "merge_sent")
-EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging"}
+ACTIVE = ("building", "reviewing", "approved", "ready", "merging", "merge_sent",
+          "verifying", "confirmed_done", "close_ready", "closing", "close_sent")
+EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging",
+                  "verify": "verifying", "close": "closing"}
+CHECKER_KINDS = ("review", "verify")      # results only the second agent may report
+CLOSE_STAGES = ("confirmed_done", "close_ready", "close_sent")
 
 log = logging.getLogger("loop")
 
@@ -52,8 +57,11 @@ class Loop:
 
     async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None) -> None:
         content = {"msgtype": "m.notice" if task is None else "m.text", "body": body}
+        source = github.linkify(body)
         if mention:
             content["m.mentions"] = {"user_ids": [mention]}
+            source = source.replace(mention, f"[{mention.split(':')[0]}](https://matrix.to/#/{mention})")  # a pill
+        content.update(format="org.matrix.custom.html", formatted_body=markdown.markdown(source))
         if task is not None:
             content[github.TASK_KEY] = {**task, "agent": mention, "repo": github.REPO}
         await self.client.room_send(room_id, "m.room.message", content)
@@ -118,11 +126,24 @@ class Loop:
             return
         if item["stage"] != EXPECTED_STAGE.get(kind) or result.get("task_id") != item.get("task_id"):
             return   # late/duplicate result for a step that's no longer current
-        if sender != item.get("reviewer" if result.get("kind") == "review" else "builder"):
+        if sender != item.get("reviewer" if kind in CHECKER_KINDS else "builder"):
             return   # only the agent the step was given to can report on it
         if result.get("error"):
             item["stage"] = "stopped"
             await self.say(room.room_id, f"loop stopped on #{key}; a person takes over")
+        elif kind == "build" and result.get("already_done"):
+            item["stage"] = "verifying"     # the builder's "nothing to do" needs a second agent's check
+            if await self.pick_reviewer(room, item, key, f"verify #{key} is already done"):
+                await self.dispatch(room.room_id, item, item["reviewer"], f"{item['reviewer']}: verify #{key} is already done",
+                                    {"kind": "verify", "issue": int(key)})
+        elif kind == "verify":
+            if result.get("verdict") == "approve":
+                item["stage"] = "confirmed_done"
+            else:
+                item["stage"] = "stopped"
+                await self.say(room.room_id, f"agents disagree on #{key}; a person takes over")
+        elif kind == "close":
+            item["stage"] = "close_sent"    # done only once GitHub itself reports CLOSED
         elif kind == "build":
             item.update(stage="reviewing", pr=int(result["pr"]))
             if not await self.pr_is_builders(item, key):
@@ -130,21 +151,26 @@ class Loop:
                 await self.say(room.room_id, f"PR #{item['pr']} isn't {item['builder']}'s branch for #{key}; stopping")
                 self.save()
                 return
-            others = [a for a in self.agents_in(room) if a != item["builder"]]
-            if not others:
-                item["stage"] = "stopped"
-                await self.say(room.room_id, f"no second agent to review PR #{item['pr']}; a person reviews")
-            else:
-                item["reviewer"] = others[int(key) % len(others)]
+            if await self.pick_reviewer(room, item, key, f"review PR #{item['pr']}"):
                 await self.dispatch(room.room_id, item, item["reviewer"],
                                     f"{item['reviewer']}: review PR #{item['pr']} against #{key}",
                                     {"kind": "review", "issue": int(key), "pr": item["pr"]})
-                await self.say(room.room_id, f"review requested from {item['reviewer'].split(':')[0][1:]}")
         elif kind == "review" and int(result["pr"]) == item["pr"]:
             item.update(stage="approved" if result.get("verdict") == "approve" else "stopped", sha=str(result["sha"]))
         elif kind == "merge":
             item["stage"] = "merge_sent"    # done only once GitHub itself reports MERGED
         self.save()
+
+    async def pick_reviewer(self, room: MatrixRoom, item: dict, key: str, what: str) -> bool:
+        """Choose a DIFFERENT person's agent as the checker; stop the item if there is none."""
+        others = [a for a in self.agents_in(room) if a != item["builder"]]
+        if not others:
+            item["stage"] = "stopped"
+            await self.say(room.room_id, f"no second agent to {what}; a person does it")
+            return False
+        item["reviewer"] = others[int(key) % len(others)]
+        await self.say(room.room_id, f"{what.split()[0]} requested from {item['reviewer'].split(':')[0][1:]}")
+        return True
 
     async def pr_is_builders(self, item: dict, key: str) -> bool:
         """The builder reports a PR number; check it is really its own branch for this issue."""
@@ -180,6 +206,9 @@ class Loop:
                             {"kind": "build", "issue": n})
 
     async def advance(self, room_id: str, key: str, item: dict, lvl: str) -> None:
+        if item["stage"] in CLOSE_STAGES:
+            await self.advance_close(room_id, key, item, lvl)
+            return
         if item["stage"] not in ("approved", "ready", "merge_sent"):
             return                                   # waiting on an agent's result message
         ok, info = await github.merge_ready(item["pr"])
@@ -200,6 +229,22 @@ class Loop:
             item["stage"] = "stopped"   # an agent approved but GitHub doesn't count it: protection missing?
             await self.say(room_id, f"PR #{item['pr']}: GitHub reports {info.get('reviewDecision') or 'no required review'}"
                            " — check the repo's branch rules; a person merges")
+        self.save()
+
+    async def advance_close(self, room_id: str, key: str, item: dict, lvl: str) -> None:
+        """An already-done issue, confirmed by a second agent: Autonomous closes it, Assist asks a person."""
+        issue = await github.run_json(["issue", "view", key, "-R", github.REPO, "--json", "state"])
+        if issue.get("state") == "CLOSED":
+            by = "the loop" if item["stage"] == "close_sent" else "a person"
+            item["stage"] = "done"
+            await self.say(room_id, f"#{key} closed by {by} (already done)")
+        elif item["stage"] == "confirmed_done" and lvl == "autonomous":
+            item["stage"] = "closing"
+            await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: close #{key} (already done)",
+                                {"kind": "close", "issue": int(key), "verifier": item["reviewer"]})
+        elif item["stage"] == "confirmed_done":
+            item["stage"] = "close_ready"
+            await self.say(room_id, f"#{key} is already done (confirmed by {item['reviewer'].split(':')[0][1:]}) — a person closes")
         self.save()
 
     async def run(self) -> None:

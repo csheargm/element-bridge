@@ -69,6 +69,11 @@ def main(a):
     elif cmd == ["issue", "view"]:
         i = s["issues"][a[2]]
         print(json.dumps({**i, "labels": [{"name": lb} for lb in i["labels"]]}))
+    elif cmd == ["issue", "close"]:
+        if opt(a, "--reason") != "completed" or not opt(a, "--comment"):
+            sys.exit("fake_gh: the loop must close with --reason completed and an explaining --comment")
+        s["issues"][a[2]]["state"] = "CLOSED"
+        save(s)
     elif cmd == ["pr", "create"]:
         n = s["next"]
         s["next"] += 1

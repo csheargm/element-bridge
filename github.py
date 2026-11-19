@@ -8,6 +8,7 @@ Without required reviews GitHub never reports APPROVED, so the loop fails closed
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -23,6 +24,18 @@ RESULT_KEY = "org.elementbridge.result"
 LEVEL_EVENT = "org.elementbridge.loop"
 LEVELS = ("off", "assist", "autonomous")
 LOOP_BOT = "loop-bot"            # Matrix localpart of the coordinator (loop.py)
+
+
+# "PR #12" / "#12" in loop lines → links to the loop repo (markdown; not inside words or URLs).
+REF_RE = re.compile(r"(?<![\w/\[])(PR )?#(\d+)\b")
+
+
+def linkify(text: str) -> str:
+    """Markdown with each issue/PR reference linked to github.com/REPO."""
+    def link(m: re.Match) -> str:
+        kind = "pull" if m.group(1) else "issues"
+        return f"[{m.group(0)}](https://github.com/{REPO}/{kind}/{m.group(2)})"
+    return REF_RE.sub(link, text)
 
 
 class GitHubError(RuntimeError):
