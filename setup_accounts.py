@@ -1,4 +1,4 @@
-"""One-time setup: create anna, betty and their agent users, plus a shared room.
+"""One-time setup: create anna, betty, their agent users and the bots, plus a shared room.
 
 Passwords are generated and written to the git-ignored .env; they are never printed.
 Idempotent: existing users/room are reused.
@@ -19,7 +19,8 @@ ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
 PEOPLE = ["anna", "betty"]                       # each gets a <person>-agent and a bridge
-USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), "loop-bot"]
+BOTS = {"loop-bot": 0, "setup-bot": 50}         # bot → power level (setup-bot writes room settings)
+USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), *BOTS]
 ROOM_ALIAS = "lounge"
 TEST_ROOM_ALIAS = "bridge-test"          # automated tests talk here, never in the Lounge
 
@@ -93,7 +94,7 @@ def main():
 
 
 def ensure_room(env: dict, alias_name: str, name: str) -> str:
-    """A room with everyone in it (anna creates it; betty, the agents and loop-bot join)."""
+    """A room with everyone in it (anna creates it; betty, the agents and the bots join)."""
     anna = login("anna", env["PW_ANNA"])
     betty = login("betty", env["PW_BETTY"])
     alias = f"#{alias_name}:{SERVER_NAME}"
@@ -106,22 +107,25 @@ def ensure_room(env: dict, alias_name: str, name: str) -> str:
         }, token=anna)["room_id"]
         print(f"created room {alias}")
     api("POST", f"/_matrix/client/v3/join/{urllib.request.quote(room_id)}", {}, token=betty)
-    setup_loop_bot(anna, login("loop-bot", env["PW_LOOP_BOT"]), urllib.request.quote(room_id))
+    room = urllib.request.quote(room_id)
+    for bot, power in BOTS.items():
+        add_bot(anna, login(bot, env["PW_" + bot.upper().replace("-", "_")]), room, bot, power)
+    level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", token=anna)
+    if "level" not in level:
+        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", {"level": "off", "repo": REPO}, token=anna)
     return room_id
 
 
-def setup_loop_bot(admin, bot, room):
-    """loop-bot joins the room as moderator (to write the loop-level state event); level starts off."""
-    bot_id = f"@loop-bot:{SERVER_NAME}"
+def add_bot(admin, bot, room, name, power):
+    """The bot joins the room; setup-bot as moderator so it can write the room's settings.
+    Only raises a level (an existing room may have given loop-bot 50 before setup-bot existed)."""
+    bot_id = f"@{name}:{SERVER_NAME}"
     api("POST", f"/_matrix/client/v3/rooms/{room}/invite", {"user_id": bot_id}, token=admin)
     api("POST", f"/_matrix/client/v3/join/{room}", {}, token=bot)
     pl = api("GET", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", token=admin)
-    if pl.get("users", {}).get(bot_id) != 50:
-        pl.setdefault("users", {})[bot_id] = 50
+    if power and pl.get("users", {}).get(bot_id, 0) < power:
+        pl.setdefault("users", {})[bot_id] = power
         api("PUT", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", pl, token=admin)
-    level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", token=admin)
-    if "level" not in level:
-        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", {"level": "off", "repo": REPO}, token=admin)
 
 
 if __name__ == "__main__":

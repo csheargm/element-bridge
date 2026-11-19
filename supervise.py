@@ -1,4 +1,4 @@
-"""Run every bridge and loop-bot, and restart them by themselves when the code changes.
+"""Run every bridge, loop-bot and setup-bot, and restart them by themselves when the code changes.
 
   python supervise.py [--agent codex|claude] [--allow-members]
 
@@ -88,7 +88,7 @@ class Child:
 def children(agent: str, allow_members: bool) -> list[Child]:
     extra = ["--allow-members"] if allow_members else []
     kids = [Child(f"{p}-agent", [PY, "bridge.py", p, "--agent", agent, *extra]) for p in PEOPLE]
-    return [*kids, Child("loop-bot", [PY, "loop.py"])]
+    return [*kids, Child("loop-bot", [PY, "loop.py"]), Child("setup-bot", [PY, "setup_bot.py"])]
 
 
 def compiles(paths: list[Path]) -> bool:

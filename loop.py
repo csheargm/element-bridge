@@ -1,7 +1,7 @@
 """loop-bot: the autonomous GitHub loop, coordinated in a Matrix room.
 
 Watches open `agent-ok` issues on github.REPO and, per room level (state event
-xyz.hagencylabs.loop, set with `!level off|assist|autonomous` by a room moderator):
+xyz.hagencylabs.loop, set with `!level off|assist|autonomous` via setup_bot.py):
   assign a builder agent → it claims the issue and opens a PR → ask a DIFFERENT person's agent
   to review → when GitHub itself reports the PR mergeable+approved: Assist posts
   "ready — a person merges", Autonomous asks the builder agent to merge.
@@ -18,16 +18,15 @@ import uuid
 from pathlib import Path
 
 import markdown
-from nio import (AsyncClient, LoginResponse, MatrixRoom, RoomGetStateEventResponse, RoomGetStateResponse,
-                 RoomMessageText, RoomSendResponse)
+from nio import AsyncClient, LoginResponse, MatrixRoom, RoomMessageText, RoomSendResponse
 
 import github
 import lifecycle
+import room_state
 from loop_progress import Progress
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
 POLL_S = float(os.environ.get("LOOP_POLL_S", "30"))
-MODERATOR_LEVEL = 50
 STATE_FILE = Path(os.environ.get("LOOP_STATE", ROOT / "loop-state.json"))   # git-ignored; per-issue progress
 EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging",
                   "verify": "verifying", "close": "closing"}
@@ -83,22 +82,14 @@ class Loop(Progress):
             raise SendError(f"could not post to {room_id}: {resp}")
 
     async def level(self, room_id: str) -> str:
-        r = await self.client.room_get_state_event(room_id, github.LEVEL_EVENT, "")
-        if isinstance(r, RoomGetStateEventResponse) and r.content.get("repo") == github.REPO:
-            lvl = r.content.get("level")
-            return lvl if lvl in github.LEVELS else "off"
-        return "off"
+        return await room_state.level(self.client, room_id)
 
     def agents_in(self, room: MatrixRoom) -> list[str]:
         return sorted(u for u in room.users if u.split(":")[0].endswith("-agent") and u not in room.invited_users)
 
-    # --- chat: level command and agent results -----------------------------------------
+    # --- chat: agent results -----------------------------------------
     async def on_message(self, room: MatrixRoom, event: RoomMessageText) -> None:
         if is_stale(event, self.started_ms) or not self.sync_point.first_time(event.event_id):
-            return
-        body = event.body.strip()
-        if body.startswith("!level"):
-            await self.set_level(room, event.sender, body.split()[1:])
             return
         result = event.source.get("content", {}).get(github.RESULT_KEY)
         if isinstance(result, dict) and event.sender in self.agents_in(room):
@@ -119,32 +110,6 @@ class Loop(Progress):
         self.busy.add(job)
         job.add_done_callback(self.busy.discard)
         await asyncio.shield(job)
-
-    async def set_level(self, room: MatrixRoom, sender: str, args: list[str]) -> None:
-        if not await self.is_moderator(room, sender):
-            await self.say(room.room_id, "only room moderators can change the loop level")
-            return
-        if len(args) != 1 or args[0] not in github.LEVELS:
-            await self.say(room.room_id, f"usage: !level {'|'.join(github.LEVELS)}  (now: {await self.level(room.room_id)})")
-            return
-        await self.client.room_put_state(room.room_id, github.LEVEL_EVENT, {"level": args[0], "repo": github.REPO})
-        await self.say(room.room_id, f"loop level: {args[0]} for {github.REPO}")
-
-    async def is_moderator(self, room: MatrixRoom, sender: str) -> bool:
-        if room.power_levels.get_user_level(sender) >= MODERATOR_LEVEL:
-            return True
-        # Room v12+: creators outrank everyone but are NOT listed in power_levels.users, and
-        # matrix-nio doesn't model that, so read the create event ourselves.
-        state = await self.client.room_get_state(room.room_id)
-        if not isinstance(state, RoomGetStateResponse):
-            return False
-        for ev in state.events:
-            if ev.get("type") == "m.room.create":
-                content = ev.get("content", {})
-                version = str(content.get("room_version", "1"))
-                creators = {ev.get("sender"), *content.get("additional_creators", [])}
-                return version.isdigit() and int(version) >= 12 and sender in creators
-        return False
 
     async def on_result(self, room: MatrixRoom, sender: str, result: dict) -> None:
         kind, key = result.get("kind"), str(result.get("issue"))

@@ -83,7 +83,7 @@ moves on to the next one.
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest test_rules test_agents test_loop_rules test_loop_watchdog test_lifecycle test_github_setup
+.venv/bin/python -m unittest test_rules test_agents test_loop_rules test_loop_watchdog test_lifecycle test_github_setup test_setup_bot
 ```
 
 ```bash
@@ -96,9 +96,44 @@ drives the real flow over the Matrix API with the bridges running: anna and bett
 agents, checks replies, typing, per-room memory across turns, that the other agent stays quiet,
 that anna's agent ignores betty, and the encrypted-room warning.
 
+`test_setup_e2e.py` (stop `start.sh` first) checks the setup-bot commands, that only a moderator
+can change settings, that an enabled skill reaches a real agent turn, and that an edited skill file
+is flagged and no longer used.
+
 `test_restart_e2e.py` (stop `start.sh` first) saves a code file between two questions and checks
 both are answered exactly once, then kills the builder's bridge mid-step and checks the loop
 resends the step and the issue is still merged.
+
+## Room settings from chat: setup-bot
+
+`@setup-bot` answers `!` commands in every room it is in. Anyone in the room can look; only room
+moderators (power level 50, or the creator of a v12 room) can change anything. Settings are the
+room's own Matrix state events, so there are no config files to edit.
+
+| Command | What it does |
+|---|---|
+| `!help` | lists the commands |
+| `!status` | loop level, repo, agents in the room, skills that are on |
+| `!level off\|assist\|autonomous` | sets the GitHub loop's level (`!level` alone shows it) |
+| `!skills` | skills in the repo's `skills/` folder and which are on here |
+| `!skill enable <name>` / `!skill disable <name>` | turns a room skill on or off |
+
+### Room skills
+
+A room skill is a short instruction file, `skills/<name>.md`, on the loop repo's default branch.
+It belongs to the room, never to anyone's Mac. See [docs/adr/0001-room-skills.md](docs/adr/0001-room-skills.md).
+1. An agent (or a person) proposes it as a PR, for example from an `agent-ok` issue. Another
+   person's agent reviews it, and GitHub's ruleset gates the merge.
+2. A moderator types `!skill enable <name>`. That pins the file's exact version (its blob sha)
+   in the room's state event `xyz.hagencylabs.skills`.
+3. Each bridge adds the room's enabled skills to its agent's prompt, for chat turns and loop
+   steps alike, but only while the file on the default branch still has the pinned version.
+   If someone edits the file, agents stop using it, and `!skills` says so, until a moderator
+   enables it again.
+
+Skills are text only. They never give an agent tools, connectors, MCP servers, network access or
+anyone's accounts: every turn still runs in the same locked-down sandbox (`agents.py`). A
+personal tool on someone's Mac is never reachable from a room.
 
 ## Stop / reset
 
@@ -125,7 +160,8 @@ betty-agent  merged PR #140 (closes #136)               (Autonomous)
 ```
 
 **Room level** is one Matrix state event (`xyz.hagencylabs.loop`) that a room moderator sets by
-typing `!level off`, `!level assist` or `!level autonomous` in the room. It starts at `off`.
+typing `!level off`, `!level assist` or `!level autonomous` in the room (setup-bot answers).
+It starts at `off`.
 - Off: the loop does nothing.
 - Assist: agents build and review, then a person merges.
 - Autonomous: the builder agent merges.

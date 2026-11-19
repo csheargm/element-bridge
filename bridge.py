@@ -13,12 +13,13 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 import markdown
-from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent,
-                 RoomGetStateEventResponse, RoomMessageText)
+from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessageText
 
 import agents
 import github
 import lifecycle
+import room_skills
+import room_state
 import tasks
 
 ROOT = Path(__file__).parent
@@ -148,19 +149,27 @@ class Bridge:
             async with self.turns:
                 base = ROOT / "rooms" / self.owner / "work"
                 kind = task.get("kind")
-                if kind in tasks.AUTONOMOUS_ONLY and await self.room_level(room_id) != "autonomous":
+                if kind in tasks.AUTONOMOUS_ONLY and await room_state.level(self.client, room_id) != "autonomous":
                     result = {"kind": kind, "issue": task.get("issue"), "task_id": task.get("task_id"),
                               "error": "room is no longer autonomous", "line": f"{kind} skipped: room is no longer autonomous"}
                 else:
-                    result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task)
+                    result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task,
+                                                await self.skills_for(room_id))
         finally:
             typing.cancel()
             await self.client.room_typing(room_id, False)
         await self.send(room_id, result["line"], extra={github.RESULT_KEY: result}, source=github.linkify(result["line"]))
 
-    async def room_level(self, room_id: str) -> str:
-        r = await self.client.room_get_state_event(room_id, github.LEVEL_EVENT, "")
-        return r.content.get("level", "off") if isinstance(r, RoomGetStateEventResponse) else "off"
+    async def skills_for(self, room_id: str) -> str:
+        """The skills this room's moderators enabled, as prompt text ("" if none or unreadable)."""
+        try:
+            block, skipped = await room_skills.prompt_block(await room_state.skills(self.client, room_id))
+        except (github.GitHubError, room_skills.SkillError) as e:
+            log.warning("room skills unavailable in %s, running without them: %s", room_id, e)
+            return ""   # a skill only adds instructions; without it the turn is still safe
+        if skipped:
+            log.info("skills changed since enabled, not used in %s: %s", room_id, ", ".join(skipped))
+        return block
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
@@ -171,6 +180,7 @@ class Bridge:
         self.history[room.room_id].clear()
         prompt = (f"You are {self.owner}'s personal AI agent ({self.user_id}) in the Matrix chat room "
                   f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n"
+                  + await self.skills_for(room.room_id)
                   + (f"\nRecent room messages since your last reply:\n{context}\n" if context else "")
                   + f"\nMessage addressed to you:\n{line}\n")
         typing = asyncio.create_task(self.keep_typing(room.room_id))

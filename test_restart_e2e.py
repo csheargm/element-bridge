@@ -43,8 +43,9 @@ def main():
     agent = lambda who: f"@{who}-agent:{SERVER_NAME}"
     bot = f"@loop-bot:{SERVER_NAME}"
     try:
+        time.sleep(8)                                   # setup-bot online before the first command
         say(anna, room_id, "!level off")
-        time.sleep(8)
+        time.sleep(2)
         # A. two questions around a code save
         ts = int(time.time() * 1000)
         say(anna, room_id, "@anna-agent reply with just the word ALPHA")

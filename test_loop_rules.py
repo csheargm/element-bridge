@@ -103,29 +103,6 @@ class TaskRules(unittest.TestCase):
         self.assertFalse(ok, "no required-review protection → never merge-ready")
 
 
-class LoopModerator(unittest.TestCase):
-    def check(self, sender, version, pl=0):
-        import loop
-        lp = loop.Loop.__new__(loop.Loop)
-        state = loop.RoomGetStateResponse([{"type": "m.room.create", "sender": ANNA, "state_key": "",
-                                            "content": {"room_version": version}}], "!r")
-        lp.client = SimpleNamespace(room_get_state=mock.AsyncMock(return_value=state))
-        r = SimpleNamespace(room_id="!r", power_levels=SimpleNamespace(get_user_level=lambda u: pl))
-        return asyncio.run(lp.is_moderator(r, sender))
-
-    def test_v12_creator_is_moderator_without_pl_entry(self):
-        self.assertTrue(self.check(ANNA, "12"))
-
-    def test_non_creator_without_pl_is_not(self):
-        self.assertFalse(self.check(BETTY, "12"))
-
-    def test_old_room_creator_needs_pl(self):
-        self.assertFalse(self.check(ANNA, "10"))
-
-    def test_pl_50_is_moderator(self):
-        self.assertTrue(self.check(BETTY, "12", pl=50))
-
-
 class LoopResults(unittest.TestCase):
     def setUp(self):
         import loop
