@@ -1,5 +1,5 @@
 """Spike: bring-your-own Hermes. Who may drive the agent is MATRIX_ALLOWED_USERS (its owner, plus
-loop-bot for tasks); there is no room allowlist, so the owner can also DM it. Anna's agent is a Hermes profile (`annaroom`) talking to Matrix
+pm for tasks); there is no room allowlist, so the owner can also DM it. Anna's agent is a Hermes profile (`annaroom`) talking to Matrix
 through Hermes's own gateway and to the GitHub loop through hagency_mcp.py; betty's agent is the
 Codex bridge. Real Matrix, real Hermes and Codex, fake GitHub. Stop ./start.sh first.
 Run: .venv/bin/python test_hermes_e2e.py
@@ -71,7 +71,7 @@ def hermes_room(env: dict) -> str:
 
 
 def configure_profile(room_id: str, password: str, gh_env: dict) -> None:
-    """The annaroom profile: Matrix (owner + loop-bot only, this room only), no shell/web/browser,
+    """The annaroom profile: Matrix (owner + pm only, this room only), no shell/web/browser,
     and the hagency MCP server with this run's fake GitHub."""
     mcp_env = {"HAGENCY_AGENT": HERMES, "HAGENCY_ROOM": room_id, "PATH": os.environ["PATH"],
                "HOME": os.environ["HOME"], **gh_env}
@@ -101,7 +101,7 @@ mcp_servers:
 """)
     values = {"MATRIX_HOMESERVER": "http://127.0.0.1:8648", "MATRIX_USER_ID": f"@{HERMES}:{SERVER_NAME}",
               "MATRIX_PASSWORD": password, "MATRIX_DEVICE_ID": "HERMES_ANNAROOM",
-              "MATRIX_ALLOWED_USERS": f"@anna:{SERVER_NAME},@loop-bot:{SERVER_NAME}",
+              "MATRIX_ALLOWED_USERS": f"@anna:{SERVER_NAME},@pm:{SERVER_NAME}",
               "MATRIX_HOME_ROOM": room_id, "MATRIX_E2EE_MODE": "off", "MATRIX_AUTO_THREAD": "false",
               "MATRIX_SESSION_SCOPE": "room", "MATRIX_REQUIRE_MENTION": "true"}
     path = PROFILE / ".env"
@@ -110,7 +110,7 @@ mcp_servers:
     with os.fdopen(fd, "w") as f:
         f.write("\n".join([*kept, *(f"{k}={v}" for k, v in values.items())]) + "\n")
     soul = PROFILE / "SOUL.md"
-    note = ("\n\nIn Hagency rooms: when @loop-bot gives you a task, ALWAYS call the hagency tool next_task "
+    note = ("\n\nIn Hagency rooms: when @pm gives you a task, ALWAYS call the hagency tool next_task "
             "first, even if the issue looks familiar from earlier in the conversation: each task is new "
             "work and the tools, not your memory, say what to do. Then do exactly what each answer's "
             "`next` field says. Edit repo files only with the hagency read_file/write_files tools. "

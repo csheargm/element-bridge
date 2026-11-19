@@ -19,10 +19,11 @@ ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
 PEOPLE = ["anna", "betty"]                       # each gets a <person>-agent and a bridge
-# Bot → exact power level. setup-bot (50) writes the room's settings; loop-bot (PIN_LEVEL) may only
+# Bot → exact power level. setup-bot (50) writes the room's settings; pm (PIN_LEVEL) may only
 # pin its status board, never change settings (state events need 50).
 PIN_LEVEL = 10
-BOTS = {"loop-bot": PIN_LEVEL, "setup-bot": 50}
+BOTS = {"pm": PIN_LEVEL, "setup-bot": 50}
+DISPLAY_NAMES = {"pm": "Product Manager"}        # what people see in Element
 USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), *BOTS]
 ROOM_ALIAS = "lounge"
 TEST_ROOM_ALIAS = "bridge-test"          # automated tests talk here, never in the Lounge
@@ -120,9 +121,12 @@ def ensure_room(env: dict, alias_name: str, name: str) -> str:
 
 
 def add_bot(admin, bot, room, name, power):
-    """The bot joins the room at exactly `power` (an older setup gave loop-bot 50: it is lowered),
-    and pinning needs only PIN_LEVEL so loop-bot can pin the status board."""
+    """The bot joins the room at exactly `power` (an older setup gave pm 50: it is lowered),
+    and pinning needs only PIN_LEVEL so pm can pin the status board."""
     bot_id = f"@{name}:{SERVER_NAME}"
+    if name in DISPLAY_NAMES:
+        api("PUT", f"/_matrix/client/v3/profile/{urllib.request.quote(bot_id)}/displayname",
+            {"displayname": DISPLAY_NAMES[name]}, token=bot)
     api("POST", f"/_matrix/client/v3/rooms/{room}/invite", {"user_id": bot_id}, token=admin)
     api("POST", f"/_matrix/client/v3/join/{room}", {}, token=bot)
     pl = api("GET", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", token=admin)

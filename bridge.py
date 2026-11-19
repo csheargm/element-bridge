@@ -122,8 +122,8 @@ class Bridge:
         task.add_done_callback(self.tasks.discard)
 
     def on_task(self, room: MatrixRoom, event: RoomMessageText, task: dict) -> None:
-        """Loop tasks: only from loop-bot, only addressed to this agent, only from a joined member."""
-        if (event.sender != f"@{github.LOOP_BOT}:{SERVER_NAME}" or task.get("agent") != self.user_id
+        """Loop tasks: only from pm, only addressed to this agent, only from a joined member."""
+        if (event.sender != f"@{github.PM_BOT}:{SERVER_NAME}" or task.get("agent") != self.user_id
                 or event.sender not in room.users or event.sender in room.invited_users):
             log.info("ignored loop task in %s from %s", room.room_id, event.sender)
             return

@@ -92,11 +92,11 @@ class SetupBot:
                 + (f"live project status: [pinned board]({board})" if board else "no project status board yet"))
 
     async def board_link(self, room_id: str) -> str | None:
-        """loop-bot's pinned status board (status_board.py), as a link."""
+        """pm's pinned status board (status_board.py), as a link."""
         pins = (await room_state.read(self.client, room_id, "m.room.pinned_events")).get("pinned", [])
         for event_id in reversed(pins if isinstance(pins, list) else []):
             ev = await self.client.room_get_event(room_id, event_id)
-            if isinstance(ev, RoomGetEventResponse) and ev.event.sender == f"@{github.LOOP_BOT}:{SERVER_NAME}":
+            if isinstance(ev, RoomGetEventResponse) and ev.event.sender == f"@{github.PM_BOT}:{SERVER_NAME}":
                 return f"https://matrix.to/#/{room_id}/{event_id}"
         return None
 
@@ -160,7 +160,7 @@ class SetupBot:
 def bot_like(user_id: str) -> bool:
     """Agents and bots never drive setup (no bot can change what another bot may do)."""
     local = user_id.split(":")[0]
-    return local.endswith("-agent") or local[1:] in (github.LOOP_BOT, SETUP_BOT)
+    return local.endswith("-agent") or local[1:] in (github.PM_BOT, SETUP_BOT)
 
 
 def skill_status(name: str, live: dict[str, str], pinned: dict[str, str]) -> str:

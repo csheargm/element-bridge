@@ -68,7 +68,7 @@ without a mention. In an encrypted room the agent says it can't read it (no E2EE
 
 ## Live code changes
 
-`start.sh` runs the bridges and loop-bot under `supervise.py`. Save any `.py` file and they
+`start.sh` runs the bridges and @pm under `supervise.py`. Save any `.py` file and they
 restart by themselves within a second; you never restart the server. A file with a syntax error
 is not loaded; the running version stays up and the error is printed. On restart, each process
 finishes the answer or loop step it is in the middle of, and the new one picks up messages sent
@@ -145,17 +145,17 @@ Delete `data/`, `.env` and `rooms/` to start from scratch.
 
 ## Step 2: the autonomous GitHub loop
 
-`loop.py` runs a coordinator bot, `@loop-bot`, in the room. It watches open issues labelled
+`loop.py` runs a coordinator bot, `@pm`, in the room. It watches open issues labelled
 `agent-ok` on `your-name/hagency-demo-sandbox` (override with `LOOP_REPO`) and drives each issue
 through the room, one step per line:
 
 ```
-loop-bot     @betty-agent: build #136 docs: add docs/MAINTAINERS_NOTE.md (autonomous)
+@pm     @betty-agent: build #136 docs: add docs/MAINTAINERS_NOTE.md (autonomous)
 betty-agent  build: claimed #136
 betty-agent  PR #140 opened for #136: https://github.com/…/pull/140
-loop-bot     review requested from anna-agent
+@pm     review requested from anna-agent
 anna-agent   approved PR #140            (or: changes requested on PR #140 → loop stops)
-loop-bot     PR #140 ready — a person merges          (Assist)
+@pm     PR #140 ready — a person merges          (Assist)
 betty-agent  merged PR #140 (closes #136)               (Autonomous)
 ```
 
@@ -168,7 +168,7 @@ It starts at `off`.
 
 **Who does what.** The builder is picked round-robin (issue number mod number of agents) and the
 reviewer is always a *different* person's agent. Each step runs in that person's bridge with
-**that agent's own GitHub identity**. loop-bot holds no GitHub credentials; it only reads.
+**that agent's own GitHub identity**. @pm holds no GitHub credentials; it only reads.
 - Build: the agent CLI edits a fresh clone with `.git` moved out of its sandbox. Codex runs with
   `workspace-write` and no network. The bridge then commits, pushes and opens the PR.
 - Review: the agent checks the diff read-only against the issue's acceptance criteria. It must end

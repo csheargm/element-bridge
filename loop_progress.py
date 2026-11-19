@@ -1,4 +1,4 @@
-"""loop-bot's polling half: pick up the next issue and move each item on once GitHub's state allows.
+"""pm's polling half: pick up the next issue and move each item on once GitHub's state allows.
 
 Mixed into loop.Loop (which supplies client, state, save, say, dispatch, level, agents_in).
 """

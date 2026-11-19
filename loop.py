@@ -1,11 +1,11 @@
-"""loop-bot: the autonomous GitHub loop, coordinated in a Matrix room.
+"""pm: the autonomous GitHub loop, coordinated in a Matrix room.
 
 Watches open `agent-ok` issues on github.REPO and, per room level (state event
 xyz.hagencylabs.loop, set with `!level off|assist|autonomous` via setup_bot.py):
   assign a builder agent → it claims the issue and opens a PR → ask a DIFFERENT person's agent
   to review → when GitHub itself reports the PR mergeable+approved: Assist posts
   "ready — a person merges", Autonomous asks the builder agent to merge.
-loop-bot holds no GitHub credentials: it only reads (ambient gh) and talks to agents.
+pm holds no GitHub credentials: it only reads (ambient gh) and talks to agents.
 
 Usage: python loop.py
 """
@@ -42,8 +42,8 @@ class SendError(RuntimeError):
 
 class Loop(Progress, Boards):
     def __init__(self) -> None:
-        self.user_id = f"@{github.LOOP_BOT}:{SERVER_NAME}"
-        self.client = AsyncClient(HOMESERVER, self.user_id, device_id="LOOP_BOT")
+        self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
+        self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
         self.state: dict = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
         self.started_ms = int(time.time() * 1000)
         self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
@@ -180,15 +180,15 @@ class Loop(Progress, Boards):
         return info.get("headRefName") == branch and not info.get("isCrossRepository") and info.get("state") == "OPEN"
 
     async def run(self) -> None:
-        resp = await self.client.login(read_env()["PW_LOOP_BOT"], device_name="loop-bot")
+        resp = await self.client.login(read_env()["PW_PM"], device_name="pm")
         if not isinstance(resp, LoginResponse):
-            raise SystemExit(f"loop-bot login failed: {resp}")
+            raise SystemExit(f"pm login failed: {resp}")
         await lifecycle.first_sync(
-            self.client, github.LOOP_BOT, self.sync_point,
+            self.client, github.PM_BOT, self.sync_point,
             lambda: self.client.add_event_callback(self.on_message, RoomMessageText),
             lambda ms: setattr(self, "started_ms", ms))
-        log.info("loop-bot online for %s (poll %ss)", github.REPO, POLL_S)
-        await lifecycle.serve(self.client, github.LOOP_BOT, self.sync_point, self.busy, side=self.poll_forever())
+        log.info("pm online for %s (poll %ss)", github.REPO, POLL_S)
+        await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())
 
     async def poll_forever(self) -> None:
         while True:
@@ -205,7 +205,7 @@ class Loop(Progress, Boards):
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [loop-bot] %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [pm] %(message)s")
     logging.getLogger("nio").setLevel(logging.WARNING)
     try:
         asyncio.run(Loop().run())

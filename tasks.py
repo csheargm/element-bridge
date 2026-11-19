@@ -1,4 +1,4 @@
-"""Loop tasks a bridge runs for loop-bot: build an issue, review a PR, merge a PR.
+"""Loop tasks a bridge runs for pm: build an issue, review a PR, merge a PR.
 
 All GitHub writes use this agent's own identity (github.run(..., agent)). The agent CLI only
 edits a plain working tree: the clone's .git is moved OUTSIDE the agent's writable folder

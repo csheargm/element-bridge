@@ -25,7 +25,7 @@ TASK_KEY = "xyz.hagencylabs.task"
 RESULT_KEY = "xyz.hagencylabs.result"
 LEVEL_EVENT = "xyz.hagencylabs.loop"
 LEVELS = ("off", "assist", "autonomous")
-LOOP_BOT = "loop-bot"            # Matrix localpart of the coordinator (loop.py)
+PM_BOT = "pm"                    # Matrix localpart of the project coordinator, @pm (loop.py)
 
 
 # "PR #12" / "#12" in loop lines → links to the loop repo (markdown; not inside words or URLs).

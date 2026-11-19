@@ -1,8 +1,8 @@
-"""The room's live "Project status": one message loop-bot pins in each room and keeps editing.
+"""The room's live "Project status": one message pm pins in each room and keeps editing.
 
 It shows the loop's steps (which issue, which step, which agent, how long), what's queued, what
 finished in the last day and what stopped and needs a person. It never shows what an agent does
-inside a step (no paths, no tool calls). loop-bot re-renders after every transition and poll and
+inside a step (no paths, no tool calls). pm re-renders after every transition and poll and
 edits the message only when the text changed, so idle rooms aren't flooded with edits.
 
 Mixed into loop.Loop (which supplies client, state, level, open_issues and STATE_FILE's folder).
@@ -112,5 +112,5 @@ class Boards:
         pinned = [e for e in pinned if e != old] + [event_id]
         resp = await self.client.room_put_state(room_id, "m.room.pinned_events", {"pinned": pinned})
         if not hasattr(resp, "event_id"):
-            # The board still works unpinned; setup_accounts.py grants loop-bot the pin permission.
+            # The board still works unpinned; setup_accounts.py grants pm the pin permission.
             log.warning("couldn't pin the status board in %s: %s", room_id, resp)

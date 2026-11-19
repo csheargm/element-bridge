@@ -9,7 +9,7 @@ os.environ.setdefault("HAGENCY_ROOM", "!r:bridge.localhost")
 import github  # noqa: E402
 import hagency_mcp as m  # noqa: E402
 
-ME, BOT = m.USER_ID, m.LOOP_BOT_ID
+ME, BOT = m.USER_ID, m.PM_ID
 
 
 def task_event(task_id, kind="build", sender=BOT, agent=ME, **kw):

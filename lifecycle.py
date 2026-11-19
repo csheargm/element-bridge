@@ -1,4 +1,4 @@
-"""Graceful restarts for the bridges and loop-bot (driven by supervise.py).
+"""Graceful restarts for the bridges and pm (driven by supervise.py).
 
 On SIGTERM a process stops syncing, writes its Matrix sync position to a hand-off file, finishes
 the turns/tasks it already started, and exits. The next process resumes syncing from there, so

@@ -114,7 +114,7 @@ class Commands(unittest.TestCase):
             self.assertIn("file changed since it was enabled", self.run_cmd("cmd_skills", BETTY))
 
     def test_bots_and_agents_never_drive_setup(self):
-        for u in ("@anna-agent:x", "@loop-bot:x", "@setup-bot:x"):
+        for u in ("@anna-agent:x", "@pm:x", "@setup-bot:x"):
             self.assertTrue(bot_like(u))
         self.assertFalse(bot_like(ANNA))
 

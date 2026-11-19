@@ -41,7 +41,7 @@ def main():
     sup = subprocess.Popen([str(ROOT / ".venv/bin/python"), "supervise.py"], cwd=ROOT, env=env,
                            stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
     agent = lambda who: f"@{who}-agent:{SERVER_NAME}"
-    bot = f"@loop-bot:{SERVER_NAME}"
+    bot = f"@pm:{SERVER_NAME}"
     try:
         time.sleep(8)                                   # setup-bot online before the first command
         say(anna, room_id, "!level off")

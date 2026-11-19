@@ -1,6 +1,6 @@
 """End-to-end test of the GitHub loop over the real Matrix server with real Codex agents and a
 fake GitHub (tests/fake_gh.py + a local bare repo). Starts its own anna/betty bridges,
-loop-bot and setup-bot — stop ./start.sh's bridges first. Run: .venv/bin/python test_loop_e2e.py
+pm and setup-bot — stop ./start.sh's bridges first. Run: .venv/bin/python test_loop_e2e.py
 
 Flow checked: Autonomous level → an already-satisfied issue is verified by the other agent and
 closed (not stopped). Then: issue claimed → PR opened → review requested from the
@@ -54,6 +54,8 @@ def wait_for(token, room_id, pred, what, since_ts):
     while time.time() < deadline:
         for ev in api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=50", token)["chunk"]:
             body = ev.get("content", {}).get("body", "")
+            if body.lstrip("* ").startswith("📋"):
+                continue                     # the live status board repeats step words; not a step itself
             if ev.get("origin_server_ts", 0) >= since_ts and pred(ev["sender"], body):
                 return body
         time.sleep(2)
@@ -75,7 +77,7 @@ def main():
     logs = open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([py, "bridge.py", o], cwd=ROOT, env=env, stdout=logs, stderr=logs) for o in ("anna", "betty")]
     procs += [subprocess.Popen([py, f], cwd=ROOT, env=env, stdout=logs, stderr=logs) for f in ("loop.py", "setup_bot.py")]
-    agent, bot = lambda who: f"@{who}-agent:{SERVER_NAME}", f"@loop-bot:{SERVER_NAME}"
+    agent, bot = lambda who: f"@{who}-agent:{SERVER_NAME}", f"@pm:{SERVER_NAME}"
     setup = f"@setup-bot:{SERVER_NAME}"
     try:
         time.sleep(6)

@@ -36,12 +36,12 @@ Built in about 11 minutes of wall-clock, from start to a passing end-to-end loop
 about 400 lines: `loop.py` 203, `tasks.py` 112, `github.py` 81, and 35 lines in the bridge. Tests
 are another 350 lines: a fake `gh`, the loop e2e and the loop unit tests.
 
-**Flow:** loop-bot picks an open `agent-ok` issue and assigns a builder agent round-robin. That
+**Flow:** @pm picks an open `agent-ok` issue and assigns a builder agent round-robin. That
 agent claims the issue, edits a clone, and its bridge commits, pushes and opens the PR as that
-agent's GitHub identity. loop-bot then asks a *different* person's agent to review against the
+agent's GitHub identity. @pm then asks a *different* person's agent to review against the
 issue's acceptance criteria; the review is read-only and needs an explicit `VERDICT: APPROVE`.
 When GitHub reports the PR merge-ready:
-- Assist: loop-bot posts "ready — a person merges".
+- Assist: @pm posts "ready — a person merges".
 - Autonomous: the builder's bridge re-checks with GitHub and merges.
 
 The room level is one Matrix state event, changed with `!level`. Only room moderators can change
@@ -75,7 +75,7 @@ Not adopted, deferred to a real deployment:
 - OS-level containment (a separate user or container) for the agent CLIs.
 - Durable dispatch with reconciliation after a crash between "send" and "save". Today, after a
   crash a person may need to retry an issue.
-- Restricting who may write the level state event to loop-bot only. Today any room moderator
+- Restricting who may write the level state event to @pm only. Today any room moderator
   can, which is the same group allowed to use `!level`.
 
 ### GPT review 3 (live reload, hand-off, watchdog — 80a0a8f)

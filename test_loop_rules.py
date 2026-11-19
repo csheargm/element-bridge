@@ -10,7 +10,7 @@ import tasks
 from bridge import Bridge
 
 ANNA, BETTY = "@anna:bridge.localhost", "@betty:bridge.localhost"
-AGENT, BOT = "@anna-agent:bridge.localhost", f"@{github.LOOP_BOT}:bridge.localhost"
+AGENT, BOT = "@anna-agent:bridge.localhost", f"@{github.PM_BOT}:bridge.localhost"
 
 
 def room(members, invited=()):

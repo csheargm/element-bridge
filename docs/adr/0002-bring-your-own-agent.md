@@ -20,10 +20,10 @@ where our value is.
   - Project creation: the brief becomes a repo and issues.
   - The GitHub loop is opt-in per agent.
 - **Agents plug in through `hagency_mcp.py`.**
-  - It reads only loop-bot's tasks addressed to that agent.
+  - It reads only @pm's tasks addressed to that agent.
   - It does every git and GitHub step under the agent's own GitHub identity, so the agent holds
     no token and needs no shell.
-  - It posts the result event the loop already expects. loop-bot and the rules stay unchanged:
+  - It posts the result event the loop already expects. @pm and the rules stay unchanged:
     a different person's agent reviews, and GitHub's ruleset is the merge gate.
 - **`bridge.py` stays as a fallback** for people without an agent of their own. It is not the
   product.
@@ -35,11 +35,11 @@ where our value is.
 
 ## Security
 - The agent's owner decides what it can do.
-- The recommended room profile allows only the owner and loop-bot (`MATRIX_ALLOWED_USERS`) and
-  only the project rooms (`MATRIX_ALLOWED_ROOMS`).
-- It has no terminal, web or browser toolsets. Approvals are manual.
-- Its file tools work on the checkout the MCP server prepares. They are not sandboxed to it, so a
-  production profile should run Hermes's terminal and file tools in Docker.
+- The recommended room profile obeys only its owner and @pm (`MATRIX_ALLOWED_USERS`). There is
+  no room allowlist, so the owner can also DM their agent.
+- It has no file, terminal, web or browser toolsets. Approvals are manual. It edits repos only
+  through `hagency_mcp.py`'s `read_file` and `write_files`, which are confined to the task's
+  checkout.
 - The room never holds anyone's tools or secrets.
 
 ## Consequences
