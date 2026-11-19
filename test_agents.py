@@ -54,5 +54,35 @@ class GitFence(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, f"git escaped to {r.stdout.strip()}")
 
 
+class CodexLockdown(unittest.TestCase):
+    def home(self, toml):
+        d = Path(tempfile.mkdtemp())
+        (d / "config.toml").write_text(toml)
+        return mock.patch.dict("os.environ", {"CODEX_HOME": str(d)})
+
+    def test_connectors_plugins_web_and_computer_use_off(self):
+        with self.home(""):
+            argv = " ".join(agents._codex_argv(Path("/tmp/w"), None))
+        for flag in ("features.apps=false", "features.plugins=false", "features.computer_use=false",
+                     "features.browser_use=false", 'web_search="disabled"'):
+            self.assertIn(flag, argv)
+
+    def test_every_configured_mcp_server_switched_off(self):
+        with self.home('[mcp_servers.node_repl]\ncommand="x"\n[mcp_servers.computer-use]\ncommand="y"\n'):
+            argv = agents._codex_argv(Path("/tmp/w"), "abcdef12-session", write=True)
+        self.assertIn("mcp_servers.node_repl.enabled=false", argv)
+        self.assertIn("mcp_servers.computer-use.enabled=false", argv)
+
+    def test_unswitchable_server_name_refuses_to_run(self):
+        with self.home('[mcp_servers."a b"]\ncommand="x"\n'):
+            with self.assertRaises(agents.AgentError):
+                agents._codex_argv(Path("/tmp/w"), None)
+
+    def test_unreadable_config_refuses_to_run(self):
+        with self.home("not = [valid"):
+            with self.assertRaises(agents.AgentError):
+                agents._codex_argv(Path("/tmp/w"), None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,10 +30,33 @@ class AgentError(RuntimeError):
     pass
 
 
+# The sandbox only limits files and shell. Codex can also reach the owner's ChatGPT connectors
+# (Gmail, Drive, calendars...), plugins, MCP servers, computer/browser use and web search, while
+# reading untrusted text (other people's chat lines, issue bodies). All of it is switched off.
+CODEX_FEATURES_OFF = ("apps", "plugins", "computer_use", "browser_use", "in_app_browser",
+                      "image_generation", "multi_agent")
+BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _codex_lockdown() -> list[str]:
+    args = [x for f in CODEX_FEATURES_OFF for x in ("-c", f"features.{f}=false")]
+    args += ["-c", 'web_search="disabled"']
+    cfg = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
+    try:
+        servers = tomllib.loads(cfg.read_text()).get("mcp_servers", {}) if cfg.exists() else {}
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise AgentError(f"can't read {cfg} to switch its MCP servers off: {e}") from e   # fail closed
+    for name in servers:
+        if not BARE_KEY_RE.match(name):
+            raise AgentError(f"can't safely switch off Codex MCP server {name!r}; rename it in {cfg}")
+        args += ["-c", f"mcp_servers.{name}.enabled=false"]
+    return args
+
+
 def _codex_argv(workdir: Path, session_id: str | None, write: bool = False) -> list[str]:
     sandbox = "workspace-write" if write else "read-only"
     common = ["--json", "--skip-git-repo-check", "-c", f'sandbox_mode="{sandbox}"',
-              "-c", 'approval_policy="never"']
+              "-c", 'approval_policy="never"', *_codex_lockdown()]
     if session_id:
         return ["codex", "exec", "resume", *common, session_id, "-"]
     return ["codex", "exec", *common, "-C", str(workdir), "-"]
