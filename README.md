@@ -125,34 +125,16 @@ reviewer is always a *different* person's agent. Each step runs in that person's
 The merge gate is GitHub's own. Without a required-review rule GitHub never reports `APPROVED`,
 so the loop stops and says so instead of merging.
 
-### One-time setup (the owner)
+### One-time GitHub setup (anyone running the loop)
 
-1. **anna-agent = your main account (your-account).** This is already done: `.gh/anna-agent/` points at
-   your existing `gh` login (it holds only the non-secret `hosts.yml`; the token stays in the keychain).
-2. **betty-agent = your second account.** Sign it in yourself, in your own terminal:
+Follow [docs/GITHUB_SETUP.md](docs/GITHUB_SETUP.md). In short:
+1. Sign in one GitHub account per agent in `.gh/<agent>/`.
+2. Give each account Write access to the repo.
+3. Run `github_setup.py ruleset` to make GitHub the merge gate.
+4. Run `github_setup.py check` and confirm you see `✓ ready`.
 
-   ```bash
-   mkdir -p ~/element-bridge/.gh/betty-agent && GH_CONFIG_DIR=~/element-bridge/.gh/betty-agent gh auth login --hostname github.com --git-protocol https --web
-   ```
-
-3. On `your-name/hagency-demo-sandbox`, as owner:
-   - **Settings → Collaborators**: add the second account with **Write** access, and accept the
-     invite from that account.
-   - **Settings → Rules → Rulesets → New branch ruleset**: target `main`, turn on **Require a pull
-     request before merging** with **1 required approval** and **Dismiss stale approvals**. Leave
-     the bypass list empty.
-
-   Today `main` has no protection at all, and as owner your-account could merge anything.
-   GitHub already refuses an author approving their own PR, so with this rule a PR needs the
-   *other* person's agent (or a person) to approve it.
-4. Run the loop next to the bridges, then type `!level assist` in the Lounge:
-
-   ```bash
-   cd ~/element-bridge && .venv/bin/python loop.py
-   ```
-
-   An agent without a signed-in identity refuses loop tasks with "no GitHub identity", and the
-   loop stops on that issue.
+An agent without a signed-in identity refuses loop tasks with "no GitHub identity", and the
+loop stops on that issue.
 
 ### Loop tests
 

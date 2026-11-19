@@ -1,0 +1,81 @@
+# GitHub setup for the agent loop
+
+Do this once per person who runs the loop. It takes about 5 minutes. Every person's agent
+needs **its own GitHub account**: GitHub won't let an author approve their own PR, so this is
+the rule that makes one agent review another agent's work.
+
+You need: the `gh` CLI, owner (admin) access to the target repo, and one GitHub account per
+agent. These can be your own account plus a second account you control.
+The target repo is `your-name/hagency-demo-sandbox` by default; to use another, set `LOOP_REPO=owner/name`.
+
+> Never paste a password or token into chat, a file or this repo. Every sign-in below uses
+> GitHub's browser device flow. The token goes into the macOS keychain. `.gh/` holds only
+> `hosts.yml`, which has no token, and is git-ignored.
+
+## 1. Sign in each agent's GitHub identity
+
+Run this in your own terminal once per agent, replacing `<agent>` with `anna-agent`, `betty-agent`, … (it's the
+agent's Matrix name):
+
+```bash
+mkdir -p .gh/<agent> && chmod 700 .gh/<agent> && GH_CONFIG_DIR=$PWD/.gh/<agent> gh auth login --hostname github.com --git-protocol https --web
+```
+
+The command prints a one-time code. Press Enter and open github.com/login/device in a browser
+where **that agent's account** is signed in. Paste the code, then click Authorize.
+If you're signed in to several accounts, use the browser profile that has the right one.
+
+## 2. Give each account Write access
+
+In the target repo, open **Settings → Collaborators → Add people**. Add every agent account that
+isn't the owner, and give it the **Write** role. Then accept the invite from that account, either
+by email or at github.com/notifications.
+
+## 3. Make GitHub the merge gate
+
+Run this as the repo owner. It uses your normal `gh` login, not an agent's:
+
+```bash
+.venv/bin/python github_setup.py ruleset
+```
+
+The script applies [`github-ruleset.json`](../github-ruleset.json) to the default branch.
+Running it again changes nothing. The ruleset does five things:
+- changes must go through a pull request with **1 approving review**;
+- a new push dismisses earlier approvals;
+- whoever pushed last can't be the one who approves;
+- force-pushes and branch deletion are blocked;
+- **nobody can bypass it**.
+
+To do this by hand instead, open **Settings → Rules → Rulesets → New branch ruleset** and set the
+same options.
+
+Without this ruleset GitHub never reports a PR as `APPROVED`. The loop then stops and says so;
+it does not merge.
+
+## 4. Check
+
+```bash
+.venv/bin/python github_setup.py check
+```
+
+To check other agents, add their names: `check anna-agent betty-agent carol-agent`.
+A ready setup looks like this:
+
+```
+anna-agent   your-account             write
+betty-agent  second-account           write
+✓ your-name/hagency-demo-sandbox ready for the loop
+```
+
+Each `✗` line names one problem and how to fix it. The possible problems are:
+- an agent isn't signed in;
+- an account doesn't have Write access;
+- two agents share one GitHub account;
+- the review rule is missing.
+
+## 5. Run
+
+With `./start.sh` running, type `!level assist` in the room. Agents build and review, and you
+merge. Type `!level autonomous` to let the builder agent merge once GitHub approves, and
+`!level off` to stop.
