@@ -22,22 +22,20 @@ from nio import (AsyncClient, LoginResponse, MatrixRoom, RoomGetStateEventRespon
                  RoomMessageText)
 
 import github
+from loop_progress import Progress
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
 POLL_S = float(os.environ.get("LOOP_POLL_S", "30"))
 MODERATOR_LEVEL = 50
 STATE_FILE = Path(os.environ.get("LOOP_STATE", ROOT / "loop-state.json"))   # git-ignored; per-issue progress
-ACTIVE = ("building", "reviewing", "approved", "ready", "merging", "merge_sent",
-          "verifying", "confirmed_done", "close_ready", "closing", "close_sent")
 EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging",
                   "verify": "verifying", "close": "closing"}
 CHECKER_KINDS = ("review", "verify")      # results only the second agent may report
-CLOSE_STAGES = ("confirmed_done", "close_ready", "close_sent")
 
 log = logging.getLogger("loop")
 
 
-class Loop:
+class Loop(Progress):
     def __init__(self) -> None:
         self.user_id = f"@{github.LOOP_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="LOOP_BOT")
@@ -178,74 +176,6 @@ class Loop:
                                       "headRefName,isCrossRepository,state"])
         branch = f"agent/{item['builder'].split(':')[0][1:]}/issue-{key}"
         return info.get("headRefName") == branch and not info.get("isCrossRepository") and info.get("state") == "OPEN"
-
-    # --- polling: pick up issues, check GitHub's merge verdict -------------------------
-    async def tick(self) -> None:
-        for room_id, room in self.client.rooms.items():
-            lvl = await self.level(room_id)
-            if lvl == "off":
-                continue
-            active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
-            for key, item in active:
-                await self.advance(room_id, key, item, lvl)
-            if not active:
-                await self.claim_next(room, lvl)
-
-    async def claim_next(self, room: MatrixRoom, lvl: str) -> None:
-        issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL,
-                                        "--state", "open", "--json", "number,title", "--limit", "50"])
-        fresh = sorted((i for i in issues if str(i["number"]) not in self.state), key=lambda i: i["number"])
-        agents = self.agents_in(room)
-        if not fresh or not agents:
-            return
-        issue = fresh[0]
-        n = issue["number"]
-        builder = agents[n % len(agents)]
-        item = self.state[str(n)] = {"room": room.room_id, "stage": "building", "builder": builder}
-        await self.dispatch(room.room_id, item, builder, f"{builder}: build #{n} {issue['title']} ({lvl})",
-                            {"kind": "build", "issue": n})
-
-    async def advance(self, room_id: str, key: str, item: dict, lvl: str) -> None:
-        if item["stage"] in CLOSE_STAGES:
-            await self.advance_close(room_id, key, item, lvl)
-            return
-        if item["stage"] not in ("approved", "ready", "merge_sent"):
-            return                                   # waiting on an agent's result message
-        ok, info = await github.merge_ready(item["pr"])
-        if info.get("state") == "MERGED":
-            by = "the loop" if item["stage"] == "merge_sent" else "a person"
-            item["stage"] = "done"
-            await self.say(room_id, f"PR #{item['pr']} merged by {by}; #{key} done")
-        elif item["stage"] == "merge_sent":
-            pass                                     # merge requested; wait for GitHub to show MERGED
-        elif ok and lvl == "autonomous":
-            item["stage"] = "merging"
-            await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: merge PR #{item['pr']}",
-                                {"kind": "merge", "issue": int(key), "pr": item["pr"], "sha": item["sha"]})
-        elif ok and item["stage"] == "approved":
-            item["stage"] = "ready"
-            await self.say(room_id, f"PR #{item['pr']} ready — a person merges")
-        elif not ok and item["stage"] == "approved" and info.get("reviewDecision") != "APPROVED":
-            item["stage"] = "stopped"   # an agent approved but GitHub doesn't count it: protection missing?
-            await self.say(room_id, f"PR #{item['pr']}: GitHub reports {info.get('reviewDecision') or 'no required review'}"
-                           " — check the repo's branch rules; a person merges")
-        self.save()
-
-    async def advance_close(self, room_id: str, key: str, item: dict, lvl: str) -> None:
-        """An already-done issue, confirmed by a second agent: Autonomous closes it, Assist asks a person."""
-        issue = await github.run_json(["issue", "view", key, "-R", github.REPO, "--json", "state"])
-        if issue.get("state") == "CLOSED":
-            by = "the loop" if item["stage"] == "close_sent" else "a person"
-            item["stage"] = "done"
-            await self.say(room_id, f"#{key} closed by {by} (already done)")
-        elif item["stage"] == "confirmed_done" and lvl == "autonomous":
-            item["stage"] = "closing"
-            await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: close #{key} (already done)",
-                                {"kind": "close", "issue": int(key), "verifier": item["reviewer"]})
-        elif item["stage"] == "confirmed_done":
-            item["stage"] = "close_ready"
-            await self.say(room_id, f"#{key} is already done (confirmed by {item['reviewer'].split(':')[0][1:]}) — a person closes")
-        self.save()
 
     async def run(self) -> None:
         resp = await self.client.login(read_env()["PW_LOOP_BOT"], device_name="loop-bot")
