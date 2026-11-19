@@ -1,4 +1,4 @@
-# TIMELOG — element-bridge prototype (2026-11-19, times from `date`, local)
+# TIMELOG — hagency-bridge prototype (named element-bridge until 2026-11-19 11:45) (2026-11-19, times from `date`, local)
 
 | Time | Event | Elapsed from start |
 |---|---|---|

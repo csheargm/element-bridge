@@ -1,5 +1,5 @@
 # Local-only prototype stack. Ports 8648 (Synapse) and 8649 (Element Web) bind to 127.0.0.1.
-name: element-bridge
+name: hagency-bridge
 services:
   synapse:
     image: matrixdotorg/synapse:latest

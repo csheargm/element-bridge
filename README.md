@@ -1,4 +1,4 @@
-# element-bridge — chat + bring your own agent (Matrix + Element prototype)
+# hagency-bridge — Hagency Rooms: chat + bring your own agent (Matrix + Element prototype)
 
 One-day prototype: a stock Matrix homeserver (Synapse) and Element as the chat app, plus a
 ~270-line Python bridge that lets each person's **own** agent CLI (Codex or Claude Code, using
@@ -16,7 +16,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 1. Start everything — server, accounts (first run only) and both agent bridges:
 
    ```bash
-   cd ~/element-bridge && ./start.sh
+   cd ~/hagency-bridge && ./start.sh
    ```
 
    Leave it running (Ctrl-C stops the bridges; the server keeps running in Docker).
@@ -25,7 +25,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 2. Look up anna's password (it is never printed by the scripts):
 
    ```bash
-   grep PW_ANNA ~/element-bridge/.env
+   grep PW_ANNA ~/hagency-bridge/.env
    ```
 
 3. Open **http://localhost:8649** in your browser (or Element desktop: on the sign-in screen
@@ -103,7 +103,7 @@ resends the step and the issue is still merged.
 ## Stop / reset
 
 ```bash
-docker compose -f ~/element-bridge/docker-compose.yml down
+docker compose -f ~/hagency-bridge/docker-compose.yml down
 ```
 
 Delete `data/`, `.env` and `rooms/` to start from scratch.
@@ -124,7 +124,7 @@ loop-bot     PR #140 ready — a person merges          (Assist)
 betty-agent  merged PR #140 (closes #136)               (Autonomous)
 ```
 
-**Room level** is one Matrix state event (`org.elementbridge.loop`) that a room moderator sets by
+**Room level** is one Matrix state event (`xyz.hagencylabs.loop`) that a room moderator sets by
 typing `!level off`, `!level assist` or `!level autonomous` in the room. It starts at `off`.
 - Off: the loop does nothing.
 - Assist: agents build and review, then a person merges.

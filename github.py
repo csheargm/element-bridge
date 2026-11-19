@@ -21,9 +21,9 @@ IDENTITY_ROOT = Path(os.environ.get("GH_IDENTITY_ROOT", ROOT / ".gh"))
 CMD_TIMEOUT_S = 120
 
 # Event content keys shared by loop.py and the bridges.
-TASK_KEY = "org.elementbridge.task"
-RESULT_KEY = "org.elementbridge.result"
-LEVEL_EVENT = "org.elementbridge.loop"
+TASK_KEY = "xyz.hagencylabs.task"
+RESULT_KEY = "xyz.hagencylabs.result"
+LEVEL_EVENT = "xyz.hagencylabs.loop"
 LEVELS = ("off", "assist", "autonomous")
 LOOP_BOT = "loop-bot"            # Matrix localpart of the coordinator (loop.py)
 

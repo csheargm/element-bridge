@@ -70,7 +70,7 @@ async def build(agent: str, backend: str, base: Path, task: dict) -> dict:
     await git([*g, *who, "commit", "--quiet", "--no-verify", "-m", f"{issue['title']}\n\nCloses #{n}"],
               agent, work_root)
     await git([*g, "push", "--quiet", "--no-verify", "-u", "origin", branch], agent, work_root)
-    body = f"Closes #{n}\n\nBuilt by `{agent}` ({backend}) via the element-bridge loop.\n\n{summary[:3000]}"
+    body = f"Closes #{n}\n\nBuilt by `{agent}` ({backend}) via the hagency-bridge loop.\n\n{summary[:3000]}"
     url = (await run(["pr", "create", "-R", REPO, "--head", branch, "--title", issue["title"],
                       "--body", body], agent)).strip().splitlines()[-1]
     pr = int(url.rstrip("/").rsplit("/", 1)[1])
@@ -141,7 +141,7 @@ async def close(agent: str, backend: str, base: Path, task: dict) -> dict:
     _check_repo(task)
     n = int(task["issue"])
     await _issue(n, agent)                                # still open + agent-ok, re-checked here
-    note = (f"Closed by the element-bridge loop: `{agent}` found nothing to change and "
+    note = (f"Closed by the hagency-bridge loop: `{agent}` found nothing to change and "
             f"`{task['verifier']}` confirmed every acceptance criterion is already met.")
     await run(["issue", "close", str(n), "-R", REPO, "--reason", "completed", "--comment", note], agent)
     return {"kind": "close", "issue": n, "line": f"closed #{n} (already done)"}

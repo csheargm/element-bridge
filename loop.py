@@ -1,7 +1,7 @@
 """loop-bot: the autonomous GitHub loop, coordinated in a Matrix room.
 
 Watches open `agent-ok` issues on github.REPO and, per room level (state event
-org.elementbridge.loop, set with `!level off|assist|autonomous` by a room moderator):
+xyz.hagencylabs.loop, set with `!level off|assist|autonomous` by a room moderator):
   assign a builder agent → it claims the issue and opens a PR → ask a DIFFERENT person's agent
   to review → when GitHub itself reports the PR mergeable+approved: Assist posts
   "ready — a person merges", Autonomous asks the builder agent to merge.

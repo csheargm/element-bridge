@@ -1,4 +1,4 @@
-# vim:ft=yaml# --- element-bridge prototype: local-only, relaxed rate limits for agent users
+# vim:ft=yaml# --- hagency-bridge prototype: local-only, relaxed rate limits for agent users
 rc_message: {per_second: 50, burst_count: 100}
 rc_login:
   address: {per_second: 10, burst_count: 50}
