@@ -1,6 +1,6 @@
 """End-to-end test of the GitHub loop over the real Matrix server with real Codex agents and a
 fake GitHub (tests/fake_gh.py + a local bare repo). Starts its own anna/betty bridges,
-pm and setup-bot — stop ./start.sh's bridges first. Run: .venv/bin/python test_loop_e2e.py
+@pm — stop ./start.sh's bridges first. Run: .venv/bin/python test_loop_e2e.py
 
 Flow checked: Autonomous level → an already-satisfied issue is verified by the other agent and
 closed (not stopped). Then: issue claimed → PR opened → review requested from the
@@ -76,9 +76,8 @@ def main():
     py = str(ROOT / ".venv" / "bin" / "python")
     logs = open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([py, "bridge.py", o], cwd=ROOT, env=env, stdout=logs, stderr=logs) for o in ("anna", "betty")]
-    procs += [subprocess.Popen([py, f], cwd=ROOT, env=env, stdout=logs, stderr=logs) for f in ("loop.py", "setup_bot.py")]
+    procs += [subprocess.Popen([py, f], cwd=ROOT, env=env, stdout=logs, stderr=logs) for f in ("loop.py",)]
     agent, bot = lambda who: f"@{who}-agent:{SERVER_NAME}", f"@pm:{SERVER_NAME}"
-    setup = f"@setup-bot:{SERVER_NAME}"
     try:
         time.sleep(6)
         say(anna, room_id, "!level off")   # a previous run may have left the room on autonomous
@@ -86,7 +85,7 @@ def main():
         t0 = time.time()
         ts = int(t0 * 1000)
         say(anna, room_id, "!level autonomous")
-        wait_for(anna, room_id, lambda s, b: s == setup and "loop level: autonomous" in b, "level set", ts)
+        wait_for(anna, room_id, lambda s, b: s == bot and "loop level: autonomous" in b, "level set", ts)
         check("anna sets level autonomous", True, f"{time.time()-t0:.0f}s")
         # issue 200 is already satisfied: anna-agent builds nothing, betty-agent verifies, anna-agent closes
         body = wait_for(anna, room_id, lambda s, b: s == agent("anna") and b.startswith(("no change needed for #200", "⚠️")), "no-change", ts)

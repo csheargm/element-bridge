@@ -136,7 +136,7 @@ def main():
     run_env = {**os.environ, **gh_env}
     logs = open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([PY, *a], cwd=ROOT, env=run_env, stdout=logs, stderr=logs)
-             for a in (["bridge.py", "betty"], ["loop.py"], ["setup_bot.py"])]
+             for a in (["bridge.py", "betty"], ["loop.py"])]
     procs.append(subprocess.Popen(["hermes", "-p", "annaroom", "gateway", "run"], stdout=logs, stderr=logs))
     anna, betty = login("anna", env["PW_ANNA"]), login("betty", env["PW_BETTY"])
     me = f"@{HERMES}:{SERVER_NAME}"

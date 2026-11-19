@@ -43,7 +43,7 @@ def main():
     agent = lambda who: f"@{who}-agent:{SERVER_NAME}"
     bot = f"@pm:{SERVER_NAME}"
     try:
-        time.sleep(8)                                   # setup-bot online before the first command
+        time.sleep(8)                                   # @pm online before the first command
         say(anna, room_id, "!level off")
         time.sleep(2)
         # A. two questions around a code save

@@ -1,6 +1,6 @@
 # ADR 0001: Room skills are reviewed text owned by the room
 
-Date: 2026-11-19 · Status: accepted
+Date: 2026-11-19 · Status: superseded by ADR 0002 (agents bring their own skills; code removed)
 
 ## Context
 Agents in a Hagency room should get better over time by building capabilities. The agent CLIs

@@ -83,7 +83,7 @@ moves on to the next one.
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest test_rules test_agents test_loop_rules test_loop_watchdog test_lifecycle test_github_setup test_setup_bot
+.venv/bin/python -m unittest test_rules test_agents test_loop_rules test_loop_watchdog test_lifecycle test_github_setup test_pm_chat test_hagency_mcp test_status_board
 ```
 
 ```bash
@@ -96,44 +96,27 @@ drives the real flow over the Matrix API with the bridges running: anna and bett
 agents, checks replies, typing, per-room memory across turns, that the other agent stays quiet,
 that anna's agent ignores betty, and the encrypted-room warning.
 
-`test_setup_e2e.py` (stop `start.sh` first) checks the setup-bot commands, that only a moderator
-can change settings, that an enabled skill reaches a real agent turn, and that an edited skill file
-is flagged and no longer used.
+`test_pm_e2e.py` (stop `start.sh` first) talks to @pm in plain words: anyone can stop, a
+contributor can't switch to autonomous, and the owner can, after a ✅.
 
 `test_restart_e2e.py` (stop `start.sh` first) saves a code file between two questions and checks
 both are answered exactly once, then kills the builder's bridge mid-step and checks the loop
 resends the step and the issue is still merged.
 
-## Room settings from chat: setup-bot
+## Talking to @pm
 
-`@setup-bot` answers `!` commands in every room it is in. Anyone in the room can look; only room
-moderators (power level 50, or the creator of a v12 room) can change anything. Settings are the
-room's own Matrix state events, so there are no config files to edit.
+Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain words; the commands
+`!help`, `!status` and `!level` still work as shortcuts.
 
-| Command | What it does |
-|---|---|
-| `!help` | lists the commands |
-| `!status` | loop level, repo, agents in the room, skills that are on |
-| `!level off\|assist\|autonomous` | sets the GitHub loop's level (`!level` alone shows it) |
-| `!skills` | skills in the repo's `skills/` folder and which are on here |
-| `!skill enable <name>` / `!skill disable <name>` | turns a room skill on or off |
+| Say | What happens | Who |
+|---|---|---|
+| "@pm take it all the way" | agents build, review and merge on their own, after a ✅ | owner or maintainer |
+| "@pm let us approve each change" | each change waits for a person to merge | owner or maintainer |
+| "@pm stop" / "turn it all off" | no new work and no merges, at once | anyone |
+| "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |
 
-### Room skills
-
-A room skill is a short instruction file, `skills/<name>.md`, on the loop repo's default branch.
-It belongs to the room, never to anyone's Mac. See [docs/adr/0001-room-skills.md](docs/adr/0001-room-skills.md).
-1. An agent (or a person) proposes it as a PR, for example from an `agent-ok` issue. Another
-   person's agent reviews it, and GitHub's ruleset gates the merge.
-2. A moderator types `!skill enable <name>`. That pins the file's exact version (its blob sha)
-   in the room's state event `xyz.hagencylabs.skills`.
-3. Each bridge adds the room's enabled skills to its agent's prompt, for chat turns and loop
-   steps alike, but only while the file on the default branch still has the pinned version.
-   If someone edits the file, agents stop using it, and `!skills` says so, until a moderator
-   enables it again.
-
-Skills are text only. They never give an agent tools, connectors, MCP servers, network access or
-anyone's accounts: every turn still runs in the same locked-down sandbox (`agents.py`). A
-personal tool on someone's Mac is never reachable from a room.
+The phrases are matched by plain rules (`intents.py`), not AI, so "stop" works even when no model
+does.
 
 ## Stop / reset
 

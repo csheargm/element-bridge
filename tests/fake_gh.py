@@ -6,7 +6,6 @@ identity is the basename of $GH_CONFIG_DIR (like one gh login per agent). Mirror
 rules the loop relies on: you can't approve your own PR, and with required reviews
 (state["protected"]) reviewDecision is APPROVED only after a non-author approval.
 """
-import base64
 import json
 import os
 import subprocess
@@ -84,15 +83,6 @@ def main(a):
         print(f"https://github.com/{opt(a, '-R')}/pull/{n}")
     elif cmd == ["pr", "diff"]:
         print(git("--git-dir", s["remote"], "diff", f"main...{s['prs'][a[2]]['head']}"))
-    elif a[0] == "api" and a[1].endswith("/contents/skills"):      # room skills on main
-        out = git("--git-dir", s["remote"], "ls-tree", "main", "skills/")
-        entries = [ln.split(None, 3) for ln in out.splitlines()]
-        print(json.dumps([{"name": e[3].split("/", 1)[1], "type": "file" if e[1] == "blob" else "dir",
-                           "sha": e[2]} for e in entries]))
-    elif a[0] == "api" and "/git/blobs/" in a[1]:
-        raw = subprocess.run(["git", "--git-dir", s["remote"], "cat-file", "blob", a[1].rsplit("/", 1)[1]],
-                             check=True, capture_output=True).stdout
-        print(json.dumps({"content": base64.b64encode(raw).decode(), "encoding": "base64"}))
     elif a[0] == "api" and a[-1:] != ["user"] and "/reviews" in " ".join(a):
         n = [x for x in a if "/pulls/" in x][0].split("/pulls/")[1].split("/")[0]
         pr, f = s["prs"][n], fields(a)

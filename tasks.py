@@ -97,9 +97,9 @@ async def finish_build(agent: str, who_built: str, co: Checkout, summary: str) -
     return {"kind": "build", "issue": n, "pr": pr, "branch": co.branch, "line": f"PR #{pr} opened for #{n}: {url}"}
 
 
-async def build(agent: str, backend: str, base: Path, task: dict, skills: str = "") -> dict:
+async def build(agent: str, backend: str, base: Path, task: dict) -> dict:
     co = await prepare_build(agent, base, task)
-    summary = await agents.run_turn(backend, co.tree, skills + build_prompt(co), write=True, fresh=True)
+    summary = await agents.run_turn(backend, co.tree, build_prompt(co), write=True, fresh=True)
     return await finish_build(agent, backend, co, summary)
 
 
@@ -120,7 +120,7 @@ def review_prompt(n: int, pr: int, issue: dict, diff: str) -> str:
             "then a last line that is exactly `VERDICT: APPROVE` or `VERDICT: REQUEST_CHANGES`.")
 
 
-async def review(agent: str, backend: str, base: Path, task: dict, skills: str = "") -> dict:
+async def review(agent: str, backend: str, base: Path, task: dict) -> dict:
     n, pr, issue, head, diff = await review_material(agent, task)
     if len(diff) > MAX_DIFF_CHARS:   # never approve what the reviewer couldn't fully see
         return await submit_review(agent, n, pr, head, "REQUEST_CHANGES", "Diff too large to review in full.")
@@ -137,7 +137,7 @@ async def submit_review(agent: str, n: int, pr: int, head: str, verdict: str, te
             "line": f"{word} PR #{pr}"}
 
 
-async def merge(agent: str, backend: str, base: Path, task: dict, skills: str = "") -> dict:
+async def merge(agent: str, backend: str, base: Path, task: dict) -> dict:
     _check_repo(task)
     n, pr = int(task["issue"]), int(task["pr"])
     sha = str(task["sha"])
@@ -148,7 +148,7 @@ async def merge(agent: str, backend: str, base: Path, task: dict, skills: str = 
     return {"kind": "merge", "issue": n, "pr": pr, "line": f"merged PR #{pr} (closes #{n})"}
 
 
-async def verify(agent: str, backend: str, base: Path, task: dict, skills: str = "") -> dict:
+async def verify(agent: str, backend: str, base: Path, task: dict) -> dict:
     """A second agent checks, read-only on a fresh clone of main, that the issue is already met."""
     _check_repo(task)
     n = int(task["issue"])
@@ -164,13 +164,13 @@ async def verify(agent: str, backend: str, base: Path, task: dict, skills: str =
               f"{issue.get('body', '')}\n\nCheck every acceptance criterion strictly against the files. "
               "Reply with at most 5 short lines of reasons, then a last line that is exactly "
               "`VERDICT: APPROVE` (already satisfied) or `VERDICT: REQUEST_CHANGES` (not satisfied).")
-    text = await agents.run_turn(backend, tree, skills + prompt, fresh=True)   # read-only
+    text = await agents.run_turn(backend, tree, prompt, fresh=True)   # read-only
     verdict = parse_verdict(text)
     line = f"confirmed #{n} is already done" if verdict == "APPROVE" else f"#{n} is NOT already done"
     return {"kind": "verify", "issue": n, "verdict": verdict.lower(), "reason": text[-1500:], "line": line}
 
 
-async def close(agent: str, backend: str, base: Path, task: dict, skills: str = "") -> dict:
+async def close(agent: str, backend: str, base: Path, task: dict) -> dict:
     _check_repo(task)
     n = int(task["issue"])
     await _issue(n, agent)                                # still open + agent-ok, re-checked here
@@ -184,14 +184,13 @@ HANDLERS = {"build": build, "review": review, "merge": merge, "verify": verify, 
 AUTONOMOUS_ONLY = {"merge", "close"}       # bridges re-check the room level before these
 
 
-async def handle(agent: str, backend: str, base: Path, task: dict, skills: str = "") -> dict:
-    """Run one task; failures come back as a result too, so the loop can stop cleanly.
-    skills: the room's enabled skills as prompt text (room_skills.prompt_block), set by the bridge."""
+async def handle(agent: str, backend: str, base: Path, task: dict) -> dict:
+    """Run one task; failures come back as a result too, so the loop can stop cleanly."""
     kind = task.get("kind")
     try:
         if kind not in HANDLERS:
             raise TaskError(f"unknown task kind {kind!r}")
-        return {**await HANDLERS[kind](agent, backend, base, task, skills), "task_id": task.get("task_id")}
+        return {**await HANDLERS[kind](agent, backend, base, task), "task_id": task.get("task_id")}
     except (TaskError, GitHubError, agents.AgentError, KeyError, ValueError, OSError) as e:
         return {"kind": kind, "issue": task.get("issue"), "pr": task.get("pr"), "error": str(e)[:400],
                 "task_id": task.get("task_id"),

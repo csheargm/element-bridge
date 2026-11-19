@@ -1,11 +1,10 @@
 """A room's settings live in its own Matrix state, not in config files: the loop level
-(github.LEVEL_EVENT) and the enabled skills (room_skills.SKILLS_EVENT). Only moderators may
-change them — the server enforces that (state events need power 50) and setup_bot.py checks it.
+(github.LEVEL_EVENT). Only moderators may
+change them — the server enforces that (state events need power 50) and @pm checks it (pm_chat.py).
 """
 from nio import AsyncClient, MatrixRoom, RoomGetStateEventResponse, RoomGetStateResponse
 
 import github
-import room_skills
 
 MODERATOR_LEVEL = 50
 
@@ -23,10 +22,6 @@ def level_of(content: dict) -> str:
 
 async def level(client: AsyncClient, room_id: str) -> str:
     return level_of(await read(client, room_id, github.LEVEL_EVENT))
-
-
-async def skills(client: AsyncClient, room_id: str) -> dict[str, str]:
-    return room_skills.enabled(await read(client, room_id, room_skills.SKILLS_EVENT))
 
 
 async def is_moderator(client: AsyncClient, room: MatrixRoom, sender: str) -> bool:

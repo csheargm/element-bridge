@@ -1,7 +1,7 @@
 """pm: the autonomous GitHub loop, coordinated in a Matrix room.
 
 Watches open `agent-ok` issues on github.REPO and, per room level (state event
-xyz.hagencylabs.loop, set with `!level off|assist|autonomous` via setup_bot.py):
+xyz.hagencylabs.loop, set by talking to @pm, see pm_chat.py):
   assign a builder agent → it claims the issue and opens a PR → ask a DIFFERENT person's agent
   to review → when GitHub itself reports the PR mergeable+approved: Assist posts
   "ready — a person merges", Autonomous asks the builder agent to merge.
@@ -18,12 +18,13 @@ import uuid
 from pathlib import Path
 
 import markdown
-from nio import AsyncClient, LoginResponse, MatrixRoom, RoomMessageText, RoomSendResponse
+from nio import AsyncClient, LoginResponse, MatrixRoom, ReactionEvent, RoomMessageText, RoomSendResponse
 
 import github
 import lifecycle
 import room_state
 from loop_progress import Progress
+from pm_chat import Chat
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -40,7 +41,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards):
+class Loop(Progress, Boards, Chat):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -54,6 +55,7 @@ class Loop(Progress, Boards):
         self.board_file = STATE_FILE.with_name(STATE_FILE.stem + "-boards.json")   # git-ignored
         self.boards: dict = self.load_boards()      # room → pinned status message (status_board.py)
         self.open_issues: dict[str, list] = {}      # room → queued issues, for the board
+        self.pending: dict = {}                     # room → autonomous switch awaiting ✅ (pm_chat.py)
 
     def save(self) -> None:
         for item in self.state.values():            # when an item finished, for the board's "last 24 h"
@@ -75,7 +77,7 @@ class Loop(Progress, Boards):
         self.save()
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
 
-    async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None) -> None:
+    async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None) -> str:
         content = {"msgtype": "m.notice" if task is None else "m.text", "body": body}
         source = github.linkify(body)
         if mention:
@@ -87,6 +89,7 @@ class Loop(Progress, Boards):
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not isinstance(resp, RoomSendResponse):
             raise SendError(f"could not post to {room_id}: {resp}")
+        return resp.event_id
 
     async def level(self, room_id: str) -> str:
         return await room_state.level(self.client, room_id)
@@ -101,6 +104,24 @@ class Loop(Progress, Boards):
         result = event.source.get("content", {}).get(github.RESULT_KEY)
         if isinstance(result, dict) and event.sender in self.agents_in(room):
             await self.guarded(self.take_result(room, event.sender, result))
+        elif self.is_person(room, event.sender):
+            try:
+                await self.on_human(room, event)
+            except SendError as e:
+                log.error("couldn't answer %s: %s", event.sender, e)   # Matrix refused; they can ask again
+
+    async def on_reaction_event(self, room: MatrixRoom, event: ReactionEvent) -> None:
+        if not is_stale(event, self.started_ms) and self.is_person(room, event.sender):
+            try:
+                await self.on_reaction(room, event)
+            except SendError as e:
+                log.error("couldn't confirm for %s: %s", event.sender, e)   # they can react again
+
+    def is_person(self, room: MatrixRoom, user_id: str) -> bool:
+        """A joined human: not me, not an agent (agents never change how the room runs)."""
+        local = user_id.split(":")[0]
+        return (user_id != self.user_id and not local.endswith("-agent") and not local.endswith("-bot")
+                and user_id in room.users and user_id not in room.invited_users)
 
     async def take_result(self, room: MatrixRoom, sender: str, result: dict) -> None:
         async with self.lock:
@@ -185,7 +206,8 @@ class Loop(Progress, Boards):
             raise SystemExit(f"pm login failed: {resp}")
         await lifecycle.first_sync(
             self.client, github.PM_BOT, self.sync_point,
-            lambda: self.client.add_event_callback(self.on_message, RoomMessageText),
+            lambda: (self.client.add_event_callback(self.on_message, RoomMessageText),
+                     self.client.add_event_callback(self.on_reaction_event, ReactionEvent)),
             lambda ms: setattr(self, "started_ms", ms))
         log.info("pm online for %s (poll %ss)", github.REPO, POLL_S)
         await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())

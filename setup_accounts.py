@@ -19,10 +19,9 @@ ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
 PEOPLE = ["anna", "betty"]                       # each gets a <person>-agent and a bridge
-# Bot → exact power level. setup-bot (50) writes the room's settings; pm (PIN_LEVEL) may only
-# pin its status board, never change settings (state events need 50).
-PIN_LEVEL = 10
-BOTS = {"pm": PIN_LEVEL, "setup-bot": 50}
+# Bot → exact power level. @pm is the room's one bot: it writes the room's mode and pins its
+# status board, so it is a moderator (state events need 50); people decide, it applies.
+BOTS = {"pm": 50}
 DISPLAY_NAMES = {"pm": "Product Manager"}        # what people see in Element
 USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), *BOTS]
 ROOM_ALIAS = "lounge"
@@ -121,8 +120,7 @@ def ensure_room(env: dict, alias_name: str, name: str) -> str:
 
 
 def add_bot(admin, bot, room, name, power):
-    """The bot joins the room at exactly `power` (an older setup gave pm 50: it is lowered),
-    and pinning needs only PIN_LEVEL so pm can pin the status board."""
+    """The bot joins the room at exactly `power`."""
     bot_id = f"@{name}:{SERVER_NAME}"
     if name in DISPLAY_NAMES:
         api("PUT", f"/_matrix/client/v3/profile/{urllib.request.quote(bot_id)}/displayname",
@@ -130,11 +128,10 @@ def add_bot(admin, bot, room, name, power):
     api("POST", f"/_matrix/client/v3/rooms/{room}/invite", {"user_id": bot_id}, token=admin)
     api("POST", f"/_matrix/client/v3/join/{room}", {}, token=bot)
     pl = api("GET", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", token=admin)
-    users, events = pl.setdefault("users", {}), pl.setdefault("events", {})
-    if users.get(bot_id, 0) == power and events.get("m.room.pinned_events", 50) <= PIN_LEVEL:
+    users = pl.setdefault("users", {})
+    if users.get(bot_id, 0) == power:
         return
     users[bot_id] = power
-    events["m.room.pinned_events"] = min(events.get("m.room.pinned_events", 50), PIN_LEVEL)
     r = api("PUT", f"/_matrix/client/v3/rooms/{room}/state/m.room.power_levels/", pl, token=admin)
     if "event_id" not in r:
         raise SystemExit(f"couldn't set {name}'s power level in {room}: {r.get('errcode')}")
