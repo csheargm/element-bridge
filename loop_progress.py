@@ -30,6 +30,10 @@ class Progress:
             lvl = await self.level(room_id)
             if lvl == "off":
                 continue
+            issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL, "--state",
+                                            "open", "--json", "number,title", "--limit", "50"])
+            self.open_issues[room_id] = sorted((i for i in issues if str(i["number"]) not in self.state),
+                                               key=lambda i: i["number"])   # queued: shown on the board
             active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
             for key, item in active:
                 if not await self.watchdog(room_id, key, item):
@@ -61,22 +65,22 @@ class Progress:
             await self.stop(room_id, key, item, f"GitHub still blocks #{key} after {GITHUB_WAIT_S / 60:.0f} min")
 
     async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
-        item["stage"] = "stopped"
+        item.update(stage="stopped", why=why)
         self.save()
         await self.say(room_id, f"{why}; loop stopped on #{key}, a person takes over")
         return True
 
     async def claim_next(self, room: MatrixRoom, lvl: str) -> None:
-        issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL,
-                                        "--state", "open", "--json", "number,title", "--limit", "50"])
-        fresh = sorted((i for i in issues if str(i["number"]) not in self.state), key=lambda i: i["number"])
+        fresh = self.open_issues.get(room.room_id, [])
         agents = self.agents_in(room)
         if not fresh or not agents:
             return
         issue = fresh[0]
         n = issue["number"]
         builder = agents[n % len(agents)]
-        item = self.state[str(n)] = {"room": room.room_id, "stage": "building", "builder": builder}
+        item = self.state[str(n)] = {"room": room.room_id, "stage": "building", "builder": builder,
+                                     "title": issue["title"]}
+        self.open_issues[room.room_id] = fresh[1:]
         await self.dispatch(room.room_id, item, builder, f"{builder}: build #{n} {issue['title']} ({lvl})",
                             {"kind": "build", "issue": n})
 

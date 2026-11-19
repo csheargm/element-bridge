@@ -11,7 +11,8 @@ import logging
 import time
 
 import markdown
-from nio import AsyncClient, LoginResponse, MatrixRoom, RoomMessageText, RoomPutStateResponse, RoomSendResponse
+from nio import (AsyncClient, LoginResponse, MatrixRoom, RoomGetEventResponse, RoomMessageText,
+                 RoomPutStateResponse, RoomSendResponse)
 
 import github
 import lifecycle
@@ -22,7 +23,7 @@ from bridge import HOMESERVER, SERVER_NAME, is_stale, read_env
 SETUP_BOT = "setup-bot"          # Matrix localpart
 HELP = f"""**setup-bot** — this room's settings, from chat. Anyone can look; moderators change.
 
-- `!status` — loop level, repo, agents here, enabled skills
+- `!status` — loop level, repo, agents here, enabled skills, link to the live project status
 - `!level off|assist|autonomous` — the GitHub loop for `{github.REPO}` (`!level` alone shows it)
 - `!skills` — skills in the repo's `{room_skills.SKILL_DIR}/` folder and which are on here
 - `!skill enable <name>` / `!skill disable <name>` — let this room's agents use a skill
@@ -84,9 +85,20 @@ class SetupBot:
         agents = sorted(u.split(":")[0][1:] for u in room.users
                         if u.split(":")[0].endswith("-agent") and u not in room.invited_users)
         pinned = await room_state.skills(self.client, room.room_id)
+        board = await self.board_link(room.room_id)
         return (f"loop: **{await room_state.level(self.client, room.room_id)}** for {github.REPO}\n\n"
                 f"agents here: {', '.join(agents) or 'none'}\n\n"
-                f"skills on: {', '.join(pinned) or 'none'}")
+                f"skills on: {', '.join(pinned) or 'none'}\n\n"
+                + (f"live project status: [pinned board]({board})" if board else "no project status board yet"))
+
+    async def board_link(self, room_id: str) -> str | None:
+        """loop-bot's pinned status board (status_board.py), as a link."""
+        pins = (await room_state.read(self.client, room_id, "m.room.pinned_events")).get("pinned", [])
+        for event_id in reversed(pins if isinstance(pins, list) else []):
+            ev = await self.client.room_get_event(room_id, event_id)
+            if isinstance(ev, RoomGetEventResponse) and ev.event.sender == f"@{github.LOOP_BOT}:{SERVER_NAME}":
+                return f"https://matrix.to/#/{room_id}/{event_id}"
+        return None
 
     async def cmd_level(self, room: MatrixRoom, sender: str, args: list[str]) -> str:
         now = await room_state.level(self.client, room.room_id)

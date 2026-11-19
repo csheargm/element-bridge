@@ -15,11 +15,14 @@ async def read(client: AsyncClient, room_id: str, event_type: str) -> dict:
     return r.content if isinstance(r, RoomGetStateEventResponse) and isinstance(r.content, dict) else {}
 
 
-async def level(client: AsyncClient, room_id: str) -> str:
-    """The room's loop level for github.REPO; anything else (unset, other repo, junk) is off."""
-    content = await read(client, room_id, github.LEVEL_EVENT)
-    lvl = content.get("level") if content.get("repo") == github.REPO else None
+def level_of(content: dict) -> str:
+    """The loop level in a LEVEL_EVENT's content, for github.REPO; anything else is off."""
+    lvl = content.get("level") if isinstance(content, dict) and content.get("repo") == github.REPO else None
     return lvl if lvl in github.LEVELS else "off"
+
+
+async def level(client: AsyncClient, room_id: str) -> str:
+    return level_of(await read(client, room_id, github.LEVEL_EVENT))
 
 
 async def skills(client: AsyncClient, room_id: str) -> dict[str, str]:

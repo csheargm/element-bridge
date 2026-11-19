@@ -1,0 +1,37 @@
+diff --git a/plugins/platforms/matrix/adapter.py b/plugins/platforms/matrix/adapter.py
+index b6292b20a..03187d857 100644
+--- a/plugins/platforms/matrix/adapter.py
++++ b/plugins/platforms/matrix/adapter.py
+@@ -2881,8 +2881,32 @@ class MatrixAdapter(BasePlatformAdapter):
+             "Matrix: invited to %s — joining",
+             room_id,
+         )
++        content = getattr(event, "content", None)
++        if getattr(content, "is_direct", False):
++            await self._mark_direct(room_id, str(getattr(event, "sender", "")))
+         await self._join_room_by_id(room_id)
+ 
++    async def _mark_direct(self, room_id: str, inviter: str) -> None:
++        """Record an ``is_direct`` invite in our own ``m.direct`` account data, as the spec asks
++        the invitee's client to do (Element does it for people). DMs are recognised only from
++        ``m.direct``, so without this a DM a person opens with the bot is treated as a group room
++        and needs an @mention."""
++        if not self._client or not inviter:
++            return
++        try:
++            try:
++                current = await self._client.get_account_data("m.direct")
++            except Exception:
++                current = {}                     # no m.direct yet
++            data = dict(getattr(current, "content", current) or {})
++            rooms = [r for r in data.get(inviter, []) if isinstance(r, str)]
++            if room_id not in rooms:
++                data[inviter] = rooms + [room_id]
++                await self._client.set_account_data("m.direct", data)
++        except Exception as exc:
++            # Not fatal: the room still works, it just needs an @mention like a group room.
++            logger.warning("Matrix: couldn't record %s as a DM: %s", room_id, exc)
++
+     async def _join_room_by_id(self, room_id: str) -> bool:
+         """Join a room by ID and refresh local caches on success."""
+         if not room_id:

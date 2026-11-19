@@ -24,6 +24,7 @@ import github
 import lifecycle
 import room_state
 from loop_progress import Progress
+from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
 POLL_S = float(os.environ.get("LOOP_POLL_S", "30"))
@@ -39,7 +40,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress):
+class Loop(Progress, Boards):
     def __init__(self) -> None:
         self.user_id = f"@{github.LOOP_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="LOOP_BOT")
@@ -50,8 +51,14 @@ class Loop(Progress):
         # restart lets an in-flight transition finish (it is in `busy`) instead of cutting it.
         self.lock = asyncio.Lock()
         self.busy: set[asyncio.Task] = set()
+        self.board_file = STATE_FILE.with_name(STATE_FILE.stem + "-boards.json")   # git-ignored
+        self.boards: dict = self.load_boards()      # room → pinned status message (status_board.py)
+        self.open_issues: dict[str, list] = {}      # room → queued issues, for the board
 
     def save(self) -> None:
+        for item in self.state.values():            # when an item finished, for the board's "last 24 h"
+            if item["stage"] in ("done", "stopped") and "ended" not in item:
+                item["ended"] = time.time()
         tmp = STATE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.state, indent=1))
         os.replace(tmp, STATE_FILE)
@@ -103,6 +110,7 @@ class Loop(Progress):
                 # A malformed result from a room member must not kill the sync loop; the item
                 # stays at its stage and a person can see the log line and take over.
                 log.error("bad result from %s: %s", sender, e)
+            await self.refresh_boards()
 
     async def guarded(self, coro) -> None:
         """Run a transition so a restart can't cut it in half: it finishes even if we are cancelled."""
@@ -193,6 +201,7 @@ class Loop(Progress):
                 await self.tick()
             except (github.GitHubError, SendError) as e:
                 log.error("tick failed: %s", e)   # transient gh/network/Matrix errors: retry next tick
+            await self.refresh_boards()
 
 
 def main() -> None:

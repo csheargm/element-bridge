@@ -7,3 +7,4 @@ __pycache__/
 logs/
 loop-state.json
 .gh/
+loop-state-boards.json

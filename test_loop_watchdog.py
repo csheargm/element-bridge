@@ -17,6 +17,7 @@ class Watchdog(unittest.TestCase):
         self.lp.state = {}
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()
+        self.lp.open_issues = {}
 
     def item(self, stage, age_s, **kw):
         sent = time.time() - age_s
@@ -57,7 +58,8 @@ class Watchdog(unittest.TestCase):
 
     def gh(self, item, info):
         with mock.patch.object(github, "merge_ready", mock.AsyncMock(return_value=(False, info))):
-            with mock.patch.object(self.lp, "level", mock.AsyncMock(return_value="autonomous")):
+            with mock.patch.object(self.lp, "level", mock.AsyncMock(return_value="autonomous")), \
+                    mock.patch.object(github, "run_json", mock.AsyncMock(return_value=[])):
                 self.lp.client = mock.Mock(rooms={"!r": None})
                 asyncio.run(self.lp.tick())
 
