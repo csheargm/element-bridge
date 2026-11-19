@@ -1,0 +1,7 @@
+.env
+.venv/
+data/
+rooms/
+__pycache__/
+*.log
+logs/

@@ -1,0 +1,175 @@
+"""Bring-your-own-agent bridge: logs in as <owner>-agent and answers @mentions/DMs
+by running the owner's local agent CLI (Codex or Claude Code) per room.
+
+Usage: python bridge.py anna [--agent codex|claude]
+"""
+import argparse
+import asyncio
+import logging
+import re
+from collections import defaultdict, deque
+from pathlib import Path
+
+import markdown
+from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent,
+                 RoomMessageText)
+
+import agents
+
+ROOT = Path(__file__).parent
+HOMESERVER = "http://127.0.0.1:8648"
+SERVER_NAME = "bridge.localhost"
+CONTEXT_LINES = 20          # recent room lines handed to the agent as context
+TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapses
+TYPING_TIMEOUT_MS = 30_000
+MAX_REPLY_CHARS = 30_000
+
+log = logging.getLogger("bridge")
+
+
+def read_env() -> dict[str, str]:
+    env = {}
+    for line in (ROOT / ".env").read_text().splitlines():
+        if "=" in line and not line.startswith("#"):
+            k, v = line.split("=", 1)
+            env[k] = v
+    return env
+
+
+class Bridge:
+    def __init__(self, owner: str, backend: str):
+        self.owner, self.backend = owner, backend
+        self.user_id = f"@{owner}-agent:{SERVER_NAME}"
+        self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{owner.upper()}")
+        self.history: dict[str, deque] = defaultdict(lambda: deque(maxlen=CONTEXT_LINES))
+        self.locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self.warned_e2ee: set[str] = set()
+        self.tasks: set[asyncio.Task] = set()
+
+    # --- trigger rules -------------------------------------------------------------
+    def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
+        if room.member_count == 2:          # DM with the agent
+            return True
+        mentions = (event.source.get("content", {}).get("m.mentions") or {}).get("user_ids", [])
+        if self.user_id in mentions:
+            return True
+        localpart = re.escape(f"{self.owner}-agent")
+        return re.search(rf"@?{localpart}\b", event.body, re.I) is not None
+
+    def should_ignore(self, room: MatrixRoom, event: RoomMessageText) -> str | None:
+        if event.sender == self.user_id:
+            return "own message"
+        if event.sender not in room.users:
+            return "sender is not a joined room member"
+        if event.sender.split(":")[0].endswith("-agent"):
+            return "message from another agent (loop guard)"
+        return None
+
+    # --- event handlers ------------------------------------------------------------
+    async def on_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
+        if event.state_key != self.user_id or event.membership != "invite":
+            return
+        if not event.sender.endswith(f":{SERVER_NAME}"):
+            log.warning("ignoring invite to %s from remote user %s", room.room_id, event.sender)
+            return
+        log.info("joining %s (invited by %s)", room.room_id, event.sender)
+        await self.client.join(room.room_id)
+
+    async def on_encrypted(self, room: MatrixRoom, event: MegolmEvent) -> None:
+        if room.room_id in self.warned_e2ee or event.sender == self.user_id:
+            return
+        self.warned_e2ee.add(room.room_id)
+        await self.send(room.room_id, "I can't read encrypted rooms yet (bridge v1 has no E2EE). "
+                        "Please use an unencrypted room.")
+
+    async def on_message(self, room: MatrixRoom, event: RoomMessageText) -> None:
+        name = room.user_name(event.sender) or event.sender
+        line = f"{name} ({event.sender}): {event.body}"
+        if not self.is_addressed(room, event):
+            self.history[room.room_id].append(line)
+            return
+        reason = self.should_ignore(room, event)
+        if reason:
+            log.info("ignored message in %s: %s", room.room_id, reason)
+            self.history[room.room_id].append(line)
+            return
+        task = asyncio.create_task(self.answer_locked(room, event, line))  # don't block sync
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
+        async with self.locks[room.room_id]:   # one turn at a time per room (one CLI session)
+            await self.answer(room, event, line)
+
+    async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
+        context = "\n".join(self.history[room.room_id])
+        self.history[room.room_id].clear()
+        prompt = (f"You are {self.owner}'s personal AI agent ({self.user_id}) in the Matrix chat room "
+                  f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n"
+                  + (f"\nRecent room messages since your last reply:\n{context}\n" if context else "")
+                  + f"\nMessage addressed to you:\n{line}\n")
+        typing = asyncio.create_task(self.keep_typing(room.room_id))
+        try:
+            reply = await agents.run_turn(self.backend, self.workdir(room.room_id), prompt)
+        except agents.AgentError as e:
+            log.error("agent failed in %s: %s", room.room_id, e)
+            reply = f"⚠️ {self.owner}'s agent ({self.backend}) failed: {e}"
+        finally:
+            typing.cancel()
+            await self.client.room_typing(room.room_id, False)
+        await self.send(room.room_id, reply[:MAX_REPLY_CHARS], reply_to=event)
+        self.history[room.room_id].append(f"{self.user_id} (you): {reply[:500]}")
+
+    async def keep_typing(self, room_id: str) -> None:
+        while True:
+            await self.client.room_typing(room_id, True, timeout=TYPING_TIMEOUT_MS)
+            await asyncio.sleep(TYPING_REFRESH_S)
+
+    def workdir(self, room_id: str) -> Path:
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", room_id)
+        return ROOT / "rooms" / self.owner / safe
+
+    async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None) -> None:
+        html = markdown.markdown(body, extensions=["fenced_code", "tables"])
+        content = {"msgtype": "m.text", "body": body,
+                   "format": "org.matrix.custom.html", "formatted_body": html}
+        if reply_to is not None:
+            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to.event_id}}
+            content["m.mentions"] = {"user_ids": [reply_to.sender]}
+        resp = await self.client.room_send(room_id, "m.room.message", content)
+        if not hasattr(resp, "event_id"):
+            raise RuntimeError(f"failed to send to {room_id}: {resp}")
+
+    # --- lifecycle -----------------------------------------------------------------
+    async def run(self) -> None:
+        password = read_env()[f"PW_{self.owner.upper()}_AGENT"]
+        resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
+        if not isinstance(resp, LoginResponse):
+            raise SystemExit(f"login failed for {self.user_id}: {resp}")
+        # Skip history: only react to events that arrive after startup.
+        await self.client.sync(timeout=0, full_state=True)
+        for room_id in list(self.client.invited_rooms):
+            await self.client.join(room_id)
+        self.client.add_event_callback(self.on_message, RoomMessageText)
+        self.client.add_event_callback(self.on_encrypted, MegolmEvent)
+        self.client.add_event_callback(self.on_invite, InviteMemberEvent)
+        log.info("%s online (backend=%s)", self.user_id, self.backend)
+        await self.client.sync_forever(timeout=30_000)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("owner", help="person whose agent this is, e.g. anna")
+    ap.add_argument("--agent", choices=sorted(agents.BACKENDS), default="codex")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{args.owner}-agent] %(message)s")
+    logging.getLogger("nio").setLevel(logging.WARNING)
+    bridge = Bridge(args.owner, args.agent)
+    try:
+        asyncio.run(bridge.run())
+    except KeyboardInterrupt:
+        pass  # Ctrl-C is the normal way to stop the bridge
+
+
+if __name__ == "__main__":
+    main()

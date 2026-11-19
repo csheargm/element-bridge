@@ -1,0 +1,5 @@
+{
+  "default_server_config": {"m.homeserver": {"base_url": "http://localhost:8648", "server_name": "bridge.localhost"}},
+  "disable_custom_urls": false,
+  "brand": "Element (bridge prototype)"
+}

@@ -1,0 +1,13 @@
+# Local-only prototype stack. Ports 8648 (Synapse) and 8649 (Element Web) bind to 127.0.0.1.
+name: element-bridge
+services:
+  synapse:
+    image: matrixdotorg/synapse:latest
+    volumes: ["./data:/data"]
+    ports: ["127.0.0.1:8648:8008"]
+    restart: unless-stopped
+  element:
+    image: vectorim/element-web:latest
+    volumes: ["./element-config.json:/app/config.json:ro"]
+    ports: ["127.0.0.1:8649:80"]
+    restart: unless-stopped
