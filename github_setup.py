@@ -11,7 +11,7 @@ import json
 import sys
 
 import github
-from github import REPO, GitHubError, run, run_json
+from github import LABEL, REPO, GitHubError, run, run_json
 
 DEFAULT_AGENTS = ("anna-agent", "betty-agent")
 RULESET_FILE = github.ROOT / "github-ruleset.json"
@@ -50,11 +50,22 @@ async def check(agents: list[str]) -> int:
         print(f"{a:12} {i.get('login', '-'):20} {'write' if i.get('push') else 'NO WRITE' if 'login' in i else i['error']}")
     rules = await run_json(["api", f"repos/{REPO}/rules/branches/main"])
     problems = evaluate(identities, rules)
+    labels = {lb["name"] for lb in await run_json(["label", "list", "-R", REPO, "--json", "name", "--limit", "200"])}
+    if LABEL not in labels:
+        problems.append(f"no '{LABEL}' label on {REPO} — run `github_setup.py ruleset`")
     print("\n".join(f"✗ {p}" for p in problems) or f"✓ {REPO} ready for the loop")
     return 1 if problems else 0
 
 
+async def ensure_label() -> None:
+    """The label the loop works from; planning opens issues with it, so a new repo needs it."""
+    await run(["label", "create", LABEL, "-R", REPO, "--color", "0e8a16", "--force",
+               "--description", "Agents may build this (Hagency loop)"])
+    print(f"✓ label '{LABEL}' on {REPO}")
+
+
 async def apply_ruleset() -> int:
+    await ensure_label()
     existing = await run_json(["api", f"repos/{REPO}/rulesets"])
     if any(r.get("name") == RULESET_NAME for r in existing):
         print(f"✓ ruleset '{RULESET_NAME}' already on {REPO}")

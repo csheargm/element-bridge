@@ -39,7 +39,8 @@ Run this as the repo owner. It uses your normal `gh` login, not an agent's:
 .venv/bin/python github_setup.py ruleset
 ```
 
-The script applies [`github-ruleset.json`](../github-ruleset.json) to the default branch.
+The script creates the `agent-ok` label (the loop and `@pm`'s planning use it) and applies
+[`github-ruleset.json`](../github-ruleset.json) to the default branch.
 Running it again changes nothing. The ruleset does five things:
 - changes must go through a pull request with **1 approving review**;
 - a new push dismisses earlier approvals;

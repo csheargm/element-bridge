@@ -13,12 +13,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import registry
 from github import LEVEL_EVENT, REPO
 
 ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
-PEOPLE = ["anna", "betty"]                       # each gets a <person>-agent and a bridge
+PEOPLE = sorted(registry.load())                 # each gets a <person>-agent (onboard.py adds people)
 # Bot → exact power level. @pm is the room's one bot: it writes the room's mode and pins its
 # status board, so it is a moderator (state events need 50); people decide, it applies.
 BOTS = {"pm": 50}

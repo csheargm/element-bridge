@@ -8,3 +8,4 @@ logs/
 loop-state.json
 .gh/
 loop-state-boards.json
+agents.json

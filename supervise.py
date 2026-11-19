@@ -18,7 +18,7 @@ from pathlib import Path
 
 import agents
 import lifecycle
-from setup_accounts import PEOPLE
+import registry
 
 ROOT = Path(__file__).parent
 PY = str(ROOT / ".venv" / "bin" / "python")
@@ -86,8 +86,16 @@ class Child:
 
 
 def children(agent: str, allow_members: bool) -> list[Child]:
+    """@pm, plus each person's agent: their Hermes gateway, or our bridge running Codex/Claude Code.
+    `agent` is the CLI for people onboard.py hasn't recorded a choice for."""
     extra = ["--allow-members"] if allow_members else []
-    kids = [Child(f"{p}-agent", [PY, "bridge.py", p, "--agent", agent, *extra]) for p in PEOPLE]
+    kids = []
+    for person, info in sorted(registry.load().items()):
+        choice = info.get("agent", agent)
+        if choice == "hermes":
+            kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"]))
+        else:
+            kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra]))
     return [*kids, Child("pm", [PY, "loop.py"])]
 
 

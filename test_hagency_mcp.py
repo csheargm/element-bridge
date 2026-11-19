@@ -78,6 +78,22 @@ class Trust(unittest.TestCase):
         self.assertIn("get_review", asyncio.run(m.submit_review("R", True, "ok"))["next"])
         self.assertEqual(self.posted, [])
 
+    def test_review_steps_keep_their_state(self):
+        """Seen live: every tool re-checks the current task, and that used to drop the PR head
+        get_review had stored, so submit_review kept answering "call get_review first"."""
+        self.events([task_event("R", "review", pr=9)])
+
+        async def material(agent, t):
+            return 7, 9, {"title": "t"}, "abc", "diff"
+
+        async def submit(agent, n, pr, head, verdict, text):
+            return {"kind": "review", "issue": n, "pr": pr, "sha": head, "verdict": verdict.lower(), "line": "approved PR #9"}
+        with mock.patch.object(core.tasks, "review_material", material), mock.patch.object(core.tasks, "submit_review", submit):
+            asyncio.run(m.get_review("R"))
+            out = asyncio.run(m.submit_review("R", True, "ok"))
+        self.assertEqual(out["done"], "approved PR #9")
+        self.assertEqual(self.posted[-1][1]["sha"], "abc")
+
     def test_an_older_or_answered_task_is_never_acted_on(self):
         """GPT review: tools used to accept any task id still visible in the room."""
         self.events([task_event("NEW", "review", pr=9), task_event("OLD", "merge", pr=8, sha="a")])
