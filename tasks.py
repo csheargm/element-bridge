@@ -11,6 +11,8 @@ from pathlib import Path
 
 import agents
 import github
+import planning
+from redact import room_safe
 from github import REPO, GitHubError, git, run, run_json
 
 MAX_DIFF_CHARS = 60_000
@@ -109,7 +111,11 @@ async def review_material(agent: str, task: dict) -> tuple[int, int, dict, str, 
     n, pr = int(task["issue"]), int(task["pr"])
     issue = await _issue(n, agent)
     head = (await run_json(["pr", "view", str(pr), "-R", REPO, "--json", "headRefOid"], agent))["headRefOid"]
-    return n, pr, issue, head, await run(["pr", "diff", str(pr), "-R", REPO], agent)
+    diff = await run(["pr", "diff", str(pr), "-R", REPO], agent)
+    after = (await run_json(["pr", "view", str(pr), "-R", REPO, "--json", "headRefOid"], agent))["headRefOid"]
+    if after != head:      # a push between the reads: the diff might not be the commit we'd approve
+        raise TaskError(f"PR #{pr} changed while it was being read; ask for the review again")
+    return n, pr, issue, head, diff
 
 
 def review_prompt(n: int, pr: int, issue: dict, diff: str) -> str:
@@ -180,7 +186,24 @@ async def close(agent: str, backend: str, base: Path, task: dict) -> dict:
     return {"kind": "close", "issue": n, "line": f"closed #{n} (already done)"}
 
 
-HANDLERS = {"build": build, "review": review, "merge": merge, "verify": verify, "close": close}
+async def plan(agent: str, backend: str, base: Path, task: dict) -> dict:
+    """Draft new issues from the room's discussion (read-only turn; @pm shows it for a ✅)."""
+    _check_repo(task)
+    prompt = planning.plan_prompt(str(task.get("discussion", "")), [str(t) for t in task.get("existing", [])])
+    items = planning.parse_items(await agents.run_turn(backend, base / "plan", prompt, fresh=True))
+    return {"kind": "plan", "items": items, "line": f"plan drafted: {len(items)} item(s)"}
+
+
+async def file_issues(agent: str, backend: str, base: Path, task: dict) -> dict:
+    """Open the approved plan's issues under this agent's own GitHub identity."""
+    _check_repo(task)
+    numbers = await planning.file_issues(agent, task["items"], str(task.get("approved_by", "the room owner")))
+    return {"kind": "file_issues", "numbers": numbers,
+            "line": "opened " + ", ".join(f"#{n}" for n in numbers) if numbers else "no issues to open"}
+
+
+HANDLERS = {"build": build, "review": review, "merge": merge, "verify": verify, "close": close,
+            "plan": plan, "file_issues": file_issues}
 AUTONOMOUS_ONLY = {"merge", "close"}       # bridges re-check the room level before these
 
 
@@ -191,7 +214,7 @@ async def handle(agent: str, backend: str, base: Path, task: dict) -> dict:
         if kind not in HANDLERS:
             raise TaskError(f"unknown task kind {kind!r}")
         return {**await HANDLERS[kind](agent, backend, base, task), "task_id": task.get("task_id")}
-    except (TaskError, GitHubError, agents.AgentError, KeyError, ValueError, OSError) as e:
-        return {"kind": kind, "issue": task.get("issue"), "pr": task.get("pr"), "error": str(e)[:400],
-                "task_id": task.get("task_id"),
-                "line": f"⚠️ {kind} failed for #{task.get('issue')}: {str(e)[:300]}"}
+    except (TaskError, GitHubError, agents.AgentError, KeyError, ValueError, TypeError, OSError) as e:
+        why = room_safe(e)                     # the result is posted in the room: no local paths
+        return {"kind": kind, "issue": task.get("issue"), "pr": task.get("pr"), "error": why,
+                "task_id": task.get("task_id"), "line": f"⚠️ {kind} failed for #{task.get('issue')}: {why}"}

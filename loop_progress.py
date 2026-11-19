@@ -36,6 +36,9 @@ class Progress:
                                                key=lambda i: i["number"])   # queued: shown on the board
             active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
             for key, item in active:
+                if item.get("held"):          # a step decided while stopped: send it now
+                    await self.dispatch(room_id, item, item["agent"], item["body"], item["task"])
+                    continue
                 if not await self.watchdog(room_id, key, item):
                     before = item["stage"]
                     await self.advance(room_id, key, item, lvl)        # GitHub's latest state first...

@@ -90,3 +90,28 @@ outlives a full drain (#5); Matrix send errors are now raised and retried (#7).
 Deferred: a rolling crash checkpoint and a durable outbox for dispatches (#5, #7), and reconciling
 an existing branch/PR when a resent build finds one (#3) — today such a retry fails and the loop
 stops for a person.
+
+## GPT review 4 (820fb83..3d41fd0: setup-bot, Hermes MCP, status board, @pm)
+
+Adopted, with tests:
+- **1. A stray "yes" could confirm autonomous.** Confirmation now comes only from the person who
+  asked (reaction or "yes"); any mode change cancels it; authority is re-checked at confirm time.
+- **3. Historical tasks stayed usable over MCP.** Tools act only on the agent's current
+  (newest, unanswered) task.
+- **5. "Stop" didn't stop follow-ups.** A step decided while the room is off is held, and sent
+  when the room resumes.
+- **8. Diff/approval race.** The PR head is re-read after the diff; if it moved, the review is
+  refused.
+- **9. Local paths in room messages.** All error text goes through `redact.room_safe`.
+- **10. Malformed input could kill @pm.** `m.mentions` shape is validated; GitHub errors in
+  result handling and chat are caught.
+- **12. Stale README line about setup-bot.** Fixed.
+
+Deferred:
+- **2. Maintainers can write the level state directly.** They can already do the same through @pm.
+- **4. One person could act through two agent accounts.** Needs explicit agent enrollment, which
+  onboarding (`agents.json`) is the start of.
+- **6. A watchdog resend can replace an active checkout.** Only after the 20-minute step timeout.
+- **7. Filesystem race on write_files paths.** Needs local FS access, which room agents no longer
+  have.
+- **11. A failed pin is cached as success.** Cosmetic.

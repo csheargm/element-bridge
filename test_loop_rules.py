@@ -107,6 +107,7 @@ class LoopResults(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
+        self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {"7": {"room": "!r", "stage": "reviewing", "builder": "@b-agent:x",
                                "reviewer": "@r-agent:x", "pr": 9, "task_id": "T"}}
         self.lp.save = lambda: None
@@ -154,6 +155,7 @@ class AlreadyDone(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
+        self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {"7": {"room": "!r", "stage": "building", "builder": "@b-agent:x", "task_id": "T"}}
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()

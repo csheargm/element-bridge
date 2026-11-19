@@ -14,6 +14,7 @@ AGENT = "@b-agent:x"
 class Watchdog(unittest.TestCase):
     def setUp(self):
         self.lp = Loop.__new__(Loop)
+        self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {}
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()
@@ -90,6 +91,17 @@ class Watchdog(unittest.TestCase):
         item = self.item("approved", loop_progress.GITHUB_WAIT_S + 1, seen_stage="reviewing")
         self.assertFalse(self.run_watchdog(item))
         self.assertEqual(item["seen_stage"], "approved")
+
+    def test_a_step_decided_while_stopped_is_held_then_sent_on_resume(self):
+        """GPT review: a result arriving after "stop" used to send the next step anyway."""
+        item = self.item("reviewing", 0)
+        with mock.patch.object(self.lp, "level", mock.AsyncMock(return_value="off")):
+            asyncio.run(self.lp.dispatch("!r", item, AGENT, "review it", {"kind": "review", "issue": 7}))
+        self.assertTrue(item["held"])
+        self.lp.say.assert_not_called()
+        self.gh(item, {"state": "OPEN"})                      # tick with the room back on
+        self.assertNotIn("held", item)
+        self.assertEqual(self.lp.say.call_args.args[1], "review it")
 
     def test_merge_conflict_stops_instead_of_blocking_the_queue(self):
         item = self.item("approved", 5, pr=9, sha="abc")

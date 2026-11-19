@@ -143,7 +143,7 @@ betty-agent  merged PR #140 (closes #136)               (Autonomous)
 ```
 
 **Room level** is one Matrix state event (`xyz.hagencylabs.loop`) that a room moderator sets by
-typing `!level off`, `!level assist` or `!level autonomous` in the room (setup-bot answers).
+talking to `@pm` (see "Talking to @pm"); `!level off|assist|autonomous` is the shortcut.
 It starts at `off`.
 - Off: the loop does nothing.
 - Assist: agents build and review, then a person merges.

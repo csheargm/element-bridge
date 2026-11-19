@@ -8,30 +8,31 @@ os.environ.setdefault("HAGENCY_AGENT", "anna-hermes-agent")
 os.environ.setdefault("HAGENCY_ROOM", "!r:bridge.localhost")
 import github  # noqa: E402
 import hagency_mcp as m  # noqa: E402
+import mcp_core as core  # noqa: E402
 
-ME, BOT = m.USER_ID, m.PM_ID
+ME, BOT = core.USER_ID, core.PM_ID
 
 
 def task_event(task_id, kind="build", sender=BOT, agent=ME, **kw):
-    return {"sender": sender, "content": {github.TASK_KEY: {"task_id": task_id, "kind": kind, "agent": agent,
+    return {"sender": sender, "room_id": "!r", "content": {github.TASK_KEY: {"task_id": task_id, "kind": kind, "agent": agent,
                                                             "issue": 7, "repo": github.REPO, **kw}}}
 
 
 def result_event(task_id):
-    return {"sender": ME, "content": {github.RESULT_KEY: {"task_id": task_id}}}
+    return {"sender": ME, "room_id": "!r", "content": {github.RESULT_KEY: {"task_id": task_id}}}
 
 
 class Trust(unittest.TestCase):
     def setUp(self):
-        m._open.clear()
+        core._open.clear()
         self.posted = []
-        for name, fn in (("post", lambda line, result=None: self.posted.append((line, result))),):
-            p = mock.patch.object(m, name, fn)
+        for name, fn in (("post", lambda line, result=None, room=None: self.posted.append((line, result))),):
+            p = mock.patch.object(core, name, fn)
             p.start()
             self.addCleanup(p.stop)
 
     def events(self, evs):
-        p = mock.patch.object(m, "recent_events", lambda: evs)
+        p = mock.patch.object(core, "recent_events", lambda: evs)
         p.start()
         self.addCleanup(p.stop)
 
@@ -47,7 +48,7 @@ class Trust(unittest.TestCase):
         self.events([task_event("T1", sender="@mallory:bridge.localhost")])
         self.assertIsNone(m.next_task()["task"])
         with self.assertRaises(ValueError):
-            m.task("T1", "build")
+            core.task("T1", "build")
 
     def test_tasks_for_another_agent_are_ignored(self):
         self.events([task_event("T1", agent="@betty-agent:bridge.localhost")])
@@ -62,18 +63,38 @@ class Trust(unittest.TestCase):
 
     def test_merge_refused_unless_autonomous(self):
         self.events([task_event("M", "merge", pr=9, sha="abc")])
-        with mock.patch.object(m, "api", lambda *a, **k: {"level": "assist", "repo": github.REPO}), \
-                mock.patch.object(m, "token", lambda: "t"):
+        with mock.patch.object(core, "api", lambda *a, **k: {"level": "assist", "repo": github.REPO}), \
+                mock.patch.object(core, "token", lambda: "t"):
             out = asyncio.run(m.merge_pr("M"))
         self.assertIn("failed", out)
         line, result = self.posted[-1]
         self.assertIn("not autonomous", result["error"])
 
     def test_steps_out_of_order_get_a_hint_not_a_stop(self):
-        self.events([task_event("B"), task_event("R", "review", pr=9)])
+        self.events([task_event("B")])
         self.assertIn("start_build", asyncio.run(m.finish_build("B", "x"))["next"])
+        core._open.clear()
+        self.events([task_event("R", "review", pr=9)])
         self.assertIn("get_review", asyncio.run(m.submit_review("R", True, "ok"))["next"])
         self.assertEqual(self.posted, [])
+
+    def test_an_older_or_answered_task_is_never_acted_on(self):
+        """GPT review: tools used to accept any task id still visible in the room."""
+        self.events([task_event("NEW", "review", pr=9), task_event("OLD", "merge", pr=8, sha="a")])
+        self.assertIn("isn't your current task", asyncio.run(m.merge_pr("OLD"))["error"])
+        self.events([result_event("M"), task_event("M", "merge", pr=9, sha="a")])
+        self.assertIn("error", asyncio.run(m.merge_pr("M")))
+        self.assertEqual(self.posted, [])
+
+
+class RoomSafe(unittest.TestCase):
+    def test_local_paths_never_reach_the_room(self):
+        from pathlib import Path
+        from redact import room_safe
+        text = room_safe(f"git failed: {Path.home()}/work/x and /private/tmp/abc/y: denied")
+        self.assertNotIn(str(Path.home()), text)
+        self.assertNotIn("/private/tmp", text)
+        self.assertIn("denied", text)
 
 
 class CheckoutOnDisk(unittest.TestCase):
@@ -81,8 +102,8 @@ class CheckoutOnDisk(unittest.TestCase):
     def setUp(self):
         import tempfile
         from pathlib import Path
-        m._open.clear()
-        p = mock.patch.object(m, "BASE", Path(tempfile.mkdtemp()))
+        core._open.clear()
+        p = mock.patch.object(core, "BASE", Path(tempfile.mkdtemp()))
         p.start()
         self.addCleanup(p.stop)
         self.clones = 0
@@ -91,12 +112,12 @@ class CheckoutOnDisk(unittest.TestCase):
             self.clones += 1
             root = base / f"issue-{t['issue']}"
             (root / "git").mkdir(parents=True, exist_ok=True)
-            return m.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b")
+            return core.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b")
         for name, fn in (("recent_events", lambda: [task_event("B")]), ("post", lambda *a, **k: None)):
-            q = mock.patch.object(m, name, fn)
+            q = mock.patch.object(core, name, fn)
             q.start()
             self.addCleanup(q.stop)
-        q = mock.patch.object(m.tasks, "prepare_build", prepare)
+        q = mock.patch.object(core.tasks, "prepare_build", prepare)
         q.start()
         self.addCleanup(q.stop)
 
@@ -107,13 +128,13 @@ class CheckoutOnDisk(unittest.TestCase):
 
     def test_finish_finds_the_checkout_after_a_server_restart(self):
         asyncio.run(m.start_build("B"))
-        m._open.clear()                                   # as if the MCP server restarted
+        core._open.clear()                                   # as if the MCP server restarted
         finished = []
 
         async def fin(agent, who, co, summary):
             finished.append(co.root)
             return {"kind": "build", "issue": 7, "pr": 9, "line": "PR #9 opened for #7"}
-        with mock.patch.object(m.tasks, "finish_build", fin):
+        with mock.patch.object(core.tasks, "finish_build", fin):
             out = asyncio.run(m.finish_build("B", "done"))
         self.assertEqual(out["done"], "PR #9 opened for #7")
         self.assertEqual(len(finished), 1)
@@ -123,7 +144,7 @@ class ContainedWrites(CheckoutOnDisk):
     def setUp(self):
         super().setUp()
         asyncio.run(m.start_build("B"))
-        self.tree = m.BASE / "issue-7" / "tree"
+        self.tree = core.BASE / "issue-7" / "tree"
 
     def test_writes_land_in_the_checkout(self):
         out = m.write_files("B", {"docs/HELLO.md": "# Hello\n"})

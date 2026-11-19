@@ -5,7 +5,7 @@ decides what is allowed:
   - assist: the room owner or a maintainer;
   - autonomous: the owner or a maintainer, and only after a ✅ (reaction or "yes") within 5 min.
 `!help`, `!status`, `!level …` still work as shortcuts for people who like commands.
-Mixed into loop.Loop (client, user_id, say, level, boards, agents_in).
+Mixed into loop.Loop (client, user_id, say, level, boards, agents_in, start_plan, file_plan).
 """
 import re
 import time
@@ -25,6 +25,7 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm let us approve each change**: agents stop at each change for a person to merge\n"
         "- **@pm stop**: no new work and no merges, right away (anyone)\n"
         "- **@pm where are we?**: what's happening now\n"
+        "- **@pm let's build it**: your agent turns this discussion into issues; ✅ to open them\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
 
 
@@ -34,7 +35,8 @@ class Chat:
     def addressed_text(self, event: RoomMessageText) -> str | None:
         """The message without its "@pm" / "Product Manager" address, or None if not for me."""
         mentions = event.source.get("content", {}).get("m.mentions", {})
-        mentioned = isinstance(mentions, dict) and self.user_id in (mentions.get("user_ids") or [])
+        ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+        mentioned = isinstance(ids, list) and self.user_id in ids
         m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", event.body, re.I | re.S)
         if m:
             return m.group(2)
@@ -71,12 +73,13 @@ class Chat:
         elif intent == intents.AUTONOMOUS:
             event_id = await self.say(rid, "Got it: I'll run this to the end on my own. Agents build, review "
                                            "and merge without asking. Say \"stop\" anytime. ✅ to confirm?")
-            self.pending[rid] = {"event_id": event_id, "until": time.time() + CONFIRM_S}
+            self.pending[rid] = {"event_id": event_id, "until": time.time() + CONFIRM_S, "by": sender}
         elif intent == intents.STATUS:
             await self.say(rid, await self.status_text(rid))
+        elif intent == intents.PLAN and not await room_state.is_moderator(self.client, room, sender):
+            await self.say(rid, "Only the room owner or a maintainer can turn the discussion into work.")
         elif intent == intents.PLAN:
-            await self.say(rid, "Turning your discussion into a plan is the next thing I'm learning. For now I "
-                                f"work from open `{github.LABEL}` issues on {github.REPO}.")
+            await self.start_plan(room, sender)
         elif intent == intents.HELP:
             await self.say(rid, HELP)
         else:
@@ -85,15 +88,24 @@ class Chat:
     async def confirm(self, room: MatrixRoom, sender: str) -> bool:
         """Apply the pending autonomous switch if a moderator confirms in time."""
         p = self.pending.get(room.room_id)
-        if not p or time.time() > p["until"] or not await room_state.is_moderator(self.client, room, sender):
-            return False
+        if not p or time.time() > p["until"] or sender != p.get("by"):
+            return False              # only the person who asked confirms (a stray "yes" from anyone else doesn't)
+        if not await room_state.is_moderator(self.client, room, sender):
+            return False              # authority re-checked now: they may have been demoted since
+
         self.pending.pop(room.room_id)
-        await self.say(room.room_id, await self.change_level(room.room_id, "autonomous") or
-                       "Running on my own now. Say \"stop\" anytime.")
+        if p.get("kind") == "plan":
+            await self.file_plan(room, p, sender)               # pm_plan.py
+        else:
+            await self.say(room.room_id, await self.change_level(room.room_id, "autonomous") or
+                           "Running on my own now. Say \"stop\" anytime.")
         return True
 
     async def change_level(self, room_id: str, level: str) -> str | None:
-        """Write the room's loop level; returns an error line, or None when done."""
+        """Write the room's loop level; returns an error line, or None when done. Any explicit mode
+        change cancels a confirmation still waiting (it was asked for under the old mode)."""
+        if self.pending.get(room_id, {}).get("kind", "autonomous") == "autonomous":
+            self.pending.pop(room_id, None)
         resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, {"level": level, "repo": github.REPO})
         return None if hasattr(resp, "event_id") else f"⚠️ I couldn't change the mode: {resp}"
 

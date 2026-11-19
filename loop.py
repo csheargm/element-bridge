@@ -18,13 +18,16 @@ import uuid
 from pathlib import Path
 
 import markdown
-from nio import AsyncClient, LoginResponse, MatrixRoom, ReactionEvent, RoomMessageText, RoomSendResponse
+from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, ReactionEvent,
+                 RoomGetStateEventResponse, RoomMessageText, RoomSendResponse)
 
 import github
 import lifecycle
+from redact import room_safe
 import room_state
 from loop_progress import Progress
 from pm_chat import Chat
+from pm_plan import Planner
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -41,7 +44,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat):
+class Loop(Progress, Boards, Chat, Planner):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -55,7 +58,8 @@ class Loop(Progress, Boards, Chat):
         self.board_file = STATE_FILE.with_name(STATE_FILE.stem + "-boards.json")   # git-ignored
         self.boards: dict = self.load_boards()      # room → pinned status message (status_board.py)
         self.open_issues: dict[str, list] = {}      # room → queued issues, for the board
-        self.pending: dict = {}                     # room → autonomous switch awaiting ✅ (pm_chat.py)
+        self.pending: dict = {}                     # room → autonomous switch or plan awaiting ✅ (pm_chat.py)
+        self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
 
     def save(self) -> None:
         for item in self.state.values():            # when an item finished, for the board's "last 24 h"
@@ -74,6 +78,11 @@ class Loop(Progress, Boards, Chat):
         # agent/body/task are kept so the watchdog can resend a step that never got an answer.
         item.update(task_id=task_id, task_ids=ids, agent=agent, body=body, task=task, sent_at=time.time(),
                     sends=item.get("sends", 1) + 1 if resend else 1)
+        if await self.level(room_id) == "off":
+            item["held"] = True       # stopped: nothing new goes out; tick sends it when the room resumes
+            self.save()
+            return
+        item.pop("held", None)
         self.save()
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
 
@@ -107,8 +116,12 @@ class Loop(Progress, Boards, Chat):
         elif self.is_person(room, event.sender):
             try:
                 await self.on_human(room, event)
-            except SendError as e:
-                log.error("couldn't answer %s: %s", event.sender, e)   # Matrix refused; they can ask again
+            except (SendError, github.GitHubError) as e:
+                log.error("couldn't answer %s: %s", event.sender, e)
+                try:
+                    await self.say(room.room_id, f"⚠️ I couldn't do that just now ({room_safe(e)}); please ask again")
+                except SendError:
+                    pass   # Matrix itself is refusing; the log line above is all we can do
 
     async def on_reaction_event(self, room: MatrixRoom, event: ReactionEvent) -> None:
         if not is_stale(event, self.started_ms) and self.is_person(room, event.sender):
@@ -116,6 +129,24 @@ class Loop(Progress, Boards, Chat):
                 await self.on_reaction(room, event)
             except SendError as e:
                 log.error("couldn't confirm for %s: %s", event.sender, e)   # they can react again
+
+    async def on_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
+        """People create project rooms in Element and invite @pm: join if a local person asked."""
+        local = event.sender.split(":")[0]
+        if (event.state_key != self.user_id or event.membership != "invite" or local.endswith(("-agent", "-bot"))
+                or not event.sender.endswith(f":{SERVER_NAME}")):
+            return
+        await self.client.join(room.room_id)
+        r = await self.client.room_get_state_event(room.room_id, "m.room.power_levels", "")
+        users = r.content.get("users", {}) if isinstance(r, RoomGetStateEventResponse) else {}
+        if users.get(self.user_id, 0) >= room_state.MODERATOR_LEVEL:
+            return
+        try:
+            await self.say(room.room_id, "Hi! I'm the Product Manager. To run this project I need to be a "
+                                         "moderator: Room settings → Roles & Permissions → make **Product Manager** "
+                                         "a Moderator. Then talk to me, or say \"help\".")
+        except SendError as e:
+            log.error("couldn't greet %s: %s", room.room_id, e)   # the room still works once I'm a moderator
 
     def is_person(self, room: MatrixRoom, user_id: str) -> bool:
         """A joined human: not me, not an agent (agents never change how the room runs)."""
@@ -127,8 +158,8 @@ class Loop(Progress, Boards, Chat):
         async with self.lock:
             try:
                 await self.on_result(room, sender, result)
-            except (KeyError, TypeError, ValueError, SendError) as e:
-                # A malformed result from a room member must not kill the sync loop; the item
+            except (KeyError, TypeError, ValueError, SendError, github.GitHubError) as e:
+                # A malformed result (or GitHub briefly unreachable) from a room member must not kill the sync loop; the item
                 # stays at its stage and a person can see the log line and take over.
                 log.error("bad result from %s: %s", sender, e)
             await self.refresh_boards()
@@ -142,6 +173,9 @@ class Loop(Progress, Boards, Chat):
 
     async def on_result(self, room: MatrixRoom, sender: str, result: dict) -> None:
         kind, key = result.get("kind"), str(result.get("issue"))
+        if kind in ("plan", "file_issues"):
+            await self.on_plan_result(room, sender, result)
+            return
         item = self.state.get(key)
         if not isinstance(kind, str) or not item or item["room"] != room.room_id:
             return
@@ -204,6 +238,7 @@ class Loop(Progress, Boards, Chat):
         resp = await self.client.login(read_env()["PW_PM"], device_name="pm")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"pm login failed: {resp}")
+        self.client.add_event_callback(self.on_invite, InviteMemberEvent)   # pending invites too
         await lifecycle.first_sync(
             self.client, github.PM_BOT, self.sync_point,
             lambda: (self.client.add_event_callback(self.on_message, RoomMessageText),

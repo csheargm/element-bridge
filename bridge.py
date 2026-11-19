@@ -18,6 +18,7 @@ from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Megol
 import agents
 import github
 import lifecycle
+from redact import room_safe
 import room_state
 import tasks
 
@@ -141,7 +142,8 @@ class Bridge:
 
     async def run_task(self, room_id: str, task: dict) -> None:
         what = f"PR #{task.get('pr')}" if task.get("pr") else f"#{task.get('issue')}"
-        claimed = f"{task.get('kind')}: claimed {what}"
+        claimed = {"plan": "planning from the discussion…", "file_issues": "opening the planned issues…"}.get(
+            task.get("kind"), f"{task.get('kind')}: claimed {what}")
         await self.send(room_id, claimed, source=github.linkify(claimed))
         typing = asyncio.create_task(self.keep_typing(room_id))
         try:
@@ -174,7 +176,7 @@ class Bridge:
             reply = await agents.run_turn(self.backend, self.workdir(room.room_id), prompt)
         except agents.AgentError as e:
             log.error("agent failed in %s: %s", room.room_id, e)
-            reply = f"⚠️ {self.owner}'s agent ({self.backend}) failed: {e}"
+            reply = f"⚠️ {self.owner}'s agent ({self.backend}) failed: {room_safe(e)}"
         finally:
             typing.cancel()
             await self.client.room_typing(room.room_id, False)

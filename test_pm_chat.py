@@ -89,6 +89,27 @@ class Talk(unittest.TestCase):
         self.tell(ANNA, "yes", mention=False)
         self.assertEqual(self.levels, ["autonomous"])
 
+    def test_only_the_asker_confirms(self):
+        """GPT review: any maintainer's unrelated "yes" used to confirm."""
+        self.room.power_levels = SimpleNamespace(get_user_level=lambda u: 50)    # betty is a maintainer too
+        self.tell(ANNA, "@pm take it all the way")
+        self.tell(BETTY, "yes", mention=False)
+        self.react(BETTY, "✅", "$m1")
+        self.assertEqual(self.levels, [])
+        self.react(ANNA, "✅", "$m1")
+        self.assertEqual(self.levels, ["autonomous"])
+
+    def test_a_mode_change_cancels_the_pending_switch(self):
+        self.tell(ANNA, "@pm take it all the way")
+        self.tell(ANNA, "!level assist", mention=False)
+        self.react(ANNA, "✅", "$m1")
+        self.assertEqual(self.levels, ["assist"])
+
+    def test_malformed_mentions_are_ignored(self):
+        ev = SimpleNamespace(sender=ANNA, body="stop", source={"content": {"m.mentions": {"user_ids": 7}}})
+        asyncio.run(self.lp.on_human(self.room, ev))
+        self.assertEqual(self.levels, [])
+
     def test_stop_cancels_a_pending_switch(self):
         self.tell(ANNA, "@pm take it all the way")
         self.tell(BETTY, "@pm wait, stop")
