@@ -60,3 +60,4 @@ the time went to diagnosis, not waiting on builds.
 | 09:17:19 | Fixes in place (+10 tests, 40 unit tests); loop e2e rerun, now with the fake gh also enforcing commit-pinned reviews/merges |
 | **09:18:17** | **Loop e2e ALL PASS again** (issue → merged in 20 s) |
 | 09:19:12 | `start.sh` restarted (bridges + loop-bot); step-1 e2e 7/7 pass; 40 unit tests pass |
+| 10:50 | Real identities ready: betty-agent → second-account (the owner signed in via device flow; token in keychain, not in hosts.yml), Write collaborator on the sandbox; ruleset <ruleset id> on main (PR + 1 approval, dismiss stale, last-push approval, no bypass) |
