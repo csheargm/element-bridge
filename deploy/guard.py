@@ -78,6 +78,8 @@ def measure() -> tuple[float, int | None]:
 
 def main(today: datetime.date | None = None) -> int:
     today = today or datetime.date.today()
+    if FLAG.exists() and not paused_this_month(today):
+        FLAG.unlink()                         # last month's pause ends even if measuring fails below
     disk_used, tx = measure()
     if tx is None:                            # no figure: keep a pause set this month, don't invent zero
         warnings, pause = decide(disk_used, 0)

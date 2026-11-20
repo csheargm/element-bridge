@@ -49,7 +49,7 @@ class Auth(unittest.TestCase):
             self.assertTrue(console.allowed(SimpleNamespace(host="localhost:8650", headers={}), False))
             self.assertFalse(console.allowed(SimpleNamespace(host="rooms.example.org.evil.example", headers={}), False))
             self.assertEqual(console.public_url(), "https://rooms.example.org")
-            for origin in ("http://rooms.example.org", "https://rooms.example.org:8443", "http://[bad"):   # exact only
+            for origin in ("http://rooms.example.org", "https://rooms.example.org:8443", "http://[bad", ""):   # exact only
                 self.assertFalse(console.allowed(SimpleNamespace(host="rooms.example.org", content_type="application/json",
                                                                  headers={"Origin": origin}), True), origin)
 

@@ -43,6 +43,10 @@ def ensure() -> dict:
     if ENV.stat().st_mode & 0o077:
         raise SystemExit("✗ .env is readable by others: run `chmod 600 .env`")
     values = read()
+    for line in EXAMPLE.read_text().splitlines():  # settings added since this .env was made: their defaults
+        key, sep, default = line.partition("=")
+        if sep and not line.startswith("#") and key.strip() not in values:
+            values[key.strip()] = default.strip()
     for key in SECRETS:
         if not values.get(key):
             values[key] = secrets.token_hex(32)

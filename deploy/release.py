@@ -7,16 +7,20 @@ Everything that is neither one of the commit's files nor @pm's state goes: files
 anything planted next to the code, the virtualenv (rebuilt from requirements.txt on start), caches.
 So each release starts from exactly the commit plus STATE.
 """
+import re
 import shutil
 import sys
 from pathlib import Path
 
 STATE = {".env", "agents.json", "data", "custom", ".gh", "rooms", "logs"}   # @pm's, kept across releases
-STATE_PREFIXES = ("loop-state",)                                             # loop-state*.json
+STATE_FILE_RE = re.compile(r"^loop-state[a-z-]*\.json$")
 
 
-def is_state(name: str) -> bool:
-    return name in STATE or name.startswith(STATE_PREFIXES)
+def is_state(path: Path) -> bool:
+    """@pm's own state, kept: never a link (bootstrap touches data/ as the host user)."""
+    if path.is_symlink():
+        return False
+    return path.name in STATE or (bool(STATE_FILE_RE.match(path.name)) and path.is_file())
 
 
 def stale(root: Path, tracked: set[str]) -> list[Path]:
@@ -28,7 +32,7 @@ def stale(root: Path, tracked: set[str]) -> list[Path]:
     def walk(folder: Path) -> None:
         for path in sorted(folder.iterdir()):
             rel = str(path.relative_to(root))
-            if folder == root and is_state(path.name):
+            if folder == root and is_state(path):
                 continue
             if path.is_dir() and not path.is_symlink() and rel in folders:
                 walk(path)
@@ -54,4 +58,7 @@ if __name__ == "__main__":
     names = {n for n in sys.stdin.read().split("\0") if n}
     if "loop.py" not in names:
         raise SystemExit("✗ that isn't Hagency Rooms' file list; nothing removed")
+    clash = sorted(n for n in names if n.split("/")[0] in STATE or STATE_FILE_RE.match(n.split("/")[0]))
+    if clash:
+        raise SystemExit(f"✗ the commit has files where @pm keeps its state: {clash[:5]}; nothing removed")
     print(f"cleared {clear(Path(sys.argv[1]), names)} paths from the previous release")

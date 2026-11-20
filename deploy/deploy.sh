@@ -30,17 +30,19 @@ git -C "$app" fetch -q "$repo" master                  # GitHub itself, whatever
 git -C "$app" merge-base --is-ancestor "$sha" FETCH_HEAD || { echo "✗ $sha is not on master: refusing"; exit 2; }
 edited=$(git -C "$app" status --porcelain --untracked-files=no)
 [ -z "$edited" ] || { echo "✗ code was edited on the server: refusing"; exit 2; }
+git -C "$app" checkout -q --detach "$sha"
+[ -f "$app/deploy/release.py" ] || { echo "✗ $sha predates deploy/release.py: deploy a newer commit"; exit 2; }
+python3 "$app/deploy/envfile.py" check                 # this commit's settings, before anything stops
 if [ -f "$app/deploy/.env" ]; then                     # @pm stops before its files change
   (cd "$app/deploy" && sudo docker compose --env-file .env stop pm >/dev/null)
 fi
-git -C "$app" checkout -q --detach "$sha"
 mkdir -p "$pm"
 chmod 700 "$pm"
 git -C "$app" ls-tree -r -z --name-only "$sha" > ~/hagency/.files
 python3 "$app/deploy/release.py" "$pm" < ~/hagency/.files
 git -C "$app" archive "$sha" | tar -x -C "$pm"         # the commit's files; @pm's state stays
 "$app/deploy/bootstrap.sh"
-echo "$sha" > "$pm/.deployed"                          # only once it's up
+echo "$sha" > ~/hagency/.deployed                      # only once it's up (outside @pm's folder)
 REMOTE
 
 echo "Checking from here:"
@@ -48,7 +50,8 @@ ok=0
 python3 deploy/health.py "$ROOMS" "$MATRIX" "$SERVER" || ok=1
 # The admin host takes only Cloudflare's addresses: straight at the VM, it must refuse.
 ip=$(ssh -G -- "$VM" | awk '$1 == "hostname" {print $2}')
-code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 --resolve "$ADMIN:443:$ip" "https://$ADMIN/" || true)
+code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 --resolve "$ADMIN:443:$ip" \
+  -H "Cf-Access-Jwt-Assertion: not-from-cloudflare" "https://$ADMIN/_synapse/admin/v1/server_version" || true)
 if [ "$code" = 403 ]; then echo "✓ $ADMIN refuses requests that don't come through Cloudflare"
 else echo "✗ $ADMIN straight at $ip answered $code (expected 403)"; ok=1; fi
 exit $ok

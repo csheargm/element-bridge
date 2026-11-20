@@ -24,18 +24,25 @@ def replace(path: Path, text: str, mode: int, owner: tuple[int, int] | None = No
     try:
         with os.fdopen(fd, "w") as f:
             f.write(text)
-        os.chmod(tmp, mode)
-        if owner is not None:
-            os.chown(tmp, *owner)
-        os.replace(tmp, path)
+            os.fchmod(f.fileno(), mode)           # on the open file, not its name: nothing to swap
+            if owner is not None:
+                os.fchown(f.fileno(), *owner)
+        os.replace(tmp, path)                     # at worst moves a swapped-in link, never writes through it
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
 
 
+def read_regular(path: Path) -> str:
+    """A container-writable folder's file, read as root: only a real file, never a link out of it."""
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"✗ {path} isn't a regular file; check it by hand")
+    return path.read_text()
+
+
 def copy_secret(homeserver_yaml: Path, folder: Path, uid: int) -> None:
     """Only the registration secret, for @pm (uid), read-only; the folder stays root's (0755)."""
-    found = SECRET_RE.search(homeserver_yaml.read_text())
+    found = SECRET_RE.search(read_regular(homeserver_yaml))
     if not found:
         raise SystemExit("✗ homeserver.yaml has no registration_shared_secret")
     folder.mkdir(mode=0o755, exist_ok=True)

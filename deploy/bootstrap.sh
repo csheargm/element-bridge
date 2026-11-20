@@ -47,10 +47,11 @@ if ! sudo test -f synapse/homeserver.yaml; then
   mkdir -p synapse
   dc run --rm --no-deps -e SYNAPSE_SERVER_NAME="$SERVER_NAME" -e SYNAPSE_REPORT_STATS=no synapse generate
 fi
-before=$(sudo sha256sum synapse/homeserver.yaml)
 sudo python3 configure_synapse.py synapse/homeserver.yaml   # every run: idempotent, checks the name
 sudo test -f synapse/.hagency-configured || { echo "✗ Synapse isn't configured; not starting it"; exit 1; }
-after=$(sudo sha256sum synapse/homeserver.yaml)
+# Restart Synapse whenever its config differs from what it last started with (a failed run included).
+loaded=$(cat .synapse-loaded 2>/dev/null || true)
+current=$(sudo sha256sum synapse/homeserver.yaml | cut -d' ' -f1)
 
 # 4. @pm's copy of the registration secret, in a root-owned folder it gets read-only (it creates its
 #    own account and people's agents). @pm never sees Synapse's config or the database password.
@@ -67,7 +68,8 @@ chmod 755 flags
 dc stop pm >/dev/null 2>&1 || true                       # its files changed under it (deploy.sh): a clean start
 dc up -d --remove-orphans
 dc up -d --no-deps --force-recreate element synapse-admin >/dev/null 2>&1   # their configs are new files
-if [ "$before" != "$after" ]; then dc restart synapse; fi    # Synapse reads its config only at start
+if [ "$loaded" != "$current" ]; then dc restart synapse; fi  # Synapse reads its config only at start
+echo "$current" > .synapse-loaded
 dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 # 7. The daily free-tier check (guard.py): a systemd timer, as root.

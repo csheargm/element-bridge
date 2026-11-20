@@ -28,6 +28,9 @@ def ensure(name: str) -> str:
     """Create @name as a server admin unless it exists; 'created' or 'exists'."""
     r = setup_accounts.register(name, secrets.token_urlsafe(32), setup_accounts.shared_secret(), admin=True)
     if r.get("errcode") == "M_USER_IN_USE":
+        user = urllib.parse.quote(f"@{name}:{SERVER_NAME}")
+        if local_signup.admin_call("GET", f"/_synapse/admin/v2/users/{user}", None).get("admin") is not True:
+            raise SystemExit(f"✗ @{name} exists but isn't a server admin; make it one by hand or pick another name")
         return "exists"
     if "_status" in r:
         raise SystemExit(f"✗ couldn't create @{name}: {r.get('errcode')} {r.get('error')}")

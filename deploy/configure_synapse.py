@@ -72,10 +72,11 @@ def configure(text: str, e: dict) -> str:
 def install(path: Path, e: dict) -> bool:
     """Configure in place (atomically, never through a link Synapse's container could plant);
     True if the file changed, so bootstrap restarts Synapse to load it."""
-    old = path.read_text()
+    old = hostfiles.read_regular(path)
     new = configure(old, e)
     if new != old:
-        hostfiles.replace(path, new, 0o600, (path.stat().st_uid, path.stat().st_gid))   # Synapse's container reads it as its own user (991)
+        st = path.lstat()
+        hostfiles.replace(path, new, 0o600, (st.st_uid, st.st_gid))   # Synapse's container reads it as its own user (991)
     hostfiles.replace(path.parent / MARKER, "ok\n", 0o644)
     return new != old
 

@@ -499,3 +499,17 @@ Deferred, with reasons:
   scale (42 GB free, nothing near 1 TB); a tighter loop comes with real traffic.
 - **The global wrong-code limit can block real redemptions under attack.** Unchanged from review 21.
 - **Migration from the old ~/hagency/deploy layout.** The VM was fresh; nothing to migrate.
+
+Re-check of those fixes (GPT, HEAD~1..HEAD), fixed with tests:
+- Mode and owner are set on the open file (fchmod/fchown), and a linked homeserver.yaml is refused,
+  so root never reads or writes through a name a container swapped.
+- `.deployed` lives in ~/hagency, outside @pm's folder; settings are checked (and new ones get their
+  defaults, e.g. ADMIN_DOMAIN) before @pm stops; commits older than release.py are refused.
+- release.py drops links or wrong types at state names and refuses a commit with files there.
+- Synapse restarts when its config differs from the one it last started with (a failed run too).
+- `ensure owner` fails if @owner exists but isn't an admin. An empty Origin is refused. Last
+  month's media pause is cleared before measuring. The direct-to-VM probe sends an Access header to
+  the admin API path, so a 403 proves the address filter.
+Deferred: JWT signature checking (as above); the owner's password is set through @pm's container
+(a compromised @pm could see it; a separate admin tool is the next step); the admin host's media is
+not paused (it's behind Access, owner only).

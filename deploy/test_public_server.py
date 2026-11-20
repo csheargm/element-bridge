@@ -77,6 +77,11 @@ class Guard(unittest.TestCase):
                 flag.write_text("2026-10")
                 guard.main(NOV)
                 self.assertFalse(flag.exists())                                      # a new month: downloads resume
+                flag.write_text("2026-10")
+                with mock.patch.object(guard, "measure", side_effect=SystemExit("vnstat broke")), \
+                        self.assertRaises(SystemExit):
+                    guard.main(NOV)
+                self.assertFalse(flag.exists())                                      # even when measuring fails
             with mock.patch.object(guard, "FLAG", flag), mock.patch.object(guard, "measure", return_value=(0.2, 6 * guard.TB)), \
                     mock.patch.object(guard.subprocess, "run", return_value=mock.Mock(returncode=0)):
                 guard.main(NOV)

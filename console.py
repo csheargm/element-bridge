@@ -190,7 +190,7 @@ def allowed(request, post: bool) -> bool:
         return False
     if post:
         origin = request.headers.get("Origin")
-        if request.content_type != "application/json" or (origin and origin not in allowed_origins()):
+        if request.content_type != "application/json" or (origin is not None and origin not in allowed_origins()):
             return False
     return True
 
