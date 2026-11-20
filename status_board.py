@@ -67,9 +67,12 @@ class Boards:
 
     def load_boards(self) -> dict:
         try:
-            return json.loads(self.board_file.read_text())
+            boards = json.loads(self.board_file.read_text())
         except (OSError, ValueError):
             return {}                         # no board yet (or a damaged file): post a new one
+        for board in boards.values():         # re-check real pins after a restart instead of trusting
+            board["pinned"] = False           # the file (pin() is a no-op for a board already pinned)
+        return boards
 
     def save_boards(self) -> None:
         tmp = self.board_file.with_suffix(".tmp")
@@ -83,10 +86,16 @@ class Boards:
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now)
             board = self.boards.get(room_id, {})
             if board.get("text") == text:
+                if board.get("event_id") and not board.get("pinned"):   # e.g. posted before @pm was a moderator
+                    board["pinned"] = await self.pin(room_id, board["event_id"], None)
+                    self.save_boards()
                 continue
             event_id = await self.show(room_id, board.get("event_id"), text)
             if event_id:
-                self.boards[room_id] = {"event_id": event_id, "text": text}
+                pinned = board.get("pinned", False) if event_id == board.get("event_id") else False
+                if not pinned:
+                    pinned = await self.pin(room_id, event_id, board.get("event_id"))
+                self.boards[room_id] = {"event_id": event_id, "text": text, "pinned": pinned}
                 self.save_boards()
 
     async def show(self, room_id: str, event_id: str | None, text: str) -> str | None:
@@ -103,14 +112,18 @@ class Boards:
         if not isinstance(resp, RoomSendResponse):
             log.error("couldn't post the status board in %s: %s", room_id, resp)   # retried next poll
             return None
-        await self.pin(room_id, resp.event_id, event_id)
         return resp.event_id
 
-    async def pin(self, room_id: str, event_id: str, old: str | None) -> None:
+    async def pin(self, room_id: str, event_id: str, old: str | None) -> bool:
+        """Pin the board (replacing an older board pin); False if not allowed yet, retried later."""
         r = await self.client.room_get_state_event(room_id, "m.room.pinned_events", "")
         pinned = r.content.get("pinned", []) if isinstance(r, RoomGetStateEventResponse) else []
-        pinned = [e for e in pinned if e != old] + [event_id]
+        if event_id in pinned and old not in pinned:
+            return True
+        pinned = [e for e in pinned if e != old] + ([] if event_id in pinned else [event_id])
         resp = await self.client.room_put_state(room_id, "m.room.pinned_events", {"pinned": pinned})
         if not hasattr(resp, "event_id"):
-            # The board still works unpinned; setup_accounts.py grants pm the pin permission.
-            log.warning("couldn't pin the status board in %s: %s", room_id, resp)
+            # The board still works unpinned; it is pinned once someone makes @pm a moderator.
+            log.warning("couldn't pin the status board in %s yet: %s", room_id, resp)
+            return False
+        return True

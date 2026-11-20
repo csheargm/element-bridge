@@ -77,7 +77,10 @@ class Chat:
         elif intent == intents.STATUS:
             await self.say(rid, await self.status_text(rid))
         elif intent == intents.PLAN and not await room_state.is_moderator(self.client, room, sender):
-            await self.say(rid, "Only the room owner or a maintainer can turn the discussion into work.")
+            who = sender.split(":")[0].lstrip("@")         # a contributor asks; the owner decides
+            event_id = await self.say(rid, f"{who} would like to turn this discussion into work. Room owner or "
+                                           "a maintainer: ✅ and I'll plan it with your agent.")
+            self.pending[rid] = {"kind": "plan_request", "event_id": event_id, "until": time.time() + CONFIRM_S}
         elif intent == intents.PLAN:
             await self.start_plan(room, sender)
         elif intent == intents.HELP:
@@ -88,13 +91,17 @@ class Chat:
     async def confirm(self, room: MatrixRoom, sender: str) -> bool:
         """Apply the pending autonomous switch if a moderator confirms in time."""
         p = self.pending.get(room.room_id)
-        if not p or time.time() > p["until"] or sender != p.get("by"):
+        if not p or time.time() > p["until"]:
+            return False
+        if p.get("kind") != "plan_request" and sender != p.get("by"):
             return False              # only the person who asked confirms (a stray "yes" from anyone else doesn't)
         if not await room_state.is_moderator(self.client, room, sender):
             return False              # authority re-checked now: they may have been demoted since
 
         self.pending.pop(room.room_id)
-        if p.get("kind") == "plan":
+        if p.get("kind") == "plan_request":
+            await self.start_plan(room, sender)                 # planned with the confirming owner's agent
+        elif p.get("kind") == "plan":
             await self.file_plan(room, p, sender)               # pm_plan.py
         else:
             await self.say(room.room_id, await self.change_level(room.room_id, "autonomous") or

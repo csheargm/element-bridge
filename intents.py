@@ -17,8 +17,8 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
                  r"(just )?(get|do) it (all )?done|finish (it|the project|everything)|full auto|go all in)\b"),
     (STATUS, r"\b(status|where are we|progress|what'?s left|how'?s it going|what are (you|the agents) doing|"
              r"what'?s happening|update me)\b"),
-    (PLAN, r"\b(let'?s build|build (it|this|that)|start (the project|building|it)|go ahead|kick (it )?off|"
-           r"spec is ready|ready to build|make it|plan (it|this))\b"),
+    (PLAN, r"\b(let'?s (build|do|start|go|make)|build (it|this|that)|start (the project|building|it)|go ahead|"
+           r"go for it|kick (it )?off|ship it|spec is ready|ready to build|make it|plan (it|this))\b"),
     (HELP, r"\b(help|what can you do|how do (i|we) use you)\b"),
 ]
 _COMPILED = [(intent, re.compile(rx, re.I)) for intent, rx in _RULES]

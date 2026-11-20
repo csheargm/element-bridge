@@ -25,7 +25,8 @@ class Intents(unittest.TestCase):
                  "stop": intents.OFF, "turn it all off": intents.OFF, "kill all the AI": intents.OFF,
                  "pause everything": intents.OFF,
                  "where are we?": intents.STATUS, "what's left": intents.STATUS,
-                 "let's build it": intents.PLAN, "help": intents.HELP, "hello there": intents.UNKNOWN}
+                 "let's build it": intents.PLAN, "that's great! let's do it!": intents.PLAN,
+                 "go for it": intents.PLAN, "help": intents.HELP, "hello there": intents.UNKNOWN}
         for text, want in cases.items():
             self.assertEqual(intents.classify(text), want, text)
 
@@ -121,6 +122,20 @@ class Talk(unittest.TestCase):
         self.tell(BETTY, "@pm let us approve each change")
         self.assertEqual(self.levels, [])
         self.assertIn("Only the room owner or a maintainer", self.said[-1])
+
+    def test_a_contributor_can_ask_the_owner_to_start(self):
+        """Seen in the first live demo: betty said "@pm let's do it!"."""
+        started = []
+
+        async def start_plan(room, sender):
+            started.append(sender)
+        self.lp.start_plan = start_plan
+        self.tell(BETTY, "@pm that's great! let's do it!")
+        self.assertIn("betty would like to turn this discussion into work", self.said[-1])
+        self.react(BETTY, "✅", "$m1")                      # betty can't approve her own request
+        self.assertEqual(started, [])
+        self.react(ANNA, "✅", "$m1")
+        self.assertEqual(started, [ANNA])                   # planned with the owner's agent
 
     def test_assist_needs_no_check(self):
         self.tell(ANNA, "@pm let us approve each change")

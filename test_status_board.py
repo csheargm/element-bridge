@@ -90,6 +90,23 @@ class Board(unittest.TestCase):
         self.assertIn("#7 x — building", edit["m.new_content"]["body"])
         self.assertEqual(self.b.boards["!r"]["event_id"], "$e1")
 
+    def test_pin_is_retried_until_allowed(self):
+        """Seen live: the board was posted before @pm was made a moderator, and never pinned."""
+        refused = {"yes": True}
+
+        async def put_state(room_id, kind, content):
+            if refused["yes"]:
+                return SimpleNamespace(message="M_FORBIDDEN")
+            self.b.client.pins = content["pinned"]
+            return RoomPutStateResponse("$p", room_id)
+        self.b.client.room_put_state = put_state
+        self.refresh()
+        self.assertIsNone(self.b.client.pins)
+        refused["yes"] = False                               # anna makes @pm a moderator
+        self.refresh()                                       # same text: no repost, but the pin is retried
+        self.assertEqual(self.b.client.pins, ["$other", "$e1"])
+        self.assertEqual(len(self.b.client.sent), 1)
+
     def test_board_survives_a_restart(self):
         self.refresh()
         fresh = Boards()
