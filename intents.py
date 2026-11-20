@@ -9,6 +9,7 @@ OFF, ASSIST, AUTONOMOUS, STATUS, SHOW_PLAN, PLAN, ABOUT, HELP, UNKNOWN = (
     "off", "assist", "autonomous", "status", "show_plan", "plan", "about", "help", "unknown")
 FOLLOW_NEVER, FOLLOW_ASK, FOLLOW_ALWAYS = "follow_never", "follow_ask", "follow_always"
 GRANT_WEB, REVOKE_WEB = "grant_web", "revoke_web"
+CONSOLE = "console"
 
 _RULES = [   # checked in order; the first match wins, so the safest meanings come first
     # The follow-me settings mention "my agent" explicitly, so they can go before "stop" without
@@ -29,6 +30,7 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
                  r"finish (it|the project|everything|all|them)|full auto|go all in)\b"),
     (STATUS, r"\b(status|where are we|progress|what'?s left|how'?s it going|what are (you|the agents) doing|"
              r"what'?s happening|update me)\b"),
+    (CONSOLE, r"\b(console|settings?)\b.*\blink\b|\bsend me (my |the )?(console|settings)\b|\bopen (the )?console\b"),
     (SHOW_PLAN, r"\b((show|reiterate|repeat|see|resend|what'?s|where'?s) (me )?(the |teh |our |that |this )?plan)\b"),
     (PLAN, r"\b(let'?s (build|do|start|go|make)|build (it|this|that)|start (the project|building|it)|go ahead|"
            r"go for it|kick (it )?off|ship it|spec is ready|ready to build|make it|plan (it|this))\b"),

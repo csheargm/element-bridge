@@ -38,6 +38,7 @@ ACTIONS = {
     "follow_never": "the sender doesn't want their agent brought into rooms automatically",
     "grant_web": "the sender lets their OWN agent search the web and read pages in this room",
     "revoke_web": "the sender stops their own agent using the web in this room",
+    "console": "the sender wants the settings console / a link to change settings in a page",
     "none": "no action: just answer (questions, thanks, chit-chat, a requirement noted for later)",
 }
 log = logging.getLogger("loop")

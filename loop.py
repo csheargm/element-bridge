@@ -71,6 +71,7 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
         self.generation: dict = {}                  # room → bumped by "stop" (pm_chat.py)
         self.grants_cache: dict = {}                # room → agent grants, for the side panel
+        self.dm_rooms: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-dms.json"))  # person → our DM
         self.last_plans: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-plans.json"))
 
     def save(self) -> None:

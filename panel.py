@@ -1,10 +1,8 @@
-"""The Hagency side panel: a small page @pm serves and adds to each project room as an Element
-widget, shown next to the chat. It shows what the room is doing — the live Project status, what's
-waiting for approval, the plan, the mode and whose agent is whose — refreshed every few seconds.
-
-Read-only by design: people still change things by talking to @pm (permissions live there). It
-listens on 127.0.0.1 only; a public deployment needs Element's OpenID hand-off to know the viewer
-(docs/ROADMAP.md).
+"""The Hagency side panel and console: a page @pm serves and adds to each project room as an
+Element widget (and at /console for phones and other clients). It shows the live Project status,
+what's waiting, the plan and whose agent is whose, and — once it knows who you are (console.py) —
+lets you change the room's mode, your agent's follow-me and web grant, and approve what you asked
+for, through @pm's own checks. Refreshed every few seconds; listens on 127.0.0.1 only.
 """
 import html
 import logging
@@ -13,6 +11,7 @@ import os
 import markdown
 from aiohttp import web
 
+import console
 import github
 import ownership
 import registry
@@ -22,7 +21,7 @@ URL = f"http://localhost:{PORT}/panel?room=$matrix_room_id"
 WIDGET_ID = "hagency"
 REFRESH_MS = 3000
 ELEMENT_ORIGIN = os.environ.get("ELEMENT_ORIGIN", "http://localhost:8649")
-HEADERS = {"Content-Security-Policy": f"frame-ancestors {ELEMENT_ORIGIN}; default-src 'self'; "
+HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 
@@ -32,15 +31,71 @@ def local_host(request) -> bool:
     return request.host.split(":")[0] in ("localhost", "127.0.0.1")
 log = logging.getLogger("loop")
 
-PAGE = """<!doctype html><meta charset="utf-8"><title>Hagency</title>
+PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hagency</title>
 <style>body{font:14px system-ui,sans-serif;margin:12px;color:#222}h2{font-size:15px;margin:16px 0 6px}
-.box{background:#f6f6f7;border-radius:8px;padding:8px 12px}.muted{color:#777}li{margin:2px 0}</style>
-<div id="p">Loading…</div>
+.box{background:#f6f6f7;border-radius:8px;padding:8px 12px}.muted{color:#777}li{margin:2px 0}
+button{font:inherit;padding:4px 10px;margin:2px 4px 2px 0;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
+button.on{background:#0b6e4f;color:#fff;border-color:#0b6e4f}button:disabled{opacity:.45;cursor:default}
+.row{margin:6px 0}#msg{color:#0b6e4f}</style>
+<div id="me" class="muted">Signing in…</div><div id="controls"></div><div id="p"></div><div id="msg"></div>
 <script>
-const room = new URLSearchParams(location.search).get("room");
-async function load(){ try { const r = await fetch("data?room=" + encodeURIComponent(room));
-  document.getElementById("p").innerHTML = (await r.json()).html; } catch(e) {} }
-load(); setInterval(load, %d);
+const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
+let session = sessionStorage.getItem("hagency-session");
+const $ = id => document.getElementById(id);
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json",
+    "Authorization": "Bearer " + (session || "")}, body: JSON.stringify(body)}); return r.json(); }
+function signedIn(s) { session = s; sessionStorage.setItem("hagency-session", s); refresh(); }
+// Inside Element: Matrix widget API — answer Element's requests, then ask for an OpenID token.
+const parentOrigin = q.get("parentUrl") ? new URL(q.get("parentUrl")).origin : "*";
+let asked = false;
+window.addEventListener("message", async ev => {
+  const m = ev.data || {}; if (m.widgetId !== wid) return;
+  if (m.api === "toWidget") {
+    const resp = m.action === "capabilities" ? {capabilities: []} : {};
+    window.parent.postMessage({...m, response: resp}, parentOrigin);
+    if (m.action === "openid_credentials" && m.data && m.data.state === "allowed") gotToken(m.data.access_token);
+    if (m.action === "capabilities" && !asked) { asked = true; setTimeout(askOpenId, 300); }
+  } else if (m.api === "fromWidget" && m.action === "get_openid" && m.response) {
+    if (m.response.state === "allowed") gotToken(m.response.access_token);
+    else if (m.response.state === "blocked") $("me").textContent = "Element didn't share who you are; settings are read-only.";
+  }
+});
+function askOpenId() { window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: "openid" + Date.now(),
+  action: "get_openid", data: {}}, parentOrigin); }
+async function gotToken(t) { const r = await post("/auth/openid", {access_token: t});
+  r.session ? signedIn(r.session) : ($("me").textContent = r.error); }
+async function start() {
+  if (q.get("login")) { const r = await post("/auth/link", {code: q.get("login")});
+    history.replaceState(null, "", location.pathname + "?room=" + encodeURIComponent(room));
+    return r.session ? signedIn(r.session) : ($("me").textContent = r.error); }
+  if (session) return refresh();
+  if (!wid) $("me").innerHTML = 'To change settings here, say <b>@pm send me my console link</b> in the room.';
+}
+async function act(action, value) { $("msg").textContent = "…";
+  const r = await post("/console/action", {room, action, value}); $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
+function buttons(name, values, current, enabled) {
+  return values.map(v => `<button ${v === current ? 'class=on' : ''} ${enabled ? '' : 'disabled'}
+    onclick="act('${name}','${v}')">${v}</button>`).join(""); }
+async function refresh() {
+  const d = await (await fetch("data?room=" + encodeURIComponent(room))).json(); $("p").innerHTML = d.html;
+  if (!session) return;
+  const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
+  if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
+  const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
+  $("me").textContent = `Signed in as ${s.user} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
+  let h = `<h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
+  if (s.waiting && s.waiting.mine) h += `<h2>Waiting for you</h2><div class=row>${esc(s.waiting.kind)}${s.waiting.items.length ?
+    ": " + s.waiting.items.map(esc).join(" · ") : ""} <button onclick="act('approve','yes')">Approve 👍</button></div>`;
+  if (s.agent) h += `<h2>My agent (${esc(s.agent)})</h2>
+    <div class=row>Comes along when I join a project room: ${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
+    <div class=row>Web research in this room: ${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}
+    <span class=muted>(each request is shown in the chat)</span></div>`;
+  $("controls").innerHTML = h;
+}
+start(); setInterval(refresh, %d);
 </script>""" % REFRESH_MS
 
 
@@ -89,7 +144,8 @@ async def start(loop) -> web.AppRunner | None:
             return web.Response(status=403)
         return web.json_response({"html": render(loop, request.query.get("room", ""))}, headers=HEADERS)
     app = web.Application()
-    app.add_routes([web.get("/panel", page), web.get("/data", data)])
+    app.add_routes([web.get("/panel", page), web.get("/console", page), web.get("/data", data),
+                    *console.routes(loop)])
     runner = web.AppRunner(app, access_log=None)        # the widget polls every 3 s: don't flood the log
     await runner.setup()
     try:

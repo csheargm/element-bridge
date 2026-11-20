@@ -11,11 +11,14 @@ Mixed into loop.Loop (client, user_id, say, level, boards, agents_in, start_plan
 import asyncio
 import re
 import time
+import urllib.parse
 
-from nio import MatrixRoom, ReactionEvent, RoomMessageText
+from nio import MatrixRoom, ReactionEvent, RoomMessageText, RoomPreset
 
 import github
+import console
 import intents
+import panel
 import logging
 
 import pm_brain
@@ -36,6 +39,7 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm where are we?**: what's happening now\n"
         "- **@pm let's build it**: your agent turns this discussion into issues; 👍 to open them\n"
         "- **@pm show the plan**: the plan waiting for your 👍\n"
+        "- **@pm send me my console link**: settings in a page (also the Hagency panel in this room)\n"
         "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
 
@@ -140,6 +144,8 @@ class Chat:
                            "Say \"stop\" anytime.")
         elif intent in (intents.GRANT_WEB, intents.REVOKE_WEB):   # the sender's own agent, this room only
             await self.set_grant(room, sender, "web", intent == intents.GRANT_WEB)
+        elif intent == intents.CONSOLE:
+            await self.send_console_link(room, sender)
         elif intent in FOLLOW_SETTINGS:      # the sender's own setting only (pm_follow.py)
             await self.set_follow(room, sender, FOLLOW_SETTINGS[intent])
         elif intent == intents.SHOW_PLAN:
@@ -210,6 +216,29 @@ class Chat:
         else:
             first = "Nothing is waiting for your OK right now."
         await self.say(room_id, f"{first} {await self.status_text(room_id)}")
+
+    async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
+        """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""
+        dm = await self.private_room(sender)
+        if dm is None:
+            await self.say(room.room_id, "I couldn't open a private chat with you; the console is also in this "
+                                         "room's Hagency panel (room info → Extensions).")
+            return
+        url = f"http://localhost:{panel.PORT}/console?room={urllib.parse.quote(room.room_id)}&login={console.new_link(sender)}"
+        await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
+        await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
+
+    async def private_room(self, user: str) -> str | None:
+        known = self.dm_rooms.get(user)
+        if known and known in self.client.rooms:
+            return known
+        resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.trusted_private_chat,
+                                             name="Hagency (private)")
+        if not hasattr(resp, "room_id"):
+            log.warning("couldn't open a DM with %s: %s", user, resp)
+            return None
+        self.dm_rooms[user] = resp.room_id
+        return resp.room_id
 
     async def change_level(self, room_id: str, level: str) -> str | None:
         """Write the room's loop level; returns an error line, or None when done. Any explicit mode

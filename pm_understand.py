@@ -20,7 +20,7 @@ BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": in
                  "plan": intents.PLAN, "show_plan": intents.SHOW_PLAN, "status": intents.STATUS,
                  "follow_always": intents.FOLLOW_ALWAYS, "follow_ask": intents.FOLLOW_ASK,
                  "follow_never": intents.FOLLOW_NEVER, "grant_web": intents.GRANT_WEB,
-                 "revoke_web": intents.REVOKE_WEB}
+                 "revoke_web": intents.REVOKE_WEB, "console": intents.CONSOLE}
 
 
 class Understanding:
