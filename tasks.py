@@ -98,7 +98,7 @@ async def finish_build(agent: str, who_built: str, co: Checkout, summary: str) -
     await git([*co.g, *who, "commit", "--quiet", "--no-verify", "-m", f"{co.issue['title']}\n\nCloses #{n}"],
               agent, co.root)
     await git([*co.g, "push", "--quiet", "--no-verify", "-u", "origin", co.branch], agent, co.root)
-    body = f"Closes #{n}\n\nBuilt by `{agent}` ({who_built}) via the hagency-bridge loop.\n\n{summary[:3000]}"
+    body = f"Closes #{n}\n\nBuilt by `{agent}` ({who_built}) via the Hagency Rooms loop.\n\n{summary[:3000]}"
     url = (await run(["pr", "create", "-R", co.repo, "--head", co.branch, "--title", co.issue["title"],
                       "--body", body], agent)).strip().splitlines()[-1]
     pr = int(url.rstrip("/").rsplit("/", 1)[1])
@@ -194,7 +194,7 @@ async def close(agent: str, backend: str, base: Path, task: dict) -> dict:
     repo = _check_repo(task)
     n = int(task["issue"])
     await _issue(n, agent, repo)                          # still open + agent-ok, re-checked here
-    note = (f"Closed by the hagency-bridge loop: `{agent}` found nothing to change and "
+    note = (f"Closed by the Hagency Rooms loop: `{agent}` found nothing to change and "
             f"`{task['verifier']}` confirmed every acceptance criterion is already met.")
     await run(["issue", "close", str(n), "-R", repo, "--reason", "completed", "--comment", note], agent)
     return {"kind": "close", "issue": n, "line": f"closed #{n} (already done)"}

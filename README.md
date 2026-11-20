@@ -1,4 +1,4 @@
-# hagency-bridge — Hagency Rooms: chat + bring your own agent (Matrix + Element prototype)
+# Hagency Rooms — chat where each person brings their own agent (Matrix + Element)
 
 One-day prototype: a stock Matrix homeserver (Synapse) and Element as the chat app, plus a
 ~270-line Python bridge that lets each person's **own** agent CLI (Codex or Claude Code, using
@@ -16,7 +16,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 1. Start everything — server, accounts (first run only) and both agent bridges:
 
    ```bash
-   cd ~/hagency-bridge && ./start.sh
+   cd ~/hagency-rooms && ./start.sh
    ```
 
    Leave it running (Ctrl-C stops the bridges; the server keeps running in Docker).
@@ -25,7 +25,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 2. Look up anna's password (it is never printed by the scripts):
 
    ```bash
-   grep PW_ANNA ~/hagency-bridge/.env
+   grep PW_ANNA ~/hagency-rooms/.env
    ```
 
 3. Open **http://localhost:8649** in your browser (or Element desktop: on the sign-in screen
@@ -129,7 +129,7 @@ short reply.
 ## Stop / reset
 
 ```bash
-docker compose -f ~/hagency-bridge/docker-compose.yml down
+docker compose -f ~/hagency-rooms/docker-compose.yml down
 ```
 
 Delete `data/`, `.env` and `rooms/` to start from scratch.

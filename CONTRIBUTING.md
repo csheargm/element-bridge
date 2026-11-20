@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for improving hagency-bridge. Changes come in as pull requests, from your own fork.
+Thanks for improving Hagency Rooms. Changes come in as pull requests, from your own fork.
 
 ## The quick way: ask your agent
 
@@ -11,7 +11,7 @@ choose to use it yourself or send it here as a pull request. *(In-chat flow: in 
 ## By hand
 
 ```bash
-git clone https://github.com/<you>/element-bridge && cd element-bridge
+git clone https://github.com/<you>/hagency-rooms && cd hagency-rooms
 python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m unittest discover -p 'test_*.py'
 ```

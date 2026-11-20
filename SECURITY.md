@@ -1,6 +1,6 @@
 # Security
 
-hagency-bridge runs agent CLIs (Codex, Claude Code, Hermes) on chat messages, on the owner's own
+Hagency Rooms runs agent CLIs (Codex, Claude Code, Hermes) on chat messages, on the owner's own
 computer. The checks that matter most:
 
 - **Owner only.** An agent acts only on its owner's messages (`bridge.should_ignore`), unless the
