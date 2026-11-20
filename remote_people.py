@@ -8,7 +8,8 @@ Limits, since anyone on any server can ask:
   - HAGENCY_ALLOW_REMOTE=0 turns it off (default on);
   - one agent per full Matrix ID (the name is derived from it, registry.py records it);
   - at most HAGENCY_REMOTE_PER_HOUR new ones per hour, for everyone together (default 10);
-  - @pm joins at most DM_JOINS_PER_HOUR private chats people from other servers open with it.
+  - @pm joins at most DM_JOINS_PER_HOUR private chats people from other servers open with it
+    (DM_JOINS_PER_PERSON from any one of them), and leaves one that isn't just the two of them.
 """
 import os
 import time
@@ -17,6 +18,7 @@ from setup_accounts import AccountError
 
 HOUR_S = 3600
 DM_JOINS_PER_HOUR = 30
+DM_JOINS_PER_PERSON = 3
 FULL = "too many people from other servers asked for an agent in the last hour; please try again later"
 OFF = "this server isn't making agents for people from other servers right now"
 
@@ -36,11 +38,13 @@ def now() -> float:
     return time.time()
 
 
-def check_new(people: dict, at: float | None = None) -> None:
-    """Raise AccountError unless one more person from another server may get an agent now.
-    `people` is registry.load(): each remote agent records when it was "created"."""
+def check_new(people: dict, person: str, at: float | None = None) -> None:
+    """Raise AccountError unless `person` (from another server) may get or keep setting up an agent
+    now. `people` is registry.load(): each remote agent records when it was "created"."""
     if not allowed():
         raise AccountError(OFF)
+    if person in people:                      # theirs already: one agent per full ID, never counted twice
+        return
     at = now() if at is None else at
     recent = [v for v in people.values() if isinstance(v.get("created"), (int, float)) and v["created"] > at - HOUR_S]
     if len(recent) >= per_hour():
@@ -48,14 +52,14 @@ def check_new(people: dict, at: float | None = None) -> None:
 
 
 class DmJoins:
-    """How many private chats from other servers @pm joined in the last hour (in memory)."""
-    def __init__(self, limit: int = DM_JOINS_PER_HOUR) -> None:
-        self.limit, self.times = limit, []
+    """Private chats from other servers @pm joined in the last hour (in memory): in all, and per person."""
+    def __init__(self, limit: int = DM_JOINS_PER_HOUR, each: int = DM_JOINS_PER_PERSON) -> None:
+        self.limit, self.each, self.times = limit, each, []
 
-    def take(self, at: float | None = None) -> bool:
+    def take(self, sender: str, at: float | None = None) -> bool:
         at = now() if at is None else at
-        self.times = [t for t in self.times if t > at - HOUR_S]
-        if len(self.times) >= self.limit:
+        self.times = [(t, s) for t, s in self.times if t > at - HOUR_S]
+        if len(self.times) >= self.limit or sum(s == sender for _, s in self.times) >= self.each:
             return False
-        self.times.append(at)
+        self.times.append((at, sender))
         return True

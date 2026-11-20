@@ -181,12 +181,16 @@ class Welcome:
         if (event.state_key != self.user_id or event.membership != "invite" or not event.content.get("is_direct")
                 or not self.may_have_agent(event.sender) or identity.split(event.sender)[1] == SERVER_NAME):
             return
-        if not self.__dict__.setdefault("_dm_joins", remote_people.DmJoins()).take():
+        if not self.__dict__.setdefault("_dm_joins", remote_people.DmJoins()).take(event.sender):
             log.warning("not joining %s from %s: too many chats from other servers this hour", room.room_id, event.sender)
             return
         joined = await self.client.join(room.room_id)
         if not isinstance(joined, JoinResponse):
             log.warning("couldn't join %s from %s: %s", room.room_id, event.sender, joined)
+            return
+        if not await self.only_us(room.room_id, event.sender):   # "is_direct" is only the sender's word
+            log.info("leaving %s from %s: not a private chat", room.room_id, event.sender)
+            await self.client.room_leave(room.room_id)
             return
         try:
             await self.offer_again(room, event.sender)

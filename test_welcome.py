@@ -73,6 +73,9 @@ class Greeting(Base):
         self.assertEqual(self.run_(Loop.private_room(self.lp, NEW)), "!new")
         kw = self.lp.client.room_create.call_args.kwargs
         self.assertEqual((kw["name"], kw["is_direct"], kw["invite"]), ("Product Manager", True, [NEW]))
+        # GPT review 23: codes and console links go here: only I invite, and newcomers can't read back
+        self.assertEqual(kw["power_level_override"], {"invite": 100})
+        self.assertEqual(kw["initial_state"][0]["content"], {"history_visibility": "joined"})
 
     def test_one_line_in_welcome_points_them_to_the_invite(self):
         """Seen live: Element lists my private chat as an invite, so a newcomer never saw the buttons."""

@@ -33,8 +33,8 @@ class Planner:
 
     def own_agent(self, room: MatrixRoom, person: str) -> str | None:
         """The requester's own registered agent in this room: planning runs on their model."""
-        want = ownership.agent_id(person)
-        return want if want in self.agents_in(room) else None
+        want = ownership.own_agent_id(person)       # theirs by full ID, never a namesake's
+        return want if want and want in self.agents_in(room) else None
 
     async def start_plan(self, room: MatrixRoom, sender: str) -> None:
         rid = room.room_id

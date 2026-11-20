@@ -72,6 +72,17 @@ class Registry(unittest.TestCase):
         use_registry(self, {"anna": {"agent": "hermes"}, ANNA: {"agent": "claude"}})
         self.assertEqual(registry.load(), {ANNA: {"agent": "claude"}})
 
+    def test_old_and_new_entries_for_one_person_are_merged(self):
+        """GPT review 23: a half-migrated file must not lose the old entry's fields."""
+        use_registry(self, {"anna": {"agent": "hermes", "dm": "!d"}, ANNA: {"follow": "ask"}})
+        self.assertEqual(registry.load(), {ANNA: {"agent": "hermes", "dm": "!d", "follow": "ask"}})
+
+    def test_an_agent_claimed_twice_belongs_to_nobody(self):
+        """GPT review 23: a bad record must never hand the first match someone else's agent."""
+        use_registry(self, {"anna": {}, "carl": {"agent_user": "anna-agent"}})
+        self.assertIsNone(registry.owner_of("anna-agent"))
+        self.assertFalse(registry.owns("anna", "anna-agent"))
+
     def test_ownership_is_by_full_id(self):
         use_registry(self, {"anna": {}, ALICE: {"agent": "remote"}})
         agent = identity.agent_localpart(ALICE, S)
@@ -130,6 +141,34 @@ class Provision(unittest.TestCase):
                 remote_agent.provision(ALICE)
             remote_agent.provision("newbie1")                                      # people here still can
         self.ensure.assert_called_once()
+
+    def test_a_failed_chat_still_counts_toward_the_hour(self):
+        """GPT review 23: the cap counted only finished set-ups, so failing on purpose was unlimited."""
+        self.dm.side_effect = setup_accounts.AccountError("their server refused the invite")
+        with mock.patch.dict("os.environ", {"HAGENCY_REMOTE_PER_HOUR": "1"}):
+            with self.assertRaises(setup_accounts.AccountError):
+                remote_agent.provision("@a1:x.org")
+            self.assertIn("created", registry.load()["@a1:x.org"])                 # reserved before registering
+            with self.assertRaisesRegex(setup_accounts.AccountError, "try again later"):
+                remote_agent.provision("@a2:x.org")
+            self.dm.side_effect = None
+            remote_agent.provision("@a1:x.org")                                    # their retry finishes
+        self.assertEqual(registry.load()["@a1:x.org"]["dm"], "!dm")
+
+    def test_turned_off_means_no_new_sign_ins_either(self):
+        agent = remote_agent.provision(ALICE)
+        self.env = {setup_accounts.password_key(agent): "s3cret"}
+        with mock.patch.dict("os.environ", {"HAGENCY_ALLOW_REMOTE": "0"}):
+            self.assertIsNone(remote_agent.credentials_for(ALICE))
+            with self.assertRaises(setup_accounts.AccountError):
+                remote_agent.provision(ALICE)                                      # no new code for them either
+        self.assertIsNotNone(remote_agent.credentials_for(ALICE))
+
+    def test_an_overridden_record_never_hands_out_a_sign_in(self):
+        """GPT review 23: connect.py checks the derived name; an odd record must fail before the code is used."""
+        use_registry(self, {ALICE: {"agent": "remote", "agent_user": "anna-agent"}})
+        self.env = {"PW_ANNA_AGENT": "s3cret"}
+        self.assertIsNone(remote_agent.credentials_for(ALICE))
 
     def test_a_typo_in_the_hourly_cap_is_never_unlimited(self):
         with mock.patch.dict("os.environ", {"HAGENCY_REMOTE_PER_HOUR": "lots"}):

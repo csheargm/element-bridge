@@ -14,6 +14,7 @@ import threading
 from aiohttp import web
 
 import console
+import identity
 import pairing
 import registry
 import remote_people
@@ -91,13 +92,15 @@ def _provision(person: str) -> str:
     agent = registry.agent_of(person)
     if registry.owner_of(agent) not in (None, person):
         raise AccountError("your agent's account name is taken here; ask this server's operator")
-    if local is None and person not in people:
-        remote_people.check_new(people)       # people from other servers: allowed, and not too many at once
+    if local is None:
+        remote_people.check_new(people, person)   # other servers' people: allowed, and not too many at once
+        if person not in people:              # counted and reserved BEFORE the account exists: a failed
+            people[person] = {"agent": registry.REMOTE, "created": remote_people.now()}   # chat can't dodge the cap
+            registry.save(people)
     password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
     dm = info.get("dm") or open_dm(agent, password, person)
     people = registry.load()                  # re-read: keep anything written meanwhile
-    people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm,
-                      **({} if local or "created" in people.get(person, {}) else {"created": remote_people.now()})}
+    people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm}
     registry.save(people)
     return agent
 
@@ -107,7 +110,11 @@ def credentials_for(person: str) -> dict | None:
     person = registry.person_id(person)       # codes issued before full IDs hold a bare name
     if registry.load().get(person, {}).get("agent") != registry.REMOTE:
         return None
+    if not registry.local_name(person) and not remote_people.allowed():
+        return None                           # turned off: no new sign-ins for other servers' people
     agent = registry.agent_of(person)
+    if agent != identity.agent_localpart(person, SERVER_NAME) or not registry.owns(person, agent):
+        return None                           # an odd record: connect.py checks the derived name, and only theirs
     password = load_env().get(setup_accounts.password_key(agent))
     if not password:
         return None

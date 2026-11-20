@@ -497,7 +497,7 @@ Live deploy and the whole-batch review (GPT, 707dd84..HEAD):
 - Live: `.deployed` was never written: bootstrap's `docker compose exec` inherited the ssh session's
   stdin, which is deploy.sh's remote script, and read the rest of it. bootstrap now gets /dev/null.
 
-### GPT review 23
+### GPT review 23 (2026-11-20): the Welcome pointer, and people from other servers
 
 Welcome UX (GPT, origin/master..HEAD), adopted with tests:
 - The Welcome pointer ("accept it under Invites") was marked sent before sending: a failed send or
@@ -510,3 +510,27 @@ Rejected or deferred:
   at Welcome (their only room) when it arrives, and the pill still shows; not worth a new send path.
 - A crash after the server accepts the pointer but before "pointed" is saved can repeat it once:
   one repeated line is better than a lost one.
+
+People from other servers, ownership by full Matrix ID (GPT, the feature commit), adopted with tests:
+- Codes and console links go to @pm's private chats, where the person could invite someone later
+  who'd read them back: @pm's new private chats are invite-by-@pm-only and history "joined".
+- An agent claimed by two records (an operator's agent_user) went to the first match: now it is
+  nobody's. /connect, follow-me removal (kick) and planning check the agent is the asker's own.
+- The hourly cap counted only finished set-ups, so a server refusing the agent's chat invite made
+  unlimited accounts: a remote person's entry (and its "created") is saved before registering.
+- "is_direct" is only the sender's word: after joining, @pm leaves a chat that isn't just the two
+  of them. One person can't use the hour's joins (3 each, 30 in all).
+- HAGENCY_ALLOW_REMOTE=0 now also stops new codes and sign-ins for other servers' people.
+- /connect refuses a remote record whose account isn't the derived name (connect.py would refuse it
+  after the code was spent). Half-migrated registry entries are merged, not replaced.
+Rejected or deferred:
+- The person's own homeserver can read the code sent to them: it is their server, their trust.
+- Registry read-modify-write races between @pm and onboard.py (the CLI): pre-existing, needs a
+  file lock across processes; deferred.
+- "@pm I want an agent" in a shared room isn't counted by the join limit: that person is already in
+  a room with @pm, and @pm reuses its chat with them.
+- A pre-upgrade code stays valid for its 30 minutes after a new one is issued; checking the saved
+  homeserver URL again when reading one's own 0600 credentials file; an owner whose derived name
+  collides with another's (needs a 40-bit hash collision; refused at set-up anyway).
+- Console sign-in inside Element for other servers' people (their server's OpenID token): it means
+  fetching a URL their server names; they use "@pm send me my console link" (ADR 0003).

@@ -33,9 +33,15 @@ class Joining(unittest.TestCase):
             return None
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.private_room = mock.AsyncMock(return_value="!mine")
-        self.lp.client = mock.Mock(join=mock.AsyncMock(return_value=JoinResponse("!theirs")))
+        self.others = []                                                           # who else is in their chat
+        members = lambda room_id: SimpleNamespace(events=[
+            {"type": "m.room.member", "state_key": u, "content": {"membership": "join"}}
+            for u in (PM, self.sender, *self.others)])
+        self.lp.client = mock.Mock(join=mock.AsyncMock(return_value=JoinResponse("!theirs")), room_leave=mock.AsyncMock(),
+                                   room_get_state=mock.AsyncMock(side_effect=members))
 
     def invite(self, sender=ALICE, direct=True, to=PM):
+        self.sender = sender
         event = SimpleNamespace(sender=sender, state_key=to, membership="invite", content={"is_direct": direct})
         asyncio.run(self.lp.on_invite(SimpleNamespace(room_id="!theirs"), event))
 
@@ -56,6 +62,21 @@ class Joining(unittest.TestCase):
         self.invite(sender="@spam-bot:matrix.org")
         self.invite(sender="@alice-agent:matrix.org")
         self.lp.client.join.assert_not_called()
+
+    def test_a_group_room_that_says_direct_is_left(self):
+        """GPT review 23: "is_direct" is only the sender's word; the room is asked after joining."""
+        self.others = ["@bob:matrix.org"]
+        self.invite()
+        self.lp.client.room_leave.assert_awaited_once_with("!theirs")
+        self.assertEqual(self.said, [])
+        self.lp.private_room.assert_not_called()
+
+    def test_one_person_cant_use_up_the_hour(self):
+        for _ in range(5):
+            self.invite()
+        self.assertEqual(self.lp.client.join.await_count, remote_people.DM_JOINS_PER_PERSON)
+        self.invite(sender="@bob:matrix.org")
+        self.assertEqual(self.lp.client.join.await_count, remote_people.DM_JOINS_PER_PERSON + 1)
 
     def test_not_when_the_server_turned_it_off(self):
         with mock.patch.dict("os.environ", {"HAGENCY_ALLOW_REMOTE": "off"}):
@@ -106,6 +127,21 @@ class Following(unittest.TestCase):
         self.lp.client.room_invite.assert_awaited_once_with("!r", f"@{identity.agent_localpart(ALICE, S)}:{S}")
         asyncio.run(self.lp.bring_agent(room, EVE))
         self.assertEqual(self.lp.client.room_invite.await_count, 1)
+
+    def test_only_their_own_agent_leaves_with_them_and_plans_for_them(self):
+        """GPT review 23: a bad record (an agent claimed twice) never lets a namesake kick or use it."""
+        agent = f"@{identity.agent_localpart(ALICE, S)}:{S}"
+        room = SimpleNamespace(room_id="!r", users={ALICE: None, agent: None}, invited_users={})
+        self.lp.client.room_kick = mock.AsyncMock()
+        asyncio.run(self.lp.remove_agent(room, EVE))
+        self.lp.client.room_kick.assert_not_called()
+        self.lp.agents_in = lambda r: [agent]
+        self.assertEqual(self.lp.own_agent(room, ALICE), agent)
+        self.assertIsNone(self.lp.own_agent(room, EVE))
+        use_registry(self, {ALICE: {"agent": "remote"}, "carl": {"agent_user": agent.split(":")[0][1:]}})
+        self.assertIsNone(self.lp.own_agent(room, ALICE))
+        asyncio.run(self.lp.remove_agent(room, ALICE))
+        self.lp.client.room_kick.assert_not_called()
 
     def test_settings_by_full_id(self):
         room = SimpleNamespace(room_id="!r")

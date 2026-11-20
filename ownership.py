@@ -27,6 +27,12 @@ def agent_id(person_id: str) -> str:
     return f"@{registry.agent_of(person_id)}:{SERVER_NAME}"
 
 
+def own_agent_id(person_id: str) -> str | None:
+    """The person's agent account, only if it is registered to exactly them (by full ID)."""
+    agent = agent_id(person_id)
+    return agent if registry.owns(person_id, split(agent)[0]) else None
+
+
 def agents_in(room: MatrixRoom) -> list[str]:
     """Registered agents in the room whose owner is in the room too."""
     return sorted(u for u in room.users if joined(room, u) and (o := owner_id(u)) and joined(room, o))

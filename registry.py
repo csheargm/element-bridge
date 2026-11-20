@@ -25,11 +25,11 @@ def load() -> dict:
     if not isinstance(data, dict) or not data:
         data = DEFAULT
     # Keep only well-formed entries: a damaged line must never crash @pm or confuse ownership. An old
-    # bare key and its full ID together: the full ID's entry wins.
+    # bare key and its full ID together: merged, the full ID's fields winning.
     people = {}
     for p, v in sorted(data.items(), key=lambda kv: str(kv[0]).startswith("@")):
         if isinstance(p, str) and p and (p.startswith("@") or ":" not in p):
-            people[person_id(p)] = dict(v) if isinstance(v, dict) else {}
+            people[person_id(p)] = {**people.get(person_id(p), {}), **(v if isinstance(v, dict) else {})}
     return people
 
 
@@ -69,13 +69,11 @@ def agent_of(person: str) -> str:
 def owner_of(agent: str) -> str | None:
     """The full ID of the person whose agent `agent` (a localpart here) is, or None if it isn't a
     registered agent. Compare it with a full ID: never a bare name taken from another server."""
-    people = load()
-    found = next((p for p, v in people.items() if (v.get("agent_user") or identity.agent_localpart(p, SERVER_NAME))
-                  == agent), None)
+    found = [p for p, v in load().items() if (v.get("agent_user") or identity.agent_localpart(p, SERVER_NAME)) == agent]
     mine = bridge_config.CREDENTIALS          # a person's own computer: no agents.json, just connect.py's file
-    if found is None and mine and mine["user_id"] == f"@{agent}:{SERVER_NAME}":
+    if not found and mine and mine["user_id"] == f"@{agent}:{SERVER_NAME}":
         return person_id(mine["owner"])
-    return found
+    return found[0] if len(found) == 1 else None   # claimed twice (a bad record): nobody's, never the first
 
 
 def owns(person: str, agent: str) -> bool:

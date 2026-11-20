@@ -20,6 +20,10 @@ from loop_progress import ACTIVE
 from setup_accounts import DISPLAY_NAMES
 
 log = logging.getLogger("loop")
+# Codes and console links go to my private chats: only I can invite anyone there, and someone
+# added later can't read what was said before they joined (GPT review 23).
+PRIVATE_HISTORY = {"type": "m.room.history_visibility", "state_key": "", "content": {"history_visibility": "joined"}}
+PM_ONLY = 100
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
            "or set it in the Hagency console.")
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
@@ -93,7 +97,8 @@ class Settings:
                     log.warning("couldn't rename my chat with %s: %s", user, renamed)
             return known                      # still just the two of us (joined or invited)
         resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
-                                             name=DISPLAY_NAMES["pm"])
+                                             name=DISPLAY_NAMES["pm"], initial_state=[PRIVATE_HISTORY],
+                                             power_level_override={"invite": PM_ONLY})
         if not hasattr(resp, "room_id"):
             log.warning("couldn't open a DM with %s: %s", user, resp)
             return None

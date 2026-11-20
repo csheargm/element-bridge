@@ -87,8 +87,8 @@ class Follow:
         await self.say(room_id, note)
 
     async def remove_agent(self, room: MatrixRoom, person: str) -> None:
-        agent = ownership.agent_id(person)
-        if ownership.joined(room, agent):
+        agent = ownership.own_agent_id(person)     # only their own: never someone else's on a bad record
+        if agent and ownership.joined(room, agent):
             await self.client.room_kick(room.room_id, agent, reason="its owner left the room")
 
     async def set_follow(self, room: MatrixRoom, sender: str, value: str) -> None:
