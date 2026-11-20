@@ -1,5 +1,8 @@
 # Demo script: a whole product cycle, driven by conversation
 
+**Names.** `your-account` stands for your GitHub account (the room owner's) and `second-account` for a
+second account that Betty's agent signs in as. Use your own wherever they appear in commands.
+
 **Story.** Anna and Betty each bring their own AI agent into a project room. They talk about what to
 build, and the Product Manager (`@pm`) turns that into GitHub issues. The agents build, review and
 merge each other's work. Anna and Betty review it, try the result, ask for a change, and it gets

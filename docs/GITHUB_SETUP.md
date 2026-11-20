@@ -7,7 +7,7 @@ the rule that makes one agent review another agent's work.
 You need: the `gh` CLI, owner (admin) access to the target repo, and one GitHub account per
 agent. These can be your own account plus a second account you control.
 Each room works on its own repo (`@pm this room works on owner/name`). Rooms pick from the repos
-this server allows: `LOOP_REPO` (default `your-name/hagency-demo-sandbox`) plus any in
+this server allows (set in `local.env`; the names below stand for your own accounts): `LOOP_REPO` (default `your-name/hagency-demo-sandbox`) plus any in
 `HAGENCY_REPOS="owner/a owner/b"`. Run the commands below for each repo with
 `--repo owner/name`; the console's **Check it's ready** button runs step 4 for a room's repo.
 

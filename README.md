@@ -147,8 +147,9 @@ room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A p
 repos is a **Matrix Space** with one room per repo. Create the Space in Element (＋ → Create a
 space) and add the rooms to it. Each room keeps its own board, mode and agents.
 
-**Which repos.** Rooms choose from the repos this server allows: `LOOP_REPO` (the default,
-`your-name/hagency-demo-sandbox`) plus any in `HAGENCY_REPOS="owner/a owner/b"`. Anyone here can
+**Which repos.** Rooms choose from the repos this server allows: `LOOP_REPO` plus any in
+`HAGENCY_REPOS="owner/a owner/b"`. Set both in `local.env` (copy `local.env.example`; git-ignored),
+which `start.sh` loads; the code's own default is only a placeholder. Anyone here can
 create a room, and @pm reads with the host's own `gh` login. A free choice would let any room
 see any repo that login can read, private ones included. The demo room starts on `LOOP_REPO`.
 
