@@ -11,6 +11,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import github
 from bridge import ROOT, SERVER_NAME
 
 HERMES_HOME = Path.home() / ".hermes"
@@ -46,6 +47,18 @@ def default_model() -> tuple[dict, str | None]:
     return model, PROVIDER_KEYS.get(model.get("provider", ""))
 
 
+def set_repo(name: str, repo: str) -> None:
+    """Point the profile's hagency MCP server at `repo` (Hermes gives MCP servers only the env in
+    its config, so a LOOP_REPO set for start.sh never reaches them otherwise)."""
+    cfg = profile_dir(name) / "config.yaml"
+    text = cfg.read_text()
+    if re.search(r"^      LOOP_REPO: .*$", text, re.M):
+        text = re.sub(r"^      LOOP_REPO: .*$", f"      LOOP_REPO: '{repo}'", text, flags=re.M)
+    else:
+        text = re.sub(r"^(      HAGENCY_AGENT: .*)$", rf"\1\n      LOOP_REPO: '{repo}'", text, count=1, flags=re.M)
+    cfg.write_text(text)
+
+
 def profile_model(profile: Path) -> tuple[dict, str | None]:
     """The model this profile already uses (e.g. chosen with `hermes -p <profile> model`), kept on
     re-runs; a new profile starts with the default profile's model."""
@@ -75,7 +88,8 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
     """Write the profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md."""
     profile = ensure_profile(name, owner)
     model, key_name = profile_model(profile)
-    env = {"HAGENCY_AGENT": agent, "PATH": os.environ["PATH"], "HOME": os.environ["HOME"], **(mcp_env or {})}
+    env = {"HAGENCY_AGENT": agent, "LOOP_REPO": github.REPO, "PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
+           **(mcp_env or {})}
     env_lines = "\n".join(f"      {k}: '{v}'" for k, v in env.items())
     model_lines = "\n".join(f"  {k}: {v}" for k, v in model.items())
     (profile / "config.yaml").write_text(f"""model:

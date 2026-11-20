@@ -113,9 +113,13 @@ async def safely(task_id: str, kind: str, step) -> dict:
 def claim(task_id: str, kind: str) -> tuple[dict | None, dict | None]:
     """(hint for the agent, None) if task_id isn't its current `kind` task, else (None, task)."""
     try:
-        return None, task(task_id, kind)
+        t = task(task_id, kind)
     except WrongTask as e:
         return {"error": str(e), "next": "Call next_task, then use the task_id it returns."}, None
+    if t.get("repo") != github.REPO:     # never act on another repo than the one this agent is set up for
+        return {"error": f"this task is for {t.get('repo')!r}, but I'm set up for {github.REPO!r}",
+                "next": "Call report_failure(task_id, 'wrong repo') and tell your owner."}, None
+    return None, t
 
 
 @mcp.tool()

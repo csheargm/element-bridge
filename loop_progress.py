@@ -26,14 +26,14 @@ MAX_SENDS = 2                    # first send + one resend, then a person takes 
 class Progress:
     # --- polling: pick up issues, check GitHub's merge verdict -------------------------
     async def tick(self) -> None:
+        issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL, "--state",
+                                        "open", "--json", "number,title", "--limit", "50"])
+        queued = sorted((i for i in issues if str(i["number"]) not in self.state), key=lambda i: i["number"])
         for room_id, room in self.client.rooms.items():
+            self.open_issues[room_id] = queued        # shown on the board under "Next", even while stopped
             lvl = await self.level(room_id)
             if lvl == "off":
                 continue
-            issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL, "--state",
-                                            "open", "--json", "number,title", "--limit", "50"])
-            self.open_issues[room_id] = sorted((i for i in issues if str(i["number"]) not in self.state),
-                                               key=lambda i: i["number"])   # queued: shown on the board
             active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
             for key, item in active:
                 if item.get("held"):          # a step decided while stopped: send it now

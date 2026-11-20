@@ -12,8 +12,11 @@ import supervise
 
 class Supervisor(unittest.TestCase):
     def kids(self, people, default="codex"):
-        with mock.patch.object(registry, "load", return_value=people):
-            return {k.name: k.argv for k in supervise.children(default, False)}
+        with mock.patch.object(registry, "load", return_value=people), \
+                mock.patch.object(hermes_profile, "set_repo") as set_repo:     # never touch real profiles
+            kids = {k.name: k.argv for k in supervise.children(default, False)}
+        self.set_repo_calls = set_repo.call_args_list
+        return kids
 
     def test_each_person_gets_the_agent_they_brought(self):
         kids = self.kids({"anna": {"agent": "hermes"}, "betty": {"agent": "claude"}, "carl": {}})
@@ -21,6 +24,7 @@ class Supervisor(unittest.TestCase):
         self.assertEqual(kids["betty-agent"][-3:], ["betty", "--agent", "claude"])
         self.assertEqual(kids["carl-agent"][-2:], ["--agent", "codex"])      # not onboarded: start.sh's choice
         self.assertIn("pm", kids)
+        self.assertEqual(self.set_repo_calls[0].args, ("annaroom", supervise.github.REPO))   # this run's repo
 
     def test_registry_defaults_to_the_two_demo_people(self):
         with mock.patch.object(registry, "PATH", Path(tempfile.mkdtemp()) / "missing.json"):
@@ -64,6 +68,14 @@ class HermesProfile(unittest.TestCase):
         cfg.write_text(cfg.read_text().replace("provider: ollama-cloud", "provider: openai-codex"))
         hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)
         self.assertIn("provider: openai-codex", cfg.read_text())
+
+    def test_set_repo_points_the_mcp_server_at_this_runs_repo(self):
+        """Seen live: Hermes's MCP server didn't get LOOP_REPO and opened issues in the default repo."""
+        cfg = self.profile / "config.yaml"
+        hermes_profile.set_repo("annaroom", "me/project-a")
+        hermes_profile.set_repo("annaroom", "me/project-b")
+        self.assertEqual(cfg.read_text().count("LOOP_REPO:"), 1)
+        self.assertIn("LOOP_REPO: 'me/project-b'", cfg.read_text())
 
     def test_room_rules_are_written_once(self):
         hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)

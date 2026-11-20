@@ -78,6 +78,13 @@ class Trust(unittest.TestCase):
         self.assertIn("get_review", asyncio.run(m.submit_review("R", True, "ok"))["next"])
         self.assertEqual(self.posted, [])
 
+    def test_a_task_for_another_repo_is_refused(self):
+        """Seen live: the MCP server ran on the default repo and opened issues there."""
+        self.events([task_event("M", "merge", pr=9, sha="a", repo="someone/else")])
+        out = asyncio.run(m.merge_pr("M"))
+        self.assertIn("I'm set up for", out["error"])
+        self.assertEqual(self.posted, [])
+
     def test_review_steps_keep_their_state(self):
         """Seen live: every tool re-checks the current task, and that used to drop the PR head
         get_review had stored, so submit_review kept answering "call get_review first"."""

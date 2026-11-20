@@ -18,6 +18,8 @@ from pathlib import Path
 
 import agents
 import lifecycle
+import github
+import hermes_profile
 import registry
 
 ROOT = Path(__file__).parent
@@ -93,6 +95,7 @@ def children(agent: str, allow_members: bool) -> list[Child]:
     for person, info in sorted(registry.load().items()):
         choice = info.get("agent", agent)
         if choice == "hermes":
+            hermes_profile.set_repo(f"{person}room", github.REPO)    # its MCP server works on this run's repo
             kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"]))
         else:
             kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra]))
