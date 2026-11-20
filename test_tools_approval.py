@@ -43,6 +43,14 @@ class Grants(unittest.TestCase):
         self.assertEqual(intents.classify("stop letting my agent use the web"), intents.REVOKE_WEB)
         self.assertEqual(intents.classify("stop"), intents.OFF)
 
+    def test_either_word_order(self):
+        """Seen live: "enable web search for my agent" got "say it in so many words"."""
+        for text in ("enable web search for my agent", "please turn on web search for my agent",
+                     "can you enable web search for my agent?"):
+            self.assertEqual(intents.classify(text), intents.GRANT_WEB, text)
+        for text in ("disable web search for my agent", "turn off web search for my agent"):
+            self.assertEqual(intents.classify(text), intents.REVOKE_WEB, text)
+
     def test_a_question_or_a_quote_is_not_a_grant(self):
         """GPT review 8: "should I let my agent search the web?" must not grant it."""
         for text in ("should I let my agent search the web?", '"let my agent search the web" said betty'):
