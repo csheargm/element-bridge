@@ -1,6 +1,8 @@
 """End-to-end: a newcomer signs up, @pm welcomes them, they bring their own agent and talk to it.
 Needs the stack running (./start.sh) after `python local_signup.py setup`. Run: .venv/bin/python test_welcome_e2e.py
 (E2E_AGENT=claude to use Claude Code instead of Codex.) It creates a fresh account newbieNNNN each run.
+Against the public server: HAGENCY_HOMESERVER=https://matrix.<domain> HAGENCY_SERVER_NAME=<server>
+E2E_CONSOLE=https://rooms.<domain> E2E_TOKEN=<invite token> E2E_NAME=pubtest2.
 
 1. sign up through the client API with an invite token, the way Element does;
 2. the new account is in #welcome, and @pm opens a private chat with 🏠 / 🔌 buttons;
@@ -26,7 +28,7 @@ from test_e2e import api, check, send, wait_reply
 
 ROOT = Path(__file__).parent
 PM = f"@pm:{SERVER_NAME}"
-CONSOLE = "http://localhost:8650"
+CONSOLE = os.environ.get("E2E_CONSOLE", "http://localhost:8650")
 STEP_S = 60
 
 
@@ -96,7 +98,11 @@ def welcome_and_code(me, name):
     welcome = api("GET", "/_matrix/client/v3/directory/room/" + urllib.parse.quote(local_signup.WELCOME_ALIAS), me)["room_id"]
     check("the new account is in #welcome", welcome in api("GET", "/_matrix/client/v3/joined_rooms", me)["joined_rooms"])
     dm = until("@pm's private chat", lambda: invite_from(me, PM))
+    pointer = until("the pointer in Welcome", lambda: pm_message(me, welcome, "accept it under Invites"))
+    check("Welcome names me and points to the invite", f"@{name}:" in pointer["content"]["body"])
     join(me, dm)
+    title = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(dm)}/state/m.room.name/", me).get("name")
+    check("@pm's chat is named Product Manager", title == "Product Manager", title)
     offer = until("the welcome message", lambda: pm_message(me, dm, "Get your agent"))
     keys = until("the two buttons", lambda: {e["content"]["m.relates_to"]["key"] for e in messages(me, dm)
                                              if e["type"] == "m.reaction" and e["sender"] == PM} >= {"🏠", "🔌"} or None)
@@ -115,8 +121,9 @@ def welcome_and_code(me, name):
 
 
 def main():
-    name, password = f"newbie{secrets.randbelow(9000) + 1000}", secrets.token_urlsafe(18)
-    me = register(name, password, local_signup.new_token(1))
+    name = os.environ.get("E2E_NAME") or f"newbie{secrets.randbelow(9000) + 1000}"
+    password = secrets.token_urlsafe(18)
+    me = register(name, password, os.environ.get("E2E_TOKEN") or local_signup.new_token(1))
     check(f"signed up as {name} with an invite token", bool(me))
     agent_dm, code = welcome_and_code(me, name)
     home = Path(tempfile.mkdtemp(prefix="hagency-home-"))
