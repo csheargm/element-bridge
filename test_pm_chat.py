@@ -164,6 +164,33 @@ class Talk(unittest.TestCase):
         self.tell(BETTY, "sounds good", mention=False)          # people chatting: not addressed, not a bare ok
         self.assertEqual(filed, [])
 
+    def spoken(self, words):
+        ev = SimpleNamespace(sender=ANNA, body=words, voice=True, event_id="$v",
+                             source={"content": {"body": words, "m.mentions": {"user_ids": [PM]}}})
+        asyncio.run(self.lp.on_human(self.room, ev))
+
+    def test_spoken_words_never_approve_or_change_settings_by_themselves(self):
+        """GPT review 14: a transcript may hold someone else's voice or a misheard word."""
+        self.lp.file_plan, self.lp.offer_thumb = mock.AsyncMock(), mock.AsyncMock()
+        self.lp.set_grant = mock.AsyncMock()
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
+        self.spoken("okay, go ahead")
+        self.assertIn("click 👍", self.said[-1])
+        self.lp.file_plan.assert_not_called()
+        self.spoken("let my agent search the web here")          # a plan is waiting: one question at a time
+        self.assertIn("answer my question above first", self.said[-1])
+        self.lp.pending.clear()
+        self.spoken("let my agent search the web here")
+        self.assertIn("Let your agent search the web", self.said[-1])
+        self.lp.set_grant.assert_not_called()
+
+    def test_a_quoted_grant_only_asks(self):
+        self.lp.offer_thumb, self.lp.set_grant = mock.AsyncMock(), mock.AsyncMock()
+        self.tell(ANNA, '@pm allow Betty to quote "let my agent search the web"')
+        self.lp.set_grant.assert_not_called()
+        self.assertIn("Click 👍 below", self.said[-1])
+
     def test_ok_in_a_reply_to_the_agents_message_approves(self):
         """Seen live: anna replied "@Product Manager: ok" to her agent's message; Element puts the
         quoted message into the body, so it didn't read as ok."""
@@ -347,7 +374,7 @@ class Brain(Talk):
                                  "items": [], "agent": "@anna-agent:x"}
         self.decision = ("approve", "")
         self.tell(ANNA, "@pm how many issues is that?")
-        self.assertIn("react 👍", self.said[-1])
+        self.assertIn("click 👍", self.said[-1])
         self.assertIn("!r", self.lp.pending)
 
     def test_a_stop_while_thinking_cancels_the_decision(self):

@@ -285,3 +285,25 @@ Adopted:
 Deferred: a close task whose dispatch @pm already timed out can still run, because liveness comes
 from recent events. Close also doesn't re-check that the issue text is unchanged since the
 verdict. Both need task expiry in mcp_core; see ROADMAP.
+
+## GPT review 14: voice and settings phrasing (2cd9d2b..d91d271)
+
+Adopted:
+- **Spoken words never act by themselves.** A transcript may hold someone else's voice or a
+  misheard word, so a spoken "ok" to a waiting question gets "click 👍", and spoken mode or
+  settings changes are asked with a 👍. Spoken repo names and issue numbers must be typed, and
+  spoken "!" commands are ignored.
+- **Loose wording only asks.** "allow Betty to quote 'let my agent search the web'" or a
+  question matched the order-free web rules. Only the plain forms apply at once ("let my agent
+  search the web here", "enable web search for my agent"). Anything else gets a 👍 question.
+- **One question at a time.** A settings question no longer replaces a waiting plan or mode
+  question.
+- **Voice resources.** One transcription at a time and at most 3 queued. The download times out
+  after 30 s, and decoding stops after 5 min whatever the event claims. The worker gets a
+  minimal environment and its own process group, killed on timeout or cancel. Transcripts are
+  capped, and every failure is said in the room.
+- **Slow input.** Rules read at most 1000 characters, and the grant rule no longer backtracks on
+  trailing spaces.
+
+Deferred: idempotency of a voice job across a crash mid-transcription (it is then lost, not
+repeated). Approval is now recorded only after success; see ROADMAP.

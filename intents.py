@@ -28,7 +28,7 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
                  r"turn off|switch off)\b)(?=.*\bmy agent\b)(?=.*\b(web|internet|search\w*|brows\w*|online)\b)"),
     # A request, never a question about it: it starts with the verb ("can you …" is a polite form).
     (GRANT_WEB, r"^\s*((can|could|would|will) you\s+)?(please\s+)?(let|allow|permit|enable|turn on|switch on)\b"
-                r"(?=[^?]*\bmy agent\b)(?=[^?]*\b(web|internet|search\w*|brows\w*|online)\b)[^?]*\??\s*$"),
+                r"(?=[^?]*\bmy agent\b)(?=[^?]*\b(web|internet|search\w*|brows\w*|online)\b)[^?]*\??$"),
     (FOLLOW_NEVER, r"\b(don'?t|do not|never|stop|no longer) (bring|invit|add)\w* my agent\b"),
     (FOLLOW_ASK, r"\bask (me )?(first |before )?(\w+ )?(bring|invit|add)\w* my agent\b|\bask me (first|before)\b.*\bmy agent\b"),
     (FOLLOW_ALWAYS, r"\b(always |please )?(bring|invite|add) my agent\b"),
@@ -62,7 +62,30 @@ def is_confirm_reaction(key: str) -> bool:
     return base in CONFIRM_REACTIONS
 
 
+MAX_TEXT = 1000                       # longer messages are read only this far (keeps every rule linear-ish)
+SETTINGS = (GRANT_WEB, REVOKE_WEB, FOLLOW_NEVER, FOLLOW_ASK, FOLLOW_ALWAYS)
+# The plain wording that may change a web setting at once; the looser rules above only ever ASK
+# (with a 👍) because "allow Betty to quote 'let my agent search the web'" also matches them.
+_WEB_FOR_MINE = (r"(web search|web access|internet access|the web|browsing|web browsing) for my agent"
+                 r"( here| in this room)?[.!]?$")
+_PLAIN = {GRANT_WEB: re.compile(r"^(please\s+)?((let|allow|permit|enable)\s+my agent\b[^?\"“”]*"
+                                r"\b(web|internet|search\w*|brows\w*|online)\b[^?\"“”]*$"
+                                r"|(enable|turn on|switch on|allow) " + _WEB_FOR_MINE + ")", re.I),
+          REVOKE_WEB: re.compile(r"^(please\s+)?((stop letting|don'?t let|do not let|no longer let|disallow)\s+"
+                                 r"my agent\b[^?\"“”]*\b(web|internet|search\w*|brows\w*|online)\b[^?\"“”]*$"
+                                 r"|(disable|turn off|switch off) " + _WEB_FOR_MINE + ")", re.I)}
+
+
+def plainly_says(text: str, intent: str) -> bool:
+    """The person's own words are an unmistakable request for `intent` (else: ask with a 👍)."""
+    t = text.strip()[:MAX_TEXT]
+    if classify(t) != intent:
+        return False
+    return intent not in _PLAIN or _PLAIN[intent].match(t) is not None
+
+
 def classify(text: str) -> str:
+    text = text.strip()[:MAX_TEXT]
     for intent, rx in _COMPILED:
         m = rx.search(text)
         if m and intent in (ASSIST, AUTONOMOUS) and NEGATED.search(text[:m.start()]):

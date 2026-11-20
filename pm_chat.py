@@ -74,14 +74,18 @@ class Chat:
 
     async def on_human(self, room: MatrixRoom, event: RoomMessageText) -> None:
         body, sender = without_quote(event.body), event.sender
-        if body.startswith("!"):
+        voice = getattr(event, "voice", False)   # pm_voice.py: words I transcribed, not typed
+        if body.startswith("!") and not voice:
             await self.command(room, sender, body.split())
             return
         text = self.addressed_text(event)
         reply_to = replied_to(event)
         waiting = self.pending.get(room.room_id, {}).get("event_id")
         said = text if text is not None else (body if reply_to and reply_to == waiting else None)
-        if intents.is_yes(body) or (said is not None and intents.is_approval(said)):
+        if voice and waiting and said is not None and intents.is_approval(said):
+            await self.say(room.room_id, "🎙 To confirm, click 👍 on my question above.")   # a click, never a transcript
+            return
+        if not voice and (intents.is_yes(body) or (said is not None and intents.is_approval(said))):
             if (reply_to in (None, waiting)) and await self.confirm(room, sender):
                 return                # "yes", "@pm ok go ahead", or "sounds good" in a reply to the question
             if text is not None and (waiting or intents.is_yes(text)):
@@ -90,6 +94,15 @@ class Chat:
         if text is None:
             return
         intent = intents.classify(text)
+        if voice and intent in (intents.SET_REPO, intents.RETRY):
+            await self.say(room.room_id, "🎙 Please type that one: repo names and issue numbers must be exact.")
+            return
+        if intent in intents.SETTINGS and (voice or not intents.plainly_says(text, intent)):
+            await self.ask_setting(room, sender, intent)            # pm_understand.py: one 👍 to be sure
+            return
+        if voice and intent in (intents.ASSIST, intents.AUTONOMOUS):
+            await self.ask_mode(room, sender, intent)
+            return
         if intent == intents.SET_REPO:        # a repo name is exact: never left to a model
             await self.set_repo(room, sender, intents.repo_named(text) or "")
             return
@@ -106,7 +119,7 @@ class Chat:
         # The model can take seconds: decide in the background so the sync loop (and a "stop"
         # right behind this message) is never held up; a stop meanwhile cancels the decision.
         gen = self.generation.get(room.room_id, 0)
-        job = asyncio.create_task(self.decide(room, sender, text, intent, reply_to, gen))
+        job = asyncio.create_task(self.decide(room, sender, text, intent, reply_to, gen, voice))
         self.busy.add(job)
         job.add_done_callback(self.busy.discard)
 

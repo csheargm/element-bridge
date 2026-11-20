@@ -29,7 +29,7 @@ BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": in
 
 class Understanding:
     async def decide(self, room: MatrixRoom, sender: str, text: str, intent: str, reply_to: str | None,
-                     gen: int) -> None:
+                     gen: int, voice: bool = False) -> None:
         try:
             decision = await self.think(room, sender, text, reply_to)
             if self.generation.get(room.room_id, 0) != gen:
@@ -37,7 +37,7 @@ class Understanding:
             if decision is None:
                 await self.by_rules(room, sender, text, intent)
             else:
-                await self.apply(room, sender, *decision, text, reply_to)
+                await self.apply(room, sender, *decision, text, reply_to, voice)
         except (RuntimeError, OSError) as e:  # SendError / GitHub / network: tell the log, keep running
             log.error("couldn't act on %s's message: %s", sender, e)
         except Exception:                     # noqa: BLE001 — a background task: never fail silently
@@ -85,20 +85,21 @@ class Understanding:
         return f"{r.event.sender.split(':')[0].lstrip('@')}: {body}" + (f"\n(@pm's note: this was {what})" if what else "")
 
     async def apply(self, room: MatrixRoom, sender: str, action: str, reply: str, text: str,
-                    reply_to: str | None) -> None:
+                    reply_to: str | None, voice: bool = False) -> None:
         """Code decides: the model's action goes through the same permission checks as the rules, and
         anything that changes how the room runs needs the person's OWN words to say so (else a ✅):
         other people's messages in the context must not be able to steer it."""
         rid = room.room_id
-        if action in ("assist", "autonomous") and intents.classify(text) != BRAIN_ACTIONS[action]:
+        # Spoken words only ever ASK: a transcript may hold someone else's voice or a misheard word.
+        if action in ("assist", "autonomous") and (voice or intents.classify(text) != BRAIN_ACTIONS[action]):
             await self.ask_mode(room, sender, action)
             return
-        if action.startswith(("follow_", "grant_", "revoke_")) and intents.classify(text) != BRAIN_ACTIONS[action]:
+        if action.startswith(("follow_", "grant_", "revoke_")) and (voice or not intents.plainly_says(text, BRAIN_ACTIONS[action])):
             await self.ask_setting(room, sender, action)   # understood, but not in plain words: one 👍 to be sure
             return
         waiting = self.pending.get(rid, {})
-        if action == "approve" and waiting and not intents.is_approval(text):
-            await self.say(rid, "To approve it, react 👍 to the message above (or reply \"ok\" to it).")
+        if action == "approve" and waiting and (voice or not intents.is_approval(text)):
+            await self.say(rid, "To approve it, click 👍 on my question above (or type \"ok\" in reply).")
             return
         if action == "approve":
             if not await self.confirm(room, sender):
@@ -116,7 +117,11 @@ class Understanding:
             await self.act(room, sender, BRAIN_ACTIONS[action])
 
     async def ask_setting(self, room: MatrixRoom, sender: str, action: str) -> None:
-        """The model read a change to the sender's OWN agent settings; they confirm it with one click."""
+        """A change to the sender's OWN agent settings, not in plain words; they confirm it with one click."""
+        waiting = self.pending.get(room.room_id)
+        if waiting and time.time() < waiting.get("until", 0) and waiting.get("kind") != "setting":
+            await self.say(room.room_id, "Please answer my question above first; then ask me again.")
+            return                            # never replace someone's waiting plan or mode question
         event_id = await self.say(room.room_id, f"{SETTING_QUESTIONS[action]} Click 👍 below to confirm.")
         self.pending[room.room_id] = {"kind": "setting", "intent": BRAIN_ACTIONS[action], "event_id": event_id,
                                       "until": time.time() + CONFIRM_S, "by": sender}
