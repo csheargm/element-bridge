@@ -13,9 +13,11 @@ from collections import defaultdict
 from pathlib import Path
 
 import markdown
-from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessage, RoomMessageText
+from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessage,
+                 RoomMessageAudio, RoomMessageText)
 
 import agents
+from bridge_voice import BridgeVoice
 import capabilities
 import github
 import lifecycle
@@ -45,7 +47,7 @@ def read_env() -> dict[str, str]:
     return env
 
 
-class Bridge:
+class Bridge(BridgeVoice):
     def __init__(self, owner: str, backend: str, allow_members: bool = False):
         self.owner, self.backend, self.allow_members = owner, backend, allow_members
         self.owner_id = f"@{owner}:{SERVER_NAME}"
@@ -60,6 +62,7 @@ class Bridge:
         self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
         self.seen_tasks: set[str] = set()     # event ids: a redelivered task never runs twice
         self.last_message: dict[str, str] = {}  # room → newest message event id (to answer without a quote)
+        self.refused: dict[tuple, float] = {}   # (room, person) → when I last said "only my owner"
 
     # --- trigger rules -------------------------------------------------------------
     def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
@@ -121,7 +124,7 @@ class Bridge:
             return                            # it's still context: answer() reads the room's conversation
         reason = self.should_ignore(room, event)
         if reason:
-            log.info("ignored message in %s: %s", room.room_id, reason)
+            await self.refuse(room, event, reason)   # bridge_voice.py: "I only take requests from Betty"
             return
         task = asyncio.create_task(self.answer_locked(room, event, line))  # don't block sync
         self.tasks.add(task)
@@ -259,6 +262,7 @@ class Bridge:
         def register() -> None:
             self.client.add_event_callback(self.note_last, RoomMessage)     # first: on_message reads it
             self.client.add_event_callback(self.on_message, RoomMessageText)
+            self.client.add_event_callback(self.on_voice, RoomMessageAudio)     # bridge_voice.py
             self.client.add_event_callback(self.on_encrypted, MegolmEvent)
         await lifecycle.first_sync(self.client, f"{self.owner}-agent", self.sync_point, register,
                                    lambda ms: setattr(self, "started_ms", ms))

@@ -1,72 +1,23 @@
-"""Voice messages: @pm transcribes them on this computer (the audio never leaves it), shows the
-room what it heard, then handles the words exactly like a typed message.
-
-A voice message can't carry an @mention, so it counts as addressed to @pm when the words say
-"PM" / "Product Manager", when it approves the question @pm is waiting on, or in a two-person chat.
+"""Voice messages for @pm. A voice message can't carry an @mention, so it is for @pm only when it
+starts with "PM, …" / names the "Product Manager", replies to one of @pm's messages, approves the
+question @pm is waiting on, or is in a two-person chat with @pm. Anything else is someone else's
+business (an agent hears its own: bridge_voice.py) and @pm says nothing at all about it.
 Mixed into loop.Loop (client, user_id, say, pending, busy, on_human, is_person).
 """
 import asyncio
 import logging
-import os
 import re
-import shutil
-import signal
-import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 
 from nio import MatrixRoom, RoomMessageAudio
 
 import intents
+import voice
 from bridge import is_stale
 
 log = logging.getLogger("loop")
-STT = os.environ.get("HAGENCY_STT") or shutil.which("mlx_whisper")   # local speech-to-text CLI
-STT_MODEL = os.environ.get("HAGENCY_STT_MODEL", "mlx-community/whisper-large-v3-turbo")
-MAX_BYTES = 10_000_000               # about 10 minutes of Element's Opus voice
-MAX_MS = 5 * 60 * 1000
-STT_TIMEOUT_S = 180
-DOWNLOAD_TIMEOUT_S = 30
-MAX_WORDS_CHARS = 2000               # what I post and act on
-MAX_QUEUED = 3                       # voice messages waiting or being transcribed, room-wide
-_turns = asyncio.Semaphore(1)        # one transcription at a time on this computer
-NAMED_PM = re.compile(r"\b(p\.?\s?m\.?|product manager)(?=\W|$)", re.I)
-
-
-class VoiceError(Exception):
-    """Why a voice message couldn't be turned into words (said in the room)."""
-
-
-async def transcribe(audio: bytes) -> str:
-    """Speech to text with the local model, offline. Raises VoiceError."""
-    if not STT:
-        raise VoiceError("speech-to-text isn't installed here (mlx_whisper)")
-    with tempfile.TemporaryDirectory() as d:
-        src = Path(d) / "voice.ogg"
-        src.write_bytes(audio)
-        # Only the first MAX_MS of audio is decoded, whatever the message claims its length is; a
-        # minimal environment (no tokens); offline; its own process group so ffmpeg dies with it.
-        env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "HF_HUB_OFFLINE": "1"}
-        proc = await asyncio.create_subprocess_exec(
-            STT, str(src), "--model", STT_MODEL, "--output-format", "txt", "--output-dir", d,
-            "--output-name", "words", "--verbose", "False", "--clip-timestamps", f"0,{MAX_MS // 1000}",
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE, env=env, start_new_session=True)
-        try:
-            _, err = await asyncio.wait_for(proc.communicate(), STT_TIMEOUT_S)
-        except (asyncio.TimeoutError, asyncio.CancelledError) as e:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass                          # already gone: nothing left to stop
-            await proc.wait()
-            if isinstance(e, asyncio.CancelledError):
-                raise
-            raise VoiceError("transcribing took too long") from None
-        words = Path(d) / "words.txt"
-        if proc.returncode != 0 or not words.exists():
-            log.warning("speech-to-text failed (%s): %s", proc.returncode, err[-300:].decode(errors="replace"))
-            raise VoiceError("speech-to-text failed")
-        return " ".join(words.read_text()[:MAX_WORDS_CHARS * 2].split())[:MAX_WORDS_CHARS]
+NAMED_PM = re.compile(r"^\W*((hey|hi|hello|ok(ay)?)\W+)?(p\.?\s?m\.?|product manager)(?=\W|$)\W*", re.I)
+SAID_PM = re.compile(r"\bproduct manager\b", re.I)
 
 
 class Voice:
@@ -75,8 +26,8 @@ class Voice:
         if (is_stale(event, self.started_ms) or not self.is_person(room, event.sender)
                 or not self.sync_point.first_time(event.event_id)):
             return
-        if sum(1 for j in self.busy if getattr(j, "voice", False)) >= MAX_QUEUED:
-            await self.say(room.room_id, "🎙 I'm still listening to earlier voice messages; please type this one.")
+        if sum(1 for j in self.busy if getattr(j, "voice", False)) >= voice.MAX_QUEUED:
+            log.warning("voice queue full; skipped %s", event.event_id)   # quiet: it may not be for me at all
             return
         job = asyncio.create_task(self.hear(room, event))
         job.voice = True
@@ -84,52 +35,25 @@ class Voice:
         job.add_done_callback(self.busy.discard)
 
     async def hear(self, room: MatrixRoom, event: RoomMessageAudio) -> None:
-        info = event.source.get("content", {}).get("info")
-        duration = info.get("duration") if isinstance(info, dict) else None
-        size = info.get("size") if isinstance(info, dict) else None
+        sure = len(room.users) == 2 or await voice.replied_to_sender(self.client, room.room_id, event) == self.user_id
         try:
-            if isinstance(duration, int) and duration > MAX_MS:      # a hint only: decoding is capped anyway
-                raise VoiceError("it's longer than 5 minutes")
-            if isinstance(size, int) and size > MAX_BYTES:
-                raise VoiceError("it's too large")
-            async with _turns:
-                try:
-                    resp = await asyncio.wait_for(self.client.download(mxc=event.url), DOWNLOAD_TIMEOUT_S)
-                except asyncio.TimeoutError:
-                    raise VoiceError("downloading it took too long") from None
-                body = getattr(resp, "body", None)
-                if not isinstance(body, bytes) or len(body) > MAX_BYTES:
-                    raise VoiceError("I couldn't download it" if not isinstance(body, bytes) else "it's too large")
-                text = await transcribe(body)
-        except VoiceError as e:               # said in the room: the person knows to type it instead
-            await self.say(room.room_id, f"📝 No transcript ({e}).", reply_to=event.event_id)
+            text = await voice.listen(self.client, event)
+        except (voice.VoiceError, OSError, RuntimeError, ValueError) as e:
+            log.warning("voice message %s: %s", event.event_id, e)
+            if sure:                          # clearly for me: say so; otherwise it may not be my business
+                await self.say(room.room_id, f"🎙 I couldn't hear that ({e}). Please type it.", reply_to=event.event_id)
             return
-        except (OSError, RuntimeError, ValueError) as e:   # download/Matrix/subprocess trouble: logged and said
-            log.error("voice message from %s failed: %s", event.sender, e)
-            await self.say(room.room_id, "📝 No transcript (something went wrong).", reply_to=event.event_id)
+        to_me = sure or NAMED_PM.match(text) is not None or SAID_PM.search(text) is not None or (
+            room.room_id in self.pending and intents.is_approval(text))      # answered with "click 👍"
+        if not text or not to_me:
             return
-        if not text:
-            await self.say(room.room_id, "📝 No words heard.", reply_to=event.event_id)
-            return
-        # A caption on the voice message itself (not @pm talking), so everyone, agents too, can read it.
         await self.say(room.room_id, f"📝 Transcript: “{text}”", plain=True, reply_to=event.event_id)
-        await self.on_human(room, self.as_text(room, event, text, await self.replies_to_me(room, event)))
+        await self.on_human(room, self.as_text(event, text))
 
-    async def replies_to_me(self, room: MatrixRoom, event: RoomMessageAudio) -> bool:
-        """A voice reply to one of my messages is for me (a voice message can't carry an @mention)."""
-        rel = event.source.get("content", {}).get("m.relates_to")
-        target = (rel.get("m.in_reply_to") or {}).get("event_id") if isinstance(rel, dict) else None
-        if not isinstance(target, str):
-            return False
-        resp = await self.client.room_get_event(room.room_id, target)
-        return getattr(getattr(resp, "event", None), "sender", None) == self.user_id
-
-    def as_text(self, room: MatrixRoom, event: RoomMessageAudio, text: str, to_me: bool = False) -> SimpleNamespace:
-        """The voice message as the typed message it stands for (same sender, same reply)."""
+    def as_text(self, event: RoomMessageAudio, text: str) -> SimpleNamespace:
+        """The voice message as the typed message to @pm it stands for (same sender, same reply)."""
         content = event.source.get("content", {})
-        for_me = (to_me or NAMED_PM.search(text) is not None or len(room.users) == 2
-                  or (room.room_id in self.pending and intents.is_approval(text)))   # answered: "click 👍"
-        body = NAMED_PM.sub("", text, count=1).lstrip(" ,.:;!-") if NAMED_PM.match(text.strip()) else text
-        source = {"content": {"body": body, "m.mentions": {"user_ids": [self.user_id] if for_me else []},
+        body = NAMED_PM.sub("", text, count=1) or text
+        source = {"content": {"body": body, "m.mentions": {"user_ids": [self.user_id]},
                               **({"m.relates_to": content["m.relates_to"]} if "m.relates_to" in content else {})}}
         return SimpleNamespace(sender=event.sender, body=body, source=source, event_id=event.event_id, voice=True)
