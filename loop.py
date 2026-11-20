@@ -87,6 +87,8 @@ class Loop(Progress, Boards, Chat, Planner):
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
 
     async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None) -> str:
+        if task is not None:          # the one thing every agent surely reads; bridges use the task field
+            body += " — use your hagency tools: call next_task"
         content = {"msgtype": "m.notice" if task is None else "m.text", "body": body}
         source = github.linkify(body)
         if mention:
