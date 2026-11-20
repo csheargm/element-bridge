@@ -68,8 +68,10 @@ class Talk(unittest.TestCase):
         self.room = SimpleNamespace(room_id="!r", users={ANNA: None, BETTY: None}, invited_users={},
                                     power_levels=SimpleNamespace(get_user_level=lambda u: 0))
 
-    def tell(self, sender, body, mention=True):
+    def tell(self, sender, body, mention=True, reply_to=None):
         content = {"body": body, "m.mentions": {"user_ids": [PM]} if mention else {}}
+        if reply_to:
+            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to}}
         ev = SimpleNamespace(sender=sender, body=body, source={"content": content})
         asyncio.run(self.lp.on_human(self.room, ev))
 
@@ -119,6 +121,27 @@ class Talk(unittest.TestCase):
                                  "items": [], "agent": "@anna-agent:x"}
         self.tell(ANNA, "> <@anna-agent:bridge.localhost> I sent @pm a one-item plan\n\nProduct Manager: ok")
         self.assertEqual(filed, [ANNA])
+
+    def test_ok_to_an_already_approved_plan_says_so(self):
+        """the owner: "it was a previous message, I ok'ed it, it should say the tasks are all done"."""
+        self.lp.agents_in = lambda room: []
+        self.lp.client.rooms = {"!r": self.room}
+        self.lp.level = mock.AsyncMock(return_value="autonomous")
+        self.lp.note_outcome("$old", "approved, and I opened #7")
+        self.tell(ANNA, "ok", reply_to="$old")
+        self.assertIn("already taken care of: approved, and I opened #7", self.said[-1])
+        self.assertNotIn("didn't catch", self.said[-1])
+
+    def test_ok_to_pm_with_nothing_waiting_says_so(self):
+        self.lp.agents_in = lambda room: []
+        self.lp.client.rooms = {"!r": self.room}
+        self.lp.level = mock.AsyncMock(return_value="off")
+        self.tell(ANNA, "@pm ok")
+        self.assertIn("Nothing is waiting for your OK", self.said[-1])
+
+    def test_a_bare_ok_between_people_is_left_alone(self):
+        self.tell(BETTY, "ok", mention=False)
+        self.assertEqual(self.said, [])
 
     def test_stop_cancels_a_waiting_plan_approval_too(self):
         self.lp.pending["!r"] = {"kind": "autonomous", "event_id": "$p", "until": time.time() + 60, "by": ANNA}

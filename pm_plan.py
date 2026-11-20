@@ -75,6 +75,7 @@ class Planner:
             numbers = ", ".join(f"#{n}" for n in result.get("numbers", []))
             nxt = ("The agents start on them now." if await self.level(rid) != "off" else
                    'Say "take it all the way" or "let us approve each change" to start building.')
+            self.note_outcome(plan.get("proposal"), f"approved, and I opened {numbers}")
             await self.say(rid, f"Opened {numbers}. {nxt}")
 
     async def propose(self, rid: str, plan: dict, items: object) -> None:
@@ -102,6 +103,9 @@ class Planner:
             await self.say(rid, "There's no plan yet. Say \"let's build it\" and I'll draft one from the discussion.")
             return
         items = last["items"]
+        older = self.pending.get(rid, {})
+        if older.get("kind") == "plan":
+            self.note_outcome(older.get("event_id"), "replaced by a newer plan, shown below it")
         event_id = await self.say(rid, f"Here's the plan from your discussion:\n\n{planning.show(items)}\n\n"
                                        f"✅ to open these {len(items)} issue(s), or tell me what to change "
                                        "and ask me to plan again.")
@@ -110,7 +114,8 @@ class Planner:
 
     async def file_plan(self, room: MatrixRoom, pending: dict, approver: str) -> None:
         task_id = uuid.uuid4().hex
-        self.plans[room.room_id] = {"task_id": task_id, "agent": pending["agent"], "by": approver}
+        self.plans[room.room_id] = {"task_id": task_id, "agent": pending["agent"], "by": approver,
+                                    "proposal": pending.get("event_id")}
         await self.say(room.room_id, f"{pending['agent']}: open the approved issues", pending["agent"],
                        {"kind": "file_issues", "task_id": task_id, "items": pending["items"],
                         "approved_by": approver.split(":")[0].lstrip("@")})

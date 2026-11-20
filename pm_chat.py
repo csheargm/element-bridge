@@ -15,6 +15,7 @@ from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
 import github
 import intents
+from saved_dict import SavedDict
 import room_state
 
 CONFIRM_S = 300
@@ -30,6 +31,12 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm let's build it**: your agent turns this discussion into issues; ✅ to open them\n"
         "- **@pm show the plan**: the plan waiting for ✅\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
+
+
+def replied_to(event: RoomMessageText) -> str | None:
+    rel = event.source.get("content", {}).get("m.relates_to", {})
+    reply = rel.get("m.in_reply_to", {}) if isinstance(rel, dict) else {}
+    return reply.get("event_id") if isinstance(reply, dict) else None
 
 
 def without_quote(body: str) -> str:
@@ -60,8 +67,14 @@ class Chat:
             await self.command(room, sender, body.split())
             return
         text = self.addressed_text(event)
-        if (intents.is_yes(body) or (text is not None and intents.is_yes(text))) and await self.confirm(room, sender):
-            return                    # "yes", or "@pm ok", confirms what's waiting
+        reply_to = replied_to(event)
+        if intents.is_yes(body) or (text is not None and intents.is_yes(text)):
+            waiting = self.pending.get(room.room_id, {}).get("event_id")
+            if (reply_to in (None, waiting)) and await self.confirm(room, sender):
+                return                # "yes", "@pm ok", or ok in a reply to the question: confirms it
+            if text is not None:      # an OK meant for me, but nothing (or something else) is waiting
+                await self.answer_stale_ok(room.room_id, reply_to)
+                return
         if text is None:
             return
         intent = intents.classify(text)
@@ -137,6 +150,7 @@ class Chat:
             return False              # authority re-checked now: they may have been demoted since
 
         self.pending.pop(room.room_id)
+        self.note_outcome(p.get("event_id"), "approved")
         if p.get("kind") == "plan_request":
             await self.start_plan(room, sender)                 # planned with the confirming owner's agent
         elif p.get("kind") == "plan":
@@ -145,6 +159,23 @@ class Chat:
             await self.say(room.room_id, await self.change_level(room.room_id, "autonomous") or
                            "Running on my own now. Say \"stop\" anytime.")
         return True
+
+    def outcomes(self) -> dict:
+        """What became of each question I asked (event id → "approved — opened #7", ...), on disk."""
+        if "_outcomes" not in self.__dict__:
+            path = getattr(self, "board_file", None)
+            self._outcomes = SavedDict(path.with_name(path.stem + "-outcomes.json")) if path else {}
+        return self._outcomes
+
+    def note_outcome(self, event_id: str | None, what: str) -> None:
+        if event_id:
+            self.outcomes()[event_id] = what
+
+    async def answer_stale_ok(self, room_id: str, reply_to: str | None) -> None:
+        """An OK for something already settled (or for nothing): say what happened, never "didn't catch"."""
+        done = self.outcomes().get(reply_to) if reply_to else None
+        first = f"That one is already taken care of: {done}." if done else "Nothing is waiting for your OK right now."
+        await self.say(room_id, f"{first} {await self.status_text(room_id)}")
 
     async def change_level(self, room_id: str, level: str) -> str | None:
         """Write the room's loop level; returns an error line, or None when done. Any explicit mode
