@@ -17,6 +17,7 @@ import markdown
 from nio import RoomGetStateEventResponse, RoomSendResponse
 
 import github
+import panel
 
 log = logging.getLogger("loop")
 RECENT_S = 24 * 3600            # finished items stay on the board this long
@@ -93,6 +94,9 @@ class Boards:
                 if not board.get("published"):
                     board["published"] = await self.publish(room_id, text)
                     self.save_boards()
+                if not board.get("panel"):           # the side panel widget, once per room
+                    board["panel"] = await panel.add_to_room(self.client, room_id)
+                    self.save_boards()
                 continue
             event_id = await self.show(room_id, board.get("event_id"), text)
             if event_id:
@@ -101,7 +105,7 @@ class Boards:
                     pinned = await self.pin(room_id, event_id, board.get("event_id"))
                 self.boards[room_id] = {"event_id": event_id, "text": text, "pinned": pinned,
                                         "published": await self.publish(room_id, text),
-                                        **({"announced": board["announced"]} if "announced" in board else {})}
+                                        **{k: board[k] for k in ("announced", "panel") if k in board}}
                 self.save_boards()
 
     async def publish(self, room_id: str, text: str) -> bool:

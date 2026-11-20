@@ -1,0 +1,60 @@
+"""Unit tests: the side panel. Run: .venv/bin/python -m unittest test_panel"""
+import json
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import panel
+import registry
+
+S = "bridge.localhost"
+
+
+class Render(unittest.TestCase):
+    def setUp(self):
+        path = Path(tempfile.mkdtemp()) / "agents.json"
+        path.write_text(json.dumps({"anna": {}, "betty": {"follow": "ask"}}))
+        p = mock.patch.object(registry, "PATH", path)
+        p.start()
+        self.addCleanup(p.stop)
+        room = SimpleNamespace(users={f"@anna:{S}": 0, f"@anna-agent:{S}": 0, f"@betty-agent:{S}": 0}, invited_users={})
+        self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}),
+                                    boards={"!r": {"text": "📋 **Project status** — loop: **assist**"}},
+                                    pending={"!r": {"kind": "plan", "by": f"@anna:{S}", "until": time.time() + 60}},
+                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}})
+
+    def test_shows_status_waiting_plan_and_whose_agent_is_whose(self):
+        page = panel.render(self.loop, "!r")
+        self.assertIn("<strong>Project status</strong>", page)
+        self.assertIn("a plan — anna reacts ✅", page)
+        self.assertIn("anna-agent — anna's agent, follows: always", page)
+        self.assertIn("betty-agent — betty's agent, follows: ask <span class=muted>(owner not here: idle)", page)
+
+    def test_everything_people_wrote_is_escaped(self):
+        self.assertNotIn("<script>", panel.render(self.loop, "!r"))
+        self.assertIn("&lt;script&gt;", panel.render(self.loop, "!r"))
+
+    def test_unknown_room(self):
+        self.assertIn("isn't in this room", panel.render(self.loop, "!other"))
+
+
+class Widget(unittest.TestCase):
+    def test_added_to_the_right_panel(self):
+        import asyncio
+        from nio import RoomPutStateResponse
+        calls = []
+
+        async def put(room_id, kind, content, state_key=""):
+            calls.append((kind, content, state_key))
+            return RoomPutStateResponse("$e", room_id)
+        self.assertTrue(asyncio.run(panel.add_to_room(SimpleNamespace(room_put_state=put), "!r")))
+        (kind, content, key), (layout_kind, layout, _) = calls
+        self.assertEqual((kind, key, content["url"]), ("im.vector.modular.widgets", "hagency", panel.URL))
+        self.assertEqual(layout["widgets"]["hagency"]["container"], "right")
+
+
+if __name__ == "__main__":
+    unittest.main()

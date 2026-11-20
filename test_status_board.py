@@ -53,10 +53,12 @@ class FakeClient:
     async def room_get_state_event(self, room_id, kind, key):
         return RoomGetStateEventResponse({"pinned": ["$other"]}, kind, key, room_id)
 
-    async def room_put_state(self, room_id, kind, content):
+    async def room_put_state(self, room_id, kind, content, **kw):
         if kind == "m.room.pinned_events":
             self.pins = content["pinned"]
-        else:
+        elif kind == "im.vector.modular.widgets":
+            self.widget = content
+        elif kind != "io.element.widgets.layout":
             self.status = content
         return RoomPutStateResponse("$p", room_id)
 
@@ -98,7 +100,7 @@ class Board(unittest.TestCase):
         """Seen live: the board was posted before @pm was made a moderator, and never pinned."""
         refused = {"yes": True}
 
-        async def put_state(room_id, kind, content):
+        async def put_state(room_id, kind, content, **kw):
             if refused["yes"]:
                 return SimpleNamespace(message="M_FORBIDDEN")
             if kind == "m.room.pinned_events":

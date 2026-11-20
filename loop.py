@@ -24,6 +24,7 @@ from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Reac
 import github
 import lifecycle
 import ownership
+import panel
 from redact import room_safe
 import room_state
 from loop_progress import GITHUB_STAGES, Progress
@@ -244,6 +245,7 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
                      self.client.add_event_callback(self.on_member, RoomMemberEvent)),
             lambda ms: setattr(self, "started_ms", ms))
         log.info("pm online for %s (poll %ss)", github.REPO, POLL_S)
+        await panel.start(self)              # the side panel (panel.py); never fatal
         await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())
 
     async def poll_forever(self) -> None:
