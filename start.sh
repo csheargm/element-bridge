@@ -6,6 +6,8 @@
 #        ALLOW_MEMBERS=1 ./start.sh      (any joined member may drive an agent; default owner only)
 set -euo pipefail
 cd "$(dirname "$0")"
+# This server's own settings (which GitHub repos rooms may use): git-ignored, see local.env.example.
+if [ -f local.env ]; then set -a; . ./local.env; set +a; fi
 AGENT="${1:-codex}"
 EXTRA=(); [ "${ALLOW_MEMBERS:-0}" = 1 ] && EXTRA=(--allow-members)
 IMAGE=matrixdotorg/synapse:latest
