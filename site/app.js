@@ -1,55 +1,68 @@
-// hagencylabs.xyz: the example room in the hero and the Get started tabs. No dependencies.
-const PEOPLE = {
-  anna: { label: "Anna", color: "#7c8cff" }, "anna-agent": { label: "Anna's agent", color: "#a9b4ff" },
-  betty: { label: "Betty", color: "#2fd6b5" }, "betty-agent": { label: "Betty's agent", color: "#8cf0dc" },
-  pm: { label: "@pm", color: "#ffb86b" },
-};
-// A real flow from the prototype: discuss → plan → 👍 → build → review by the OTHER person's agent → merge.
-const SCRIPT = [
-  ["anna", "partner org", "We need a Swahili greeting on the hello page, and a dark mode toggle."],
-  ["betty", "Acme Labs", "Agreed. Keep the toggle in the header. <b>@pm let's build it</b>"],
-  ["pm", "", "Here's the plan from your discussion:<br>1. Add a Swahili greeting<br>2. Dark mode toggle in the header<br>React 👍 to open these 2 issues.", "👍 betty"],
-  ["pm", "", "Opened <code>#12</code>, <code>#13</code>. Mode: <b>autonomous</b>. Starting #12 with betty-agent."],
-  ["betty-agent", "Claude Code · Betty's keys", "PR <code>#14</code> opened for #12."],
-  ["anna-agent", "Hermes · Anna's keys", "Reviewed PR #14 against the issue: <b>approved</b>."],
-  ["pm", "", "GitHub says #14 is approved and mergeable → merged. #13 is next.",
-   null, '<div class="board"><span class="ok">●</span> Project status · #12 done · #13 building · 0 waiting on you</div>'],
-  ["anna", "partner org", "@anna-agent what changed on the page so far?"],
-  ["anna-agent", "Hermes · Anna's keys", "The hello page now greets in Swahili (“Habari!”), merged in #14. Dark mode is in progress in #13."],
-];
+// A quiet field of points that drift and connect, a hint of people and agents meeting. No dependencies.
+document.getElementById("year").textContent = new Date().getFullYear();
 
-function message([who, where, html, reaction, extra]) {
-  const p = PEOPLE[who];
-  const el = document.createElement("div");
-  el.className = "msg";
-  el.innerHTML = `<div class="av" style="background:${p.color}">${p.label[0] === "@" ? "pm" : p.label[0]}</div>
-    <div><div class="who">${p.label}${where ? `<span>${where}</span>` : ""}</div>
-    <div class="body">${html}</div>${reaction ? `<span class="react">${reaction}</span>` : ""}${extra || ""}</div>`;
-  return el;   // every string above is our own fixed copy, never visitor input
-}
+const canvas = document.getElementById("field");
+const ctx = canvas.getContext("2d");
+const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+const LINK = 140, LINK2 = LINK * LINK;    // px: points closer than this draw a faint line
+let points = [], w = 0, h = 0, colours = {}, running = false, resizeTimer = 0;
 
-function playRoom() {
-  const feed = document.getElementById("feed");
-  if (!feed) return;
-  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let i = 0;
-  const next = () => {
-    if (i === SCRIPT.length) { i = 0; feed.replaceChildren(); }
-    feed.appendChild(message(SCRIPT[i++]));
-    while (feed.children.length > 6) feed.firstChild.remove();
-    if (!still) setTimeout(next, i === SCRIPT.length ? 5200 : 2300);
-  };
-  if (still) { SCRIPT.slice(-6).forEach(m => feed.appendChild(message(m))); return; }
-  next();
-}
-
-function tabs() {
-  const buttons = document.querySelectorAll(".tab");
-  buttons.forEach(b => b.addEventListener("click", () => {
-    buttons.forEach(x => x.setAttribute("aria-selected", String(x === b)));
-    document.querySelectorAll("[data-panel]").forEach(p => { p.hidden = p.dataset.panel !== b.dataset.tab; });
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  w = canvas.clientWidth; h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const count = Math.round(Math.min(90, (w * h) / 14000));
+  points = Array.from({ length: count }, (_, i) => ({
+    x: Math.random() * w, y: Math.random() * h,
+    vx: (Math.random() - .5) * .25, vy: (Math.random() - .5) * .25,
+    agent: i % 3 === 0,                   // every third point a different colour
   }));
 }
 
-document.getElementById("year").textContent = new Date().getFullYear();
-playRoom(); tabs();
+function readColours() {             // read once per theme change, not every frame
+  const css = getComputedStyle(document.documentElement);
+  colours = { accent: css.getPropertyValue("--accent").trim(), accent2: css.getPropertyValue("--accent2").trim(),
+              fg: css.getPropertyValue("--fg").trim() };
+}
+
+function frame() {
+  const { accent, accent2, fg } = colours, still = motion.matches;
+  ctx.clearRect(0, 0, w, h);
+  for (const p of points) {
+    if (!still) {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > w) p.vx *= -1;
+      if (p.y < 0 || p.y > h) p.vy *= -1;
+    }
+  }
+  ctx.lineWidth = 1;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const a = points[i], b = points[j], dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
+      if (d2 < LINK2) {
+        const d = Math.sqrt(d2);
+        ctx.globalAlpha = (1 - d / LINK) * .35;
+        ctx.strokeStyle = a.agent !== b.agent ? accent : fg;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+  }
+  ctx.globalAlpha = .9;
+  for (const p of points) {
+    ctx.fillStyle = p.agent ? accent2 : fg;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.agent ? 2 : 1.4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  running = !still;
+  if (running) requestAnimationFrame(frame);
+}
+
+function redraw() { if (!running) frame(); }   // a still page draws once per change
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { resize(); redraw(); }, 150); });
+scheme.addEventListener("change", () => { readColours(); redraw(); });
+motion.addEventListener("change", redraw);
+readColours();
+resize();
+frame();
