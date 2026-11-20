@@ -104,9 +104,9 @@ restarts them without losing messages.
 
 > **Anna:** `@pm` let's build it
 > **Product Manager:** Here's the plan from your discussion: 1. Add index.html with name box and
-> Greet button … 4. README … ✅ to open these 4 issue(s)
+> Greet button … 4. README … 👍 to open these 4 issue(s)
 
-Anna reacts ✅. Then:
+Anna reacts 👍. Then:
 
 > **Product Manager:** Opened #1, #2, #3, #4. Say "take it all the way" or "let us approve each
 > change" to start building.
@@ -153,7 +153,7 @@ Type a name, click Greet, try an empty name, and try `<b>x</b>`.
 > **Betty:** Works! Can it remember the last name I typed?
 > **Anna:** Yes, add that. `@pm` let's build it
 
-`@pm` plans **only the new item** (it shows the agent the open issues), Anna reacts ✅, and the
+`@pm` plans **only the new item** (it shows the agent the open issues), Anna reacts 👍, and the
 loop builds it. Refresh `index.html` after it's merged.
 
 ## 10. Wrap-up talking points

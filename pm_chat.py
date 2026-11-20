@@ -34,8 +34,8 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm let us approve each change**: agents stop at each change for a person to merge\n"
         "- **@pm stop**: no new work and no merges, right away (anyone)\n"
         "- **@pm where are we?**: what's happening now\n"
-        "- **@pm let's build it**: your agent turns this discussion into issues; ✅ to open them\n"
-        "- **@pm show the plan**: the plan waiting for ✅\n"
+        "- **@pm let's build it**: your agent turns this discussion into issues; 👍 to open them\n"
+        "- **@pm show the plan**: the plan waiting for your 👍\n"
         "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
 
@@ -149,7 +149,7 @@ class Chat:
         elif intent == intents.PLAN and not await room_state.is_moderator(self.client, room, sender):
             who = sender.split(":")[0].lstrip("@")         # a contributor asks; the owner decides
             event_id = await self.say(rid, f"{who} would like to turn this discussion into work. Room owner or "
-                                           "a maintainer: ✅ and I'll plan it with your agent.")
+                                           "a maintainer: react 👍 and I'll plan it with your agent.")
             self.pending[rid] = {"kind": "plan_request", "event_id": event_id, "until": time.time() + CONFIRM_S}
         elif intent == intents.PLAN:
             await self.start_plan(room, sender)

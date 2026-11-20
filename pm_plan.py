@@ -113,7 +113,7 @@ class Planner:
         if older.get("kind") == "plan":
             self.note_outcome(older.get("event_id"), "replaced by a newer plan, shown below it")
         event_id = await self.say(rid, f"Here's the plan from your discussion:\n\n{planning.show(items)}\n\n"
-                                       f"✅ to open these {len(items)} issue(s), or tell me what to change "
+                                       f"React 👍 to open these {len(items)} issue(s), or tell me what to change "
                                        "and ask me to plan again.")
         self.pending[rid] = {"kind": "plan", "event_id": event_id, "until": time.time() + CONFIRM_S,
                              "items": items, "agent": last["agent"], "by": last["by"]}

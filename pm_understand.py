@@ -95,7 +95,7 @@ class Understanding:
             return                            # a setting or grant changes only on the person's own clear words
         waiting = self.pending.get(rid, {})
         if action == "approve" and waiting and not (intents.is_yes(text) or reply_to == waiting.get("event_id")):
-            await self.say(rid, "To approve it, react ✅ to the message above (or reply \"ok\" to it).")
+            await self.say(rid, "To approve it, react 👍 to the message above (or reply \"ok\" to it).")
             return
         if action == "approve":
             if not await self.confirm(room, sender):
@@ -118,6 +118,6 @@ class Understanding:
             await self.say(room.room_id, "Only the room owner or a maintainer can change how I run this project.")
             return
         event_id = await self.say(room.room_id, f"Do you want me to switch to **{action}** "
-                                                f"({LEVEL_WORDS[action].split(': ', 1)[1]})? ✅ to confirm.")
+                                                f"({LEVEL_WORDS[action].split(': ', 1)[1]})? React 👍 to confirm.")
         self.pending[room.room_id] = {"kind": "mode", "level": action, "event_id": event_id,
                                       "until": time.time() + CONFIRM_S, "by": sender}

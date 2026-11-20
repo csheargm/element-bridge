@@ -73,7 +73,7 @@ def main():
         say(anna, room_id, "Let's make a tiny Hello project. First thing: a file docs/HELLO.md whose only line is exactly '# Hello'.")
         say(betty, room_id, "Agreed, just that file for now, nothing else.")
         send(anna, room_id, "@pm let's build it", PM)
-        plan = confirm_latest(anna, room_id, "✅ to open these", ts)
+        plan = confirm_latest(anna, room_id, "👍 to open these", ts)
         check("anna's agent drafts a plan from the discussion", "HELLO.md" in plan, plan[:120].replace("\n", " "))
         body = wait_for(anna, room_id, lambda s, b: s == PM and b.startswith(("Opened", "⚠️")), "issues opened", ts)
         issues = [i for i in gh()["issues"].values() if i["state"] == "OPEN"]
@@ -92,7 +92,7 @@ def main():
         say(betty, room_id, "Tried it, nice. One more thing: add docs/BYE.md whose only line is exactly '# Bye'.")
         say(anna, room_id, "Yes, add that too.")
         send(anna, room_id, "@pm let's build it", PM)
-        plan = confirm_latest(anna, room_id, "✅ to open these", ts)
+        plan = confirm_latest(anna, room_id, "👍 to open these", ts)
         check("iteration plans only the new item", "BYE" in plan and "HELLO" not in plan, plan[:120].replace("\n", " "))
         wait_for(anna, room_id, lambda s, b: s.endswith("-agent:" + SERVER_NAME) and "merged" in b and "#" in b, "merge 2", ts)
         bye = subprocess.run(["git", "--git-dir", str(tmp / "remote.git"), "show", "main:docs/BYE.md"],

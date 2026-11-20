@@ -290,7 +290,7 @@ class Brain(Talk):
                                  "items": [], "agent": "@anna-agent:x"}
         self.decision = ("approve", "")
         self.tell(ANNA, "@pm how many issues is that?")
-        self.assertIn("react ✅", self.said[-1])
+        self.assertIn("react 👍", self.said[-1])
         self.assertIn("!r", self.lp.pending)
 
     def test_a_stop_while_thinking_cancels_the_decision(self):

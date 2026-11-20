@@ -97,7 +97,7 @@ async def fetch_page(url: str) -> dict:
 @mcp.tool()
 async def ask_owner(action: str) -> dict:
     """Before anything outside the project that isn't a read, ask your owner, describing EXACTLY what
-    you'll do (where, what data). Returns approved true only if THEY react ✅ (a 👎/❌ wins, silence
+    you'll do (where, what data). Returns approved true only if THEY react 👍 (a 👎/❌ wins, silence
     means no); do only exactly what you asked."""
     room = await asyncio.to_thread(owners_room)
     owner = core.owner_id()
@@ -108,7 +108,7 @@ async def ask_owner(action: str) -> dict:
     if len(text) > MAX_ACTION:
         return {"approved": False, "why": f"describe it in under {MAX_ACTION} characters so your owner sees all of it"}
     content = {"msgtype": "m.text", "m.mentions": {"user_ids": [owner]},
-               "body": f"{who}, may I: {text}? React ✅ to allow (👎 or no answer in {APPROVAL_WAIT_S // 60} min means no)."}
+               "body": f"{who}, may I: {text}? React 👍 to allow (👎 or no answer in {APPROVAL_WAIT_S // 60} min means no)."}
     sent = await asyncio.to_thread(core.api, "PUT", core.room_path(room, f"/send/m.room.message/a{time.time_ns()}"),
                                    content, core.token())
     if not sent.get("event_id"):

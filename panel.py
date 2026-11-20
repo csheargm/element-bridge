@@ -56,7 +56,7 @@ def render(loop, room_id: str) -> str:
         who = html.escape(str(waiting.get("by", "")).split(":")[0].lstrip("@"))
         what = {"plan": "a plan", "plan_request": "turning the discussion into work", "bring": "bringing an agent",
                 "mode": f"switching to {html.escape(str(waiting.get('level')))}"}.get(waiting.get("kind"), "a change")
-        parts.append(f"<h2>Waiting for approval</h2><p>{what} — {who or 'the owner'} reacts ✅ in the chat</p>")
+        parts.append(f"<h2>Waiting for approval</h2><p>{what} — {who or 'the owner'} reacts 👍 in the chat</p>")
     plan = loop.last_plans.get(room_id, {}).get("items", [])
     if plan:
         items = "".join(f"<li><b>{html.escape(i['title'])}</b></li>" for i in plan)
