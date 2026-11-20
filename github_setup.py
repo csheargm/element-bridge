@@ -2,6 +2,7 @@
 
   python github_setup.py check [agent ...]   # default: anna-agent betty-agent
   python github_setup.py ruleset             # as the repo owner (your normal `gh` login)
+  python github_setup.py pages               # publish the default branch as a website (GitHub Pages)
 
 Never reads or prints tokens: it only asks GitHub "who am I" and "what may I do" per identity.
 See docs/GITHUB_SETUP.md for the full walkthrough.
@@ -75,11 +76,28 @@ async def apply_ruleset() -> int:
     return 0
 
 
+async def enable_pages() -> int:
+    """A repo setting, so the owner turns it on (agents only change files, through reviewed PRs)."""
+    try:
+        site = await run_json(["api", f"repos/{REPO}/pages"])
+    except GitHubError:
+        site = await run_json(["api", "-X", "POST", f"repos/{REPO}/pages",
+                               "-f", "source[branch]=main", "-f", "source[path]=/"])
+    print(f"✓ GitHub Pages on for {REPO}: {pages_url(site)}")
+    return 0
+
+
+def pages_url(site: dict) -> str:
+    return site.get("html_url") or f"https://{REPO.split('/')[0].lower()}.github.io/{REPO.split('/')[1]}/"
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["check"]:
         return asyncio.run(check(argv[1:] or list(DEFAULT_AGENTS)))
     if argv == ["ruleset"]:
         return asyncio.run(apply_ruleset())
+    if argv == ["pages"]:
+        return asyncio.run(enable_pages())
     print(__doc__)
     return 2
 

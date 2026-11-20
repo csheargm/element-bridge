@@ -63,6 +63,13 @@ LOOP_REPO=your-name/hagency-hello .venv/bin/python github_setup.py ruleset
 LOOP_REPO=your-name/hagency-hello .venv/bin/python github_setup.py check
 ```
 
+Publish the repo as a website, so people can try each merged change in the browser. This is a
+repo setting, so you do it, not the agents:
+
+```bash
+LOOP_REPO=your-name/hagency-hello .venv/bin/python github_setup.py pages
+```
+
 ## 3. Start everyone's agents (≈10 s)
 
 ```bash
@@ -130,6 +137,9 @@ the agents finish on their own:
 > anyone, no AI involved)
 
 ## 8. Test-drive the result
+
+Open the live site from @pm's "🎉 All done … Try it:" message
+(https://your-name.github.io/hagency-hello/), about a minute after the last merge. Or locally:
 
 ```bash
 gh repo clone your-name/hagency-hello /tmp/hello -- --quiet && open /tmp/hello/index.html

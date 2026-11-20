@@ -32,6 +32,15 @@ HELP = ("Talk to me in plain words, for example:\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
 
 
+def without_quote(body: str) -> str:
+    """A reply's body starts with the quoted message ("> <@someone> text", then a blank line): read
+    only what the person wrote, so "ok" in a reply to any message is just "ok"."""
+    lines = body.strip().splitlines()
+    while lines and lines[0].startswith(">"):
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
 class Chat:
     pending: dict           # room → the autonomous switch waiting for a ✅
 
@@ -40,13 +49,13 @@ class Chat:
         mentions = event.source.get("content", {}).get("m.mentions", {})
         ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
         mentioned = isinstance(ids, list) and self.user_id in ids
-        m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", event.body, re.I | re.S)
+        m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", without_quote(event.body), re.I | re.S)
         if m:
             return m.group(2)
-        return event.body if mentioned else None
+        return without_quote(event.body) if mentioned else None
 
     async def on_human(self, room: MatrixRoom, event: RoomMessageText) -> None:
-        body, sender = event.body.strip(), event.sender
+        body, sender = without_quote(event.body), event.sender
         if body.startswith("!"):
             await self.command(room, sender, body.split())
             return

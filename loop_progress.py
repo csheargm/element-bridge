@@ -64,8 +64,17 @@ class Progress:
                    and v.get("ended", 0) > since]
         extra = f" ({', '.join('#' + k for k in stopped)} stopped and need a person.)" if stopped else ""
         await self.say(room_id, f"🎉 All done: {', '.join('#' + k for k in done)} merged.{extra} Try it: "
-                                f"https://github.com/{github.REPO} (see its README for how to run it). "
-                                "Tell me what to change, then say \"let's build it\".")
+                                f"{await self.where_to_try()}. Tell me what to change, then say \"let's build it\".")
+
+    async def where_to_try(self) -> str:
+        """The live site if the repo publishes one (GitHub Pages), else the repo and its README."""
+        try:
+            site = await github.run_json(["api", f"repos/{github.REPO}/pages"])
+            if site.get("html_url"):
+                return f"{site['html_url']} (live site; updates a minute after each merge)"
+        except github.GitHubError:
+            pass                              # no Pages site: point at the repo instead
+        return f"https://github.com/{github.REPO} (see its README for how to run it)"
 
     async def watchdog(self, room_id: str, key: str, item: dict) -> bool:
         """Never wait forever: resend a step with no answer once, and stop items GitHub keeps blocked.

@@ -107,6 +107,19 @@ class Talk(unittest.TestCase):
         self.tell(ANNA, "Product Manager: ok")
         self.assertEqual(filed, [ANNA])
 
+    def test_ok_in_a_reply_to_the_agents_message_approves(self):
+        """Seen live: anna replied "@Product Manager: ok" to her agent's message; Element puts the
+        quoted message into the body, so it didn't read as ok."""
+        filed = []
+
+        async def file_plan(room, pending, approver):
+            filed.append(approver)
+        self.lp.file_plan = file_plan
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
+        self.tell(ANNA, "> <@anna-agent:bridge.localhost> I sent @pm a one-item plan\n\nProduct Manager: ok")
+        self.assertEqual(filed, [ANNA])
+
     def test_stop_cancels_a_waiting_plan_approval_too(self):
         self.lp.pending["!r"] = {"kind": "autonomous", "event_id": "$p", "until": time.time() + 60, "by": ANNA}
         self.tell(BETTY, "@pm wait, stop")

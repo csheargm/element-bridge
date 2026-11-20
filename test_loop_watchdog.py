@@ -119,6 +119,9 @@ class AllDone(unittest.TestCase):
         self.lp.boards, self.lp.save_boards, self.lp.open_issues = {}, lambda: None, {"!r": []}
         self.lp.say = mock.AsyncMock()
         self.lp.state = {"1": {"room": "!r", "stage": "done", "ended": 100}, "2": {"room": "!r", "stage": "done", "ended": 200}}
+        p = mock.patch.object(github, "run_json", mock.AsyncMock(side_effect=github.GitHubError("404")))
+        p.start()
+        self.addCleanup(p.stop)
 
     def announce(self):
         asyncio.run(self.lp.announce_done("!r"))
@@ -131,6 +134,11 @@ class AllDone(unittest.TestCase):
         self.assertIn(f"https://github.com/{github.REPO}", text)
         self.announce()
         self.assertEqual(self.lp.say.call_count, 1)           # not again for the same work
+
+    def test_links_the_live_site_when_the_repo_publishes_one(self):
+        with mock.patch.object(github, "run_json", mock.AsyncMock(return_value={"html_url": "https://me.github.io/x/"})):
+            self.announce()
+        self.assertIn("https://me.github.io/x/ (live site", self.lp.say.call_args.args[1])
 
     def test_not_while_work_remains(self):
         self.lp.open_issues["!r"] = [{"number": 3, "title": "t"}]
