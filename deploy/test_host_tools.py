@@ -132,6 +132,7 @@ class EnvUpgrade(unittest.TestCase):
             values = envfile.ensure()
         self.assertEqual((values["ROOMS_DOMAIN"], values["ADMIN_DOMAIN"], values["POSTGRES_PASSWORD"]),
                          ("rooms.mine.org", "admin.example.org", "ab" * 32))      # kept, added, kept
+        self.assertEqual(values["PM_UID"], str(os.getuid()))                    # whoever runs bootstrap owns ~/hagency/pm
 
 
 if __name__ == "__main__":

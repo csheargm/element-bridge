@@ -18,6 +18,7 @@ RULES = {
     "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN, "ADMIN_DOMAIN": DOMAIN,
     "POSTGRES_PASSWORD": r"[0-9a-f]{64}",
     "OPERATOR": r"[a-z0-9._=-]{1,64}",       # the account guard.py warns (a localpart)
+    "PM_UID": r"[1-9][0-9]{2,5}",            # @pm's container runs as the deploy user (owns ~/hagency/pm)
 }
 SECRETS = {"POSTGRES_PASSWORD"}
 OPTIONAL = {"OPERATOR"}                      # empty until the operator has an account
@@ -47,6 +48,7 @@ def ensure() -> dict:
         key, sep, default = line.partition("=")
         if sep and not line.startswith("#") and key.strip() not in values:
             values[key.strip()] = default.strip()
+    values.setdefault("PM_UID", str(os.getuid()))   # the user running bootstrap.sh (ubuntu: 1001 on Oracle)
     for key in SECRETS:
         if not values.get(key):
             values[key] = secrets.token_hex(32)

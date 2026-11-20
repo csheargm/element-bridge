@@ -53,9 +53,9 @@ services:
     networks: [edge]
     logging: *logs
     restart: unless-stopped
-  pm:                                   # @pm: welcome, pairing (/connect) and the console, as uid 1000
+  pm:                                   # @pm: welcome, pairing (/connect) and the console, as the deploy user
     image: python:3.12.16-slim
-    user: "1000:1000"
+    user: "${PM_UID}:${PM_UID}"
     working_dir: /app
     command: ["sh", "deploy/pm_start.sh"]
     environment:

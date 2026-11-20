@@ -31,7 +31,7 @@ existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tun
 | pm       | @pm (`loop.py`): welcomes newcomers, the console, `/connect` and `/connect.sh` | via Caddy |
 
 Images are pinned in the compose file (Synapse Admin also by digest), so a commit always runs the same versions. @pm runs as
-uid 1000 from `~/hagency/pm` (that commit's files plus its own state: `.env` with its passwords,
+the deploy user (PM_UID in .env, set by bootstrap) from `~/hagency/pm` (that commit's files plus its own state: `.env` with its passwords,
 `agents.json`, `data/`); each deploy clears everything else there (`deploy/release.py`: dropped
 files, anything planted, the virtualenv). It reads Synapse's registration secret from a read-only
 copy in a root-owned folder (`deploy/pm-secret/`), never Synapse's whole config.

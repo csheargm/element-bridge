@@ -69,7 +69,7 @@ class Configure(unittest.TestCase):
 
 class EnvFile(unittest.TestCase):
     """GPT review 12: .env is data, validated, never sourced by a shell."""
-    GOOD = {"ROOMS_DOMAIN": "rooms.example.org", "MATRIX_DOMAIN": "matrix.example.org", "ADMIN_DOMAIN": "admin.example.org",
+    GOOD = {"ROOMS_DOMAIN": "rooms.example.org", "MATRIX_DOMAIN": "matrix.example.org", "ADMIN_DOMAIN": "admin.example.org", "PM_UID": "1001",
             "SERVER_NAME": "matrix.example.org", "POSTGRES_PASSWORD": "ab" * 32}
 
     def test_good_values_pass(self):
