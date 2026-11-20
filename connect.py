@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -54,10 +55,10 @@ def redeem(server: str, code: str) -> dict:
 
 
 def save(path: Path, data: dict) -> None:
-    """Written as 0600 (in a 0700 folder) and swapped in whole."""
+    """Written as 0600 (in a 0700 folder, whatever the umask made it) and swapped in whole."""
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    path.parent.chmod(0o700)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".credentials-")   # 0600, a new file: no symlink games
     with os.fdopen(fd, "w") as f:
         json.dump(data, f)
     os.replace(tmp, path)
@@ -90,15 +91,15 @@ def main() -> None:
     ap.add_argument("--pair-only", action="store_true", help="save the sign-in, don't start the agent")
     args = ap.parse_args()
     path = args.home / "credentials.json"
+    saved = json.loads(path.read_text()) if path.exists() else {}
+    if not args.code and not saved:
+        raise SystemExit("✗ not connected yet: run this with the code @pm sent you")
+    backend = pick_backend(args.agent, saved.get("agent"))      # before the code is used up
     if args.code:
         if not safe_url(args.server):
             raise SystemExit(f"✗ {args.server}: use https (plain http only for this computer)")
-        creds = redeem(args.server, args.code)
-    elif path.exists():
-        creds = json.loads(path.read_text())
-    else:
-        raise SystemExit("✗ not connected yet: run this with the code @pm sent you")
-    creds["agent"] = pick_backend(args.agent, creds.get("agent"))
+        saved = redeem(args.server, args.code)
+    creds = {**saved, "agent": backend}
     save(path, creds)
     print(f"✓ connected as {creds['user_id']} ({creds['agent']}); only {creds['owner']} can direct it")
     if args.pair_only:

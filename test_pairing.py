@@ -117,8 +117,18 @@ class Server(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 429)
         self.assertNotIn("password", body)
 
-    async def test_not_json_is_a_wrong_code(self):
-        r = await self.client.post("/connect", data="code=x", headers={"Content-Type": "application/x-www-form-urlencoded"})
+    async def test_browsers_are_refused_before_counting_as_a_failure(self):
+        """GPT review 21: a cross-site form can't burn someone's attempts."""
+        for _ in range(pairing.FAILS_PER_CLIENT + 1):
+            r = await self.client.post("/connect", data="code=x", headers={"Content-Type": "application/x-www-form-urlencoded"})
+            self.assertEqual(r.status, 415)
+            r = await self.client.post("/connect", json={"code": "x"}, headers={"Origin": "https://evil.example"})
+            self.assertEqual(r.status, 415)
+        status, _, _ = await self.post(remote_agent.CODES.issue("newbie1"))
+        self.assertEqual(status, 200)
+
+    async def test_bad_json_is_a_wrong_code(self):
+        r = await self.client.post("/connect", data="{", headers={"Content-Type": "application/json"})
         self.assertEqual(r.status, 400)
 
     async def test_installer_names_this_console(self):
@@ -149,10 +159,38 @@ class Provision(unittest.TestCase):
         self.dm.assert_called_once()
 
     def test_refuses_people_with_a_server_agent_and_odd_names(self):
-        for name in ("anna", "John.Doe", "x"):
+        self.reg.write_text(json.dumps({"anna": {"agent": "hermes"}, "carl": {}}))   # carl: the default server agent
+        for name in ("anna", "carl", "John.Doe", "x"):
             with self.assertRaises(setup_accounts.AccountError):
                 remote_agent.provision(name)
         self.ensure.assert_not_called()
+
+
+class ConsoleUrl(unittest.TestCase):
+    def test_only_safe_urls_go_into_the_shell_line(self):
+        for url, ok in (("https://rooms.example.org", True), ("http://localhost:8650", True),
+                        ("http://rooms.example.org", False), ("https://x.org/$(id)", False), ("https://x.org;rm", False)):
+            with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": url}):
+                if ok:
+                    self.assertTrue(remote_agent.install_line("ABCDE-FGHJK").startswith(f"curl -fsSL {url}/connect.sh"))
+                else:
+                    self.assertRaises(RuntimeError, remote_agent.console_url)
+
+
+class EnsureUser(unittest.TestCase):
+    def test_a_saved_password_that_cant_sign_in_is_registered_again(self):
+        """GPT review 21: a failed registration no longer poisons every retry."""
+        env = {"PW_NEWBIE1_AGENT": "pw"}
+        with mock.patch.object(setup_accounts, "try_login", return_value=None), \
+                mock.patch.object(setup_accounts, "register", return_value={}) as reg, \
+                mock.patch.object(setup_accounts, "save_env"):
+            self.assertEqual(setup_accounts.ensure_user(env, "newbie1-agent", "s", verify=True), ("pw", True))
+        reg.assert_called_once_with("newbie1-agent", "pw", "s", False)
+        with mock.patch.object(setup_accounts, "try_login", return_value="t"), \
+                mock.patch.object(setup_accounts, "api") as api, mock.patch.object(setup_accounts, "register") as reg:
+            self.assertEqual(setup_accounts.ensure_user(env, "newbie1-agent", "s", verify=True), ("pw", False))
+        reg.assert_not_called()
+        api.assert_called_once()                                  # the check's session is logged out
 
 
 if __name__ == "__main__":

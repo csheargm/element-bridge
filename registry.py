@@ -3,6 +3,7 @@ and setup. One line per person, e.g. {"anna": {"agent": "hermes", "dm": "!room:s
 import json
 import os
 import re
+import threading
 from pathlib import Path
 
 PATH = Path(os.environ.get("HAGENCY_AGENTS", Path(__file__).parent / "agents.json"))
@@ -23,7 +24,7 @@ def load() -> dict:
 
 
 def save(data: dict) -> None:
-    tmp = PATH.with_suffix(".tmp")
+    tmp = PATH.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")   # @pm and onboard.py both write
     tmp.write_text(json.dumps(data, indent=1))
     os.replace(tmp, PATH)
 

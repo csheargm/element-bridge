@@ -106,7 +106,7 @@ def welcome_and_code(me, name):
     react(me, dm, offer["event_id"], "🔌")
     line = until("the install line", lambda: pm_message(me, dm, "connect.sh"))["content"]["body"]
     found = re.search(r"curl -fsSL (\S+)/connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})", line)
-    check("🔌 sends one install line with a code", found and found.group(1) == CONSOLE, found and found.group(0))
+    check("🔌 sends one install line with a code", found and found.group(1) == CONSOLE)   # the code is never printed
     agent_dm = until("the agent's chat invite", lambda: invite_from(me, f"@{name}-agent:{SERVER_NAME}"))
     join(me, agent_dm)
     members = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(welcome)}/joined_members", me)["joined"]
@@ -130,7 +130,7 @@ def main():
         check("the sign-in is saved for me only", oct(creds.stat().st_mode & 0o777) == "0o600")
         again = subprocess.run(["curl", "-s", "-XPOST", "-H", "Content-Type: application/json", "-d",
                                 json.dumps({"code": code}), CONSOLE + "/connect"], capture_output=True, text=True).stdout
-        check("the code works only once", "password" not in again, again)
+        check("the code works only once", "password" not in again)              # the answer is never printed
         agent = f"@{name}-agent:{SERVER_NAME}"
         ev = send(me, agent_dm, "who are you?", agent)
         body, _ = wait_reply(me, agent_dm, ev, agent)

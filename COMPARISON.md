@@ -392,3 +392,53 @@ the offer and `_change` state, a commit stranded when publishing the offer fails
 reaction sends, and private_room ignoring pending invites. A DM race inside Hermes (from our DM
 patch, not the invite patch): its sync reconciler can join a DM invite before `_on_invite` records
 `m.direct`, so that DM needs an @mention until Hermes refreshes its DM cache.
+
+### GPT review 21 (2026-11-20): a newcomer gets an agent from chat (welcome, bring your own)
+
+Range origin/master..HEAD (c25d5d2 welcome + pairing + connect.py). 15 findings; each verified in the code.
+
+Fixed (each with a test):
+- **A same-named person from another server could get our agent's password (high).** "@pm I want
+  an agent" from `@newbie1:elsewhere` matched our remote `newbie1` by localpart. Offering and
+  provisioning now require a person on this server (full Matrix ID), checked in both places.
+- **The code went to the remembered chat (high).** It is now sent to `private_room()` re-checked at
+  that moment (still just @pm and the person, or a fresh private chat).
+- **The console URL went into a shell line unchecked.** HAGENCY_PUBLIC_CONSOLE must be
+  `https://host[:port]` (http only for localhost) before it's put in the install line or connect.sh.
+- **Concurrent set-ups.** One bring-your-own job per person at a time; `.env` and agents.json temp
+  files are unique per process and thread.
+- **Cross-site POSTs could burn the attempt budget.** /connect refuses non-JSON and any request
+  with an Origin header (browsers) before the limiter counts anything.
+- **The code was used up before the client was ready.** connect.py picks the CLI first; a missing
+  CLI no longer costs the code.
+- **Test output.** The live test no longer prints the install line or /connect's answer.
+- **Joins while @pm was down were never welcomed; a failed greeting was remembered anyway.** @pm
+  welcomes current Welcome members without a welcome at each start, and records one only after it
+  was sent.
+- **A saved password that never registered poisoned retries.** `ensure_user(verify=True)` (used for
+  agents @pm creates) signs in to check and registers again if it can't.
+- **People with a server-run default agent (a registry entry without "agent") could be switched to
+  remote.** Refused now.
+- **Welcome text could swallow project requests.** "@pm I want an agent" must be the whole
+  message ("@pm I need an agent to review #7" goes on to the usual chat), and "I don't want to
+  bring my own" isn't a choice.
+- **Credential file permissions.** ~/.hagency is chmod 700 whatever the umask; the file is written
+  via a new mkstemp file (0600) and swapped in; connect.sh sets umask 077.
+- **Python version.** Markdown 3.11.3 needs Python 3.11: connect.sh now looks for python3.13 … 3.11
+  before python3 (macOS's own python3 is often older).
+
+Deferred, with reasons:
+- **The public deploy can't serve it yet (high).** True: deploy/ runs no @pm or console and Caddy has
+  no /connect route; the house agent and the public server are the next step. configure_synapse.py
+  already sets the Welcome room (@pm must exist before the first sign-up).
+- **Installer runs an unpinned clone.** curl over https from the server, then a git clone of the
+  public repo: pinning a signed release comes with the public server.
+- **Limiter identity behind a proxy / counters reset on restart.** Local dev isn't proxied; a code has
+  ~49 bits and lives 30 minutes, so the limiter is defence in depth. Trusted X-Forwarded-For comes
+  with the deploy.
+- **Re-pairing returns the same password; the code is in chat history and shell history.** Rotating
+  the agent's password on every redeem needs an admin token in @pm; next step, with revocation.
+- **Remote agents take @pm's loop tasks.** By design, as for agents run here: only @pm's tasks,
+  only with the owner in the room. The supervisor reads agents.json at start; a person never moves
+  from a server-run agent to remote (refused), so there's no transition to reconcile.
+- **Multiple console workers.** There is one process (@pm's); codes are atomic within it.

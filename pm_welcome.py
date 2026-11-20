@@ -17,6 +17,7 @@ import registry
 import remote_agent
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
+import intents
 from pm_chat import without_quote
 from redact import room_safe
 from saved_dict import SavedDict
@@ -26,8 +27,9 @@ log = logging.getLogger("loop")
 HOUSE, BRING = "🏠", "🔌"
 HOUSE_RE = re.compile(r"\bhouse agent\b", re.I)
 BRING_RE = re.compile(r"\bbring (my|your) own\b", re.I)
-WANT_RE = re.compile(r"\b(i (want|need|would like)|i'?d like|get me|give me|can i (have|get)|how (do|can) i get)\b"
-                     r".*\b(an?|my) (own )?agent\b", re.I)
+# The whole message, so "@pm I need an agent to review #7" stays a project request (GPT review 21).
+WANT_RE = re.compile(r"^\W*(please\W+)?(i (want|need|would like)|i'?d like|get me|give me|can i (have|get)|how (do|can) i get)"
+                     r"\s+(an?|my)\s+(own\s+)?agent(\s+please)?\W*$", re.I)
 WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their AI agents build software "
            "together.\n\nGet your agent:\n\n"
            "- 🏠 **House agent**: runs on this server, with free daily credit\n"
@@ -50,21 +52,31 @@ class Welcome:
     def is_welcome_room(self, room: MatrixRoom) -> bool:
         return getattr(room, "canonical_alias", None) == WELCOME_ALIAS
 
-    def is_newcomer(self, user_id: str) -> bool:
-        """A person on this server with no agent of their own here yet (never me, an agent or a bot)."""
+    def is_local_person(self, user_id: str) -> bool:
+        """A person on THIS server (never me, an agent, a bot, or @same-name:another-server)."""
         local, _, server = user_id.lstrip("@").partition(":")
-        return (server == SERVER_NAME and user_id != self.user_id and not local.endswith(("-agent", "-bot"))
-                and registry.owner_of(registry.agent_of(local)) is None)
+        return server == SERVER_NAME and user_id != self.user_id and not local.endswith(("-agent", "-bot"))
+
+    def is_newcomer(self, user_id: str) -> bool:
+        """A local person with no agent of their own here yet."""
+        local = user_id.lstrip("@").partition(":")[0]
+        return self.is_local_person(user_id) and registry.owner_of(registry.agent_of(local)) is None
 
     async def ensure_welcome_room(self) -> None:
-        """The Welcome room exists and is mine (Synapse only creates it for a server's very first user)."""
+        """The Welcome room exists and is mine (Synapse only creates it for a server's very first user),
+        and anyone who joined while I was down is welcomed now."""
         resp = await self.client.room_resolve_alias(WELCOME_ALIAS)
-        if isinstance(resp, RoomResolveAliasResponse):
+        if not isinstance(resp, RoomResolveAliasResponse):
+            made = await self.client.room_create(alias=WELCOME_LOCALPART, name="Welcome", preset=RoomPreset.private_chat,
+                                                 topic="Everyone starts here. @pm sends you a private message.")
+            if not hasattr(made, "room_id"):
+                log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
             return
-        made = await self.client.room_create(alias=WELCOME_LOCALPART, name="Welcome", preset=RoomPreset.private_chat,
-                                             topic="Everyone starts here. @pm sends you a private message.")
-        if not hasattr(made, "room_id"):
-            log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
+        room = self.client.rooms.get(resp.room_id)
+        joined = [u for u in getattr(room, "users", {}) if u not in getattr(room, "invited_users", {})]
+        for person in joined:
+            if self.is_newcomer(person) and person not in self.welcomes():
+                await self.greet(person)
 
     async def on_welcome_member(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
         if (is_stale(event, self.started_ms) or not self.is_welcome_room(room) or event.membership != "join"
@@ -75,16 +87,22 @@ class Welcome:
             await self.greet(person)
 
     async def greet(self, person: str) -> str | None:
-        """My private chat with them, with the two buttons; returns that chat's room id."""
-        self.welcomes()[person] = {"dm": None, "offer": None, "done": []}   # first: a second join never greets twice
+        """My private chat with them, with the two buttons; returns that chat's room id. Remembered only
+        once it worked (a failure is retried at my next start, or with "I want an agent")."""
+        greeting = self.__dict__.setdefault("_greeting", set())
+        if person in greeting:                # a second join while the first greeting is underway
+            return None
+        greeting.add(person)
         try:
             dm = await self.private_room(person)
             if dm is None:
                 return None
             offer = await self.say(dm, WELCOME.format(name=person.split(":")[0].lstrip("@")))
-        except RuntimeError as e:             # loop.SendError: say "I want an agent" to try again
+        except RuntimeError as e:             # loop.SendError
             log.error("couldn't welcome %s: %s", person, e)
             return None
+        finally:
+            greeting.discard(person)
         self.welcomes()[person] = {"dm": dm, "offer": offer, "done": []}
         for key in (HOUSE, BRING):
             await self.offer_thumb(dm, offer, key)
@@ -108,6 +126,8 @@ class Welcome:
         text = without_quote(event.body) if in_dm else self.addressed_text(event)
         if text is None:
             return False
+        if in_dm and intents.NEGATED.search(text) and (HOUSE_RE.search(text) or BRING_RE.search(text)):
+            return False                      # "I don't want to bring my own": not a choice
         if in_dm and HOUSE_RE.search(text):
             await self.choose(room.room_id, event.sender, HOUSE)
         elif in_dm and BRING_RE.search(text):
@@ -121,6 +141,9 @@ class Welcome:
     async def offer_again(self, room: MatrixRoom, person: str) -> None:
         local = person.split(":")[0].lstrip("@")
         info = registry.load().get(local, {})
+        if not self.is_local_person(person):  # @newbie1:elsewhere is not our newbie1 (federation)
+            await self.say(room.room_id, "Agents are only for people with an account on this server.")
+            return
         if not self.is_newcomer(person) and info.get("agent") != registry.REMOTE:
             await self.say(room.room_id, f"You already have an agent here: {registry.agent_of(local)}.")
             return
@@ -132,7 +155,12 @@ class Welcome:
         if key == HOUSE:
             await self.say(dm, HOUSE_REPLY)
             return
+        busy = self.__dict__.setdefault("_provisioning", set())
+        if person in busy or not self.is_local_person(person):
+            return                            # one at a time per person; only this server's people
+        busy.add(person)
         job = asyncio.create_task(self.bring_own(dm, person))   # creating the account takes a moment
+        job.add_done_callback(lambda _: busy.discard(person))
         self.busy.add(job)
         job.add_done_callback(self.busy.discard)
 
@@ -140,9 +168,12 @@ class Welcome:
         local = person.split(":")[0].lstrip("@")
         try:
             agent = await asyncio.to_thread(remote_agent.provision, local)
+            chat = await self.private_room(person)        # re-checked: still just the two of us, or a new chat
+            if chat is None:
+                raise RuntimeError("I couldn't open a private chat with you")
             code = remote_agent.CODES.issue(local)
-            await self.say(dm, BRING_REPLY.format(agent=agent, line=remote_agent.install_line(code)))
-        except (AccountError, OSError, RuntimeError) as e:   # the homeserver refused, .env unwritable, a send failed
+            await self.say(chat, BRING_REPLY.format(agent=agent, line=remote_agent.install_line(code)))
+        except (AccountError, OSError, RuntimeError) as e:   # homeserver refused, .env unwritable, send failed, bad URL
             log.error("bring-your-own failed for %s: %s", person, e)
             try:
                 await self.say(dm, f"⚠️ I couldn't set up your agent: {room_safe(e)}. Type \"bring my own\" to try again.")

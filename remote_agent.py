@@ -7,6 +7,7 @@ computer fetch the agent's sign-in once, from POST /connect on the console serve
 serves the installer. The password is never logged; only the code's hash is stored.
 """
 import os
+import re
 
 from aiohttp import web
 
@@ -22,12 +23,16 @@ LIMIT = pairing.Limiter()
 NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 INSTALLER = ROOT / "connect.sh"
 CONSOLE_MARK = "__HAGENCY_CONSOLE__"
+URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1))(:\d{1,5})?$")   # also safe inside sh
 
 
 def console_url() -> str:
     """Where people's computers reach this console (the public server sets an https URL)."""
     import panel                              # late: panel serves these routes
-    return os.environ.get("HAGENCY_PUBLIC_CONSOLE", f"http://localhost:{panel.PORT}").rstrip("/")
+    url = os.environ.get("HAGENCY_PUBLIC_CONSOLE", f"http://localhost:{panel.PORT}").rstrip("/")
+    if not URL_RE.match(url):                 # it goes into a shell line and the installer's source
+        raise RuntimeError("this server's HAGENCY_PUBLIC_CONSOLE must be https://host[:port] (http only for localhost)")
+    return url
 
 
 def install_line(code: str) -> str:
@@ -57,10 +62,10 @@ def provision(person: str) -> str:
         raise AccountError("for now an agent needs an account name of lowercase letters and digits")
     people = registry.load()
     info = people.get(person, {})
-    if info.get("agent") not in (None, registry.REMOTE):
-        raise AccountError(f"you already have an agent here ({info['agent']}), run by this server")
+    if person in people and info.get("agent") != registry.REMOTE:    # no "agent": a server-run default one
+        raise AccountError("you already have an agent here, run by this server")
     agent = f"{person}-agent"
-    password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret())
+    password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
     dm = info.get("dm") or open_dm(agent, password, person)
     people = registry.load()                  # re-read: keep anything written meanwhile
     people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm}
@@ -82,10 +87,12 @@ def credentials_for(person: str) -> dict | None:
 def routes() -> list:
     async def connect(request):
         client = request.remote or "?"
+        if request.content_type != "application/json" or request.headers.get("Origin"):
+            return web.json_response({"error": "use connect.py"}, status=415, headers=NO_STORE)   # never a browser's
         if LIMIT.blocked(client):
             return web.json_response({"error": "too many wrong codes; wait 10 minutes"}, status=429, headers=NO_STORE)
         try:
-            body = await request.json() if request.content_type == "application/json" else {}
+            body = await request.json()
         except ValueError:                    # not JSON: the same answer as a wrong code
             body = {}
         person = CODES.redeem(body.get("code") if isinstance(body, dict) else None)

@@ -79,6 +79,15 @@ class Connect(unittest.TestCase):
             answers = iter(["hermes", "Codex"])
             self.assertEqual(connect.pick_backend(None, None, ask=lambda _: next(answers)), "codex")
 
+    def test_the_cli_is_chosen_before_the_code_is_used_up(self):
+        """GPT review 21: no CLI installed must not burn the one-time code."""
+        home = tempfile.mkdtemp()
+        with mock.patch.object(sys, "argv", ["connect.py", "ABCDE-FGHJK", "--home", home]), \
+                mock.patch.object(connect.shutil, "which", lambda b: None), \
+                mock.patch.object(connect, "redeem") as redeem, self.assertRaises(SystemExit):
+            connect.main()
+        redeem.assert_not_called()
+
     def test_an_odd_answer_from_the_server_is_not_saved(self):
         for bad in ({**CREDS, "homeserver": "http://evil.example"}, {**CREDS, "user_id": "@anna:example.org"},
                     {**CREDS, "owner": "anna"}, {"error": "x"}):

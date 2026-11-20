@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import urllib.error
 import urllib.request
 import urllib.parse
@@ -50,7 +51,7 @@ def load_env():
 def save_env(env):
     lines = [f"{k}={v}" for k, v in env.items()]
     path = ROOT / ".env"
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")      # @pm writes it too (pm_welcome.py): readers never see half
+    tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")   # @pm writes it too: readers never see half
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never world-readable
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -71,14 +72,21 @@ def password_key(user: str) -> str:
     return "PW_" + user.upper().replace("-", "_")
 
 
-def ensure_user(env: dict, user: str, secret: str, admin: bool = False) -> tuple[str, bool]:
+def ensure_user(env: dict, user: str, secret: str, admin: bool = False, verify: bool = False) -> tuple[str, bool]:
     """(password, created now) for `user`: a generated password saved to .env BEFORE registering, so
-    a failed register can be retried. Raises AccountError if the homeserver refuses."""
+    a failed register can be retried (verify: a saved password that can't sign in is registered
+    again). Raises AccountError if the homeserver refuses."""
     key = password_key(user)
-    if key in env:
+    if key in env and not verify:
         return env[key], False
-    env[key] = secrets.token_urlsafe(18)
-    save_env(env)
+    if key in env:
+        token = try_login(user, env[key])
+        if token:
+            api("POST", "/_matrix/client/v3/logout", {}, token=token)
+            return env[key], False
+    else:
+        env[key] = secrets.token_urlsafe(18)
+        save_env(env)
     r = register(user, env[key], secret, admin)
     if "_status" in r:
         raise AccountError(f"couldn't create @{user}: {r.get('errcode')} {r.get('error')}")

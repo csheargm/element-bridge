@@ -88,8 +88,24 @@ class Greeting(Base):
         self.assertEqual((kw["alias"], kw["preset"].value), ("welcome", "private_chat"))
         self.lp.client.room_resolve_alias = mock.AsyncMock(return_value=RoomResolveAliasResponse("#welcome:x", "!w", []))
         self.lp.client.room_create.reset_mock()
+        self.lp.client.rooms = {}
         self.run_(self.lp.ensure_welcome_room())
         self.lp.client.room_create.assert_not_called()
+
+    def test_people_who_joined_while_i_was_down_are_welcomed_at_start(self):
+        """GPT review 21: a join during a restart or cold start is never lost."""
+        welcome = SimpleNamespace(users={NEW: None, ANNA: None, PM: None, f"@x:{S}": None}, invited_users={f"@x:{S}": None})
+        self.lp.client = mock.Mock(rooms={"!w": welcome},
+                                   room_resolve_alias=mock.AsyncMock(return_value=RoomResolveAliasResponse("#w", "!w", [])))
+        self.run_(self.lp.ensure_welcome_room())
+        self.lp.private_room.assert_awaited_once_with(NEW)      # not anna (has an agent), not an invitee
+        self.run_(self.lp.ensure_welcome_room())
+        self.assertEqual(len(self.said), 1)                      # once
+
+    def test_a_failed_greeting_is_not_remembered(self):
+        self.lp.private_room = mock.AsyncMock(return_value=None)
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        self.assertNotIn(NEW, self.lp._welcomes)                 # retried later
 
     def test_agents_never_follow_into_the_welcome_room(self):
         self.lp.client = mock.Mock(room_invite=mock.AsyncMock())
@@ -148,6 +164,23 @@ class Buttons(Base):
         self.run_(bring())
         self.provision.assert_called_once_with("newbie1")
 
+    def test_one_set_up_at_a_time_per_person(self):
+        async def twice():
+            await self.lp.on_welcome_text(DM, text(NEW, "bring my own"))
+            await self.lp.on_welcome_text(DM, text(NEW, "bring my own"))
+            await asyncio.gather(*self.lp.busy)
+        self.run_(twice())
+        self.assertEqual(self.provision.call_count, 1)
+
+    def test_no_is_not_a_choice(self):
+        self.assertFalse(self.run_(self.lp.on_welcome_text(DM, text(NEW, "I don't want to bring my own"))))
+        self.provision.assert_not_called()
+
+    def test_the_code_goes_to_a_chat_that_is_still_private(self):
+        self.lp.private_room = mock.AsyncMock(return_value="!fresh")   # the old one gained a member
+        self.click("🔌")
+        self.assertEqual(self.said[0][0], "!fresh")
+
     def test_a_failure_is_said_plainly(self):
         self.provision.side_effect = remote_agent.AccountError("couldn't create @newbie1-agent: M_FORBIDDEN")
         self.click("🔌")
@@ -165,6 +198,22 @@ class Asking(Base):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
         self.run_(self.lp.on_welcome_text(room, text(ANNA, "@pm can I get an agent?")))
         self.assertEqual(self.said, [("!project", "You already have an agent here: anna-agent.")])
+
+    def test_a_same_named_person_from_another_server_gets_nothing(self):
+        """GPT review 21: @newbie1:evil.org must never get a code for our newbie1's agent."""
+        registry.PATH.write_text(json.dumps({"newbie1": {"agent": "remote"}}))
+        room = SimpleNamespace(room_id="!project", canonical_alias=None)
+        self.run_(self.lp.on_welcome_text(room, text("@newbie1:evil.org", "@pm I want an agent")))
+        self.lp.private_room.assert_not_called()
+        self.assertIn("only for people with an account on this server", self.said[0][1])
+        self.run_(self.lp.choose("!dm", "@newbie1:evil.org", "🔌"))
+        self.assertEqual(self.lp.busy, set())
+
+    def test_project_requests_that_mention_an_agent_go_on_to_the_usual_chat(self):
+        room = SimpleNamespace(room_id="!project", canonical_alias=None)
+        for said in ("@pm I need an agent to review #7", "@pm can I get an agent's opinion on the plan?"):
+            self.assertFalse(self.run_(self.lp.on_welcome_text(room, text(ANNA, said))), said)
+        self.assertTrue(self.run_(self.lp.on_welcome_text(room, text(NEW, "@pm please, I'd like an agent!"))))
 
     def test_other_messages_go_on_to_the_usual_chat(self):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
