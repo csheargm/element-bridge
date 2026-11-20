@@ -13,6 +13,7 @@ also announced in the room. Nothing here bypasses the chat's rules.
 """
 import asyncio
 import json
+import re
 import secrets
 import time
 import urllib.parse
@@ -28,48 +29,67 @@ from setup_accounts import HS, SERVER_NAME
 
 SESSION_S = 12 * 3600
 LINK_S = 600
-_sessions: dict[str, tuple[str, float]] = {}      # session → (user_id, expires)
-_links: dict[str, tuple[str, float]] = {}         # one-time code → (user_id, expires)
+_sessions: dict[str, tuple[str, float, str | None]] = {}   # session → (user, expires, room scope or None)
+_links: dict[str, tuple[str, float, str]] = {}             # one-time code → (user, expires, room)
+USER_RE = re.compile(r"^@[a-z0-9._=/+-]+:" + re.escape(SERVER_NAME) + "$")
+ALLOWED_HOSTS = ("localhost", "127.0.0.1")
 
 
-def new_session(user_id: str) -> str:
+def new_session(user_id: str, room: str | None = None) -> str:
     token = secrets.token_urlsafe(32)
-    _sessions[token] = (user_id, time.time() + SESSION_S)
+    _sessions[token] = (user_id, time.time() + SESSION_S, room)
     return token
 
 
+def session_of(request) -> tuple[str, str | None] | None:
+    """(user, room scope) for a valid "Bearer <session>" header, else None."""
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return None
+    user, expires, scope = _sessions.get(header[len("Bearer "):].strip(), (None, 0, None))
+    return (user, scope) if user and time.time() < expires else None
+
+
 def user_of(request) -> str | None:
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    user, expires = _sessions.get(token, (None, 0))
-    return user if user and time.time() < expires else None
+    found = session_of(request)
+    return found[0] if found else None
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None                           # verification stays on our own homeserver
 
 
 def openid_user(access_token: str) -> str | None:
-    """Ask our homeserver who an OpenID token belongs to (only local users count)."""
-    url = f"{HS}/_matrix/federation/v1/openid/userinfo?access_token={urllib.parse.quote(access_token)}"
+    """Ask our homeserver who an OpenID token belongs to (only local users count; fail closed)."""
+    if not isinstance(access_token, str) or not access_token or len(access_token) > 512:
+        return None
+    url = f"{HS}/_matrix/federation/v1/openid/userinfo?access_token={urllib.parse.quote(access_token, safe='')}"
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
-            sub = json.loads(r.read()).get("sub", "")
+        with urllib.request.build_opener(_NoRedirect).open(url, timeout=10) as r:
+            data = json.loads(r.read())
     except (OSError, ValueError):
         return None
-    return sub if isinstance(sub, str) and sub.endswith(f":{SERVER_NAME}") else None
+    sub = data.get("sub") if isinstance(data, dict) else None
+    return sub if isinstance(sub, str) and USER_RE.match(sub) else None
 
 
-def new_link(user_id: str) -> str:
+def new_link(user_id: str, room: str) -> str:
     code = secrets.token_urlsafe(24)
-    _links[code] = (user_id, time.time() + LINK_S)
+    _links[code] = (user_id, time.time() + LINK_S, room)
     return code
 
 
-def redeem(code: str) -> str | None:
-    user, expires = _links.pop(code, (None, 0))      # single use
-    return user if user and time.time() < expires else None
+def redeem(code: str) -> tuple[str, str] | None:
+    """(user, room) for a fresh one-time code; the code is gone after this either way."""
+    user, expires, room = _links.pop(code, (None, 0, ""))
+    return (user, room) if user and time.time() < expires else None
 
 
 async def view(loop, room_id: str, user: str) -> dict:
     """What this user may see and change in this room."""
     room = loop.client.rooms.get(room_id)
-    if room is None or not ownership.joined(room, user):
+    if room is None or not loop.is_person(room, user):
         return {"error": "you're not in that room"}
     local = user.split(":")[0].lstrip("@")
     agent = ownership.agent_id(user) if registry.owner_of(registry.agent_of(local)) == local else None
@@ -80,13 +100,15 @@ async def view(loop, room_id: str, user: str) -> dict:
             "follow": registry.follow(local) if agent else None,
             "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
             "waiting": {"kind": waiting.get("kind") or "mode", "mine": waiting.get("by") == user,
-                        "items": [i["title"] for i in waiting.get("items", [])]} if waiting else None}
+                        "id": waiting.get("event_id"), "items": [i["title"] for i in waiting.get("items", [])]}
+                       if waiting else None,
+            "html": panel_html(loop, room_id) if panel_html else ""}
 
 
 async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
     """Do one change as `user`, through @pm's own checks (each also posts its usual chat line)."""
     room = loop.client.rooms.get(room_id)
-    if room is None or not ownership.joined(room, user):
+    if room is None or not loop.is_person(room, user):     # a joined human (never an agent or a bot)
         return "you're not in that room"
     if action == "mode" and value in github.LEVELS:
         if value != "off" and not await room_state.is_moderator(loop.client, room, user):
@@ -101,31 +123,67 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
         await loop.set_grant(room, user, "web", value == "on")
         return "ok"
     if action == "approve":
+        if loop.pending.get(room_id, {}).get("event_id") != value:
+            return "that's no longer what's waiting; look again"   # approve exactly what you saw
         return "ok" if await loop.confirm(room, user) else "nothing of yours is waiting for approval"
     return "unknown action"
 
 
-def routes(loop) -> list:
+def allowed(request, post: bool) -> bool:
+    """Only requests addressed to this machine; POSTs must be JSON from our own page."""
+    if request.host.split(":")[0] not in ALLOWED_HOSTS:
+        return False
+    if post:
+        origin = request.headers.get("Origin")
+        if request.content_type != "application/json" or (origin and urllib.parse.urlsplit(origin).hostname
+                                                             not in ALLOWED_HOSTS):
+            return False
+    return True
+
+
+NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+
+
+def routes(loop, panel_html_fn) -> list:
+    global panel_html
+    panel_html = panel_html_fn
+
+    def reply(data, status=200):
+        return web.json_response(data, status=status, headers=NO_STORE)
+
     async def auth_openid(request):
-        user = await asyncio.to_thread(openid_user, str((await request.json()).get("access_token", "")))
-        return web.json_response({"session": new_session(user)} if user else {"error": "couldn't verify you"})
+        if not allowed(request, True):
+            return reply({"error": "refused"}, 403)
+        user = await asyncio.to_thread(openid_user, (await request.json()).get("access_token", ""))
+        return reply({"session": new_session(user)} if user else {"error": "couldn't verify you"})
 
     async def auth_link(request):
-        user = redeem(str((await request.json()).get("code", "")))
-        return web.json_response({"session": new_session(user)} if user else {"error": "that link expired or was used"})
+        if not allowed(request, True):
+            return reply({"error": "refused"}, 403)
+        found = redeem(str((await request.json()).get("code", "")))
+        return reply({"session": new_session(*found)} if found else {"error": "that link expired or was used"})
+
+    def scoped(request, room):
+        found = session_of(request)
+        if not found or (found[1] and found[1] != room):
+            return None                       # a link's session works only for its own room
+        return found[0]
 
     async def state(request):
-        user = user_of(request)
+        user = scoped(request, request.query.get("room", "")) if allowed(request, False) else None
         if not user:
-            return web.json_response({"error": "sign in"}, status=401)
-        return web.json_response(await view(loop, request.query.get("room", ""), user))
+            return reply({"error": "sign in"}, 401)
+        return reply(await view(loop, request.query.get("room", ""), user))
 
     async def action(request):
-        user = user_of(request)
+        body = await request.json() if allowed(request, True) else {}
+        user = scoped(request, str(body.get("room", ""))) if body else None
         if not user:
-            return web.json_response({"error": "sign in"}, status=401)
-        body = await request.json()
-        result = await act(loop, str(body.get("room", "")), user, str(body.get("action", "")), str(body.get("value", "")))
-        return web.json_response({"result": result})
+            return reply({"error": "sign in"}, 401)
+        return reply({"result": await act(loop, str(body.get("room", "")), user, str(body.get("action", "")),
+                                          str(body.get("value", "")))})
     return [web.post("/auth/openid", auth_openid), web.post("/auth/link", auth_link),
             web.get("/console/state", state), web.post("/console/action", action)]
+
+
+panel_html = None                             # set by routes(): panel.render, kept out of an import cycle

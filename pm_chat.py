@@ -224,15 +224,17 @@ class Chat:
             await self.say(room.room_id, "I couldn't open a private chat with you; the console is also in this "
                                          "room's Hagency panel (room info → Extensions).")
             return
-        url = f"http://localhost:{panel.PORT}/console?room={urllib.parse.quote(room.room_id)}&login={console.new_link(sender)}"
+        code = console.new_link(sender, room.room_id)               # the session it gives is for this room only
+        url = f"http://localhost:{panel.PORT}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
         await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
         await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
 
     async def private_room(self, user: str) -> str | None:
         known = self.dm_rooms.get(user)
-        if known and known in self.client.rooms:
-            return known
-        resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.trusted_private_chat,
+        room = self.client.rooms.get(known) if known else None
+        if room is not None and set(room.users) <= {self.user_id, user}:
+            return known                      # still just the two of us (joined or invited)
+        resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
                                              name="Hagency (private)")
         if not hasattr(resp, "room_id"):
             log.warning("couldn't open a DM with %s: %s", user, resp)
@@ -245,6 +247,12 @@ class Chat:
         change cancels a confirmation still waiting (it was asked for under the old mode)."""
         if self.pending.get(room_id, {}).get("kind", "autonomous") == "autonomous":
             self.pending.pop(room_id, None)
+        if level == "off" and not await room_state.bound(self.client, room_id):
+            return None                       # stopping never binds a room to the repo (anyone may stop)
+        return await self.write_level(room_id, level)
+
+    async def write_level(self, room_id: str, level: str) -> str | None:
+        """Write the level, which also binds the room to the repo: callers have checked a moderator asked."""
         resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, {"level": level, "repo": github.REPO})
         if not hasattr(resp, "event_id"):
             return f"⚠️ I couldn't change the mode: {resp}"

@@ -185,3 +185,28 @@ Partly adopted:
 - **3. Exfiltration through web requests.** Every web request is posted in the room (visible
   audit), the grant message warns, and web is never on by default. Full fix (a research worker
   with no project or room context) is on the roadmap.
+
+## GPT review 9 (the console)
+
+Adopted, with tests:
+- **Widget identity swap.** The page talks only to Element's exact origin (injected by the
+  server) and its parent frame, only when embedded. It accepts only the reply to its own OpenID
+  request, once, and never echoes credentials.
+- **"off" bound an unbound room.** Stopping never binds; binding happens only through
+  write_level after a moderator asked. Agents and bots can't use the console (is_person).
+- **/data without a session.** Removed; the board comes from the signed-in, membership-checked
+  state route.
+- **The DM carrying the link.** It is reused only while @pm and the person are its sole members,
+  and is created as private_chat (no elevated rights). A link's session is scoped to its room.
+- **Login code in the URL query.** It is now after "#", removed before any request, and the page
+  sends no-referrer and no-store.
+- **Approval detached from what was seen.** The button carries the waiting event's ID, and the
+  server checks it.
+- **Origin boundary.** Every route checks the host; POSTs need JSON from our origin; "Bearer"
+  required.
+- **OpenID verification.** No redirects, an exact @name:server match, fail closed on odd
+  responses.
+
+Deferred:
+- Remove inline script and unsafe-inline (board HTML is already escaped server-side).
+- Encrypted DM transport for the link (@pm's Matrix client has no E2EE yet).

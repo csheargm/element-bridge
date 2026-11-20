@@ -53,9 +53,11 @@ class Intents(unittest.TestCase):
 class Talk(unittest.TestCase):
     """The phrase rules (the understanding step off; see Brain for the model path)."""
     def setUp(self):
-        p = mock.patch.object(pm_brain, "BRAIN", "off")
-        p.start()
-        self.addCleanup(p.stop)
+        for target, name, value in ((pm_brain, "BRAIN", "off"),
+                                    (room_state, "bound", mock.AsyncMock(return_value=True))):   # a project room
+            p = mock.patch.object(target, name, value)
+            p.start()
+            self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.boards = PM, {}, {}
         self.lp.generation, self.lp.busy = {}, set()
@@ -87,6 +89,12 @@ class Talk(unittest.TestCase):
 
     def react(self, sender, key, to):
         asyncio.run(self.lp.on_reaction(self.room, SimpleNamespace(sender=sender, key=key, reacts_to=to)))
+
+    def test_stopping_an_unbound_room_doesnt_bind_it(self):
+        """GPT review 9: a contributor's "off" wrote the repo binding."""
+        with mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=False)):
+            self.tell(BETTY, "@pm stop")
+        self.assertEqual(self.levels, [])
 
     def test_anyone_can_stop_at_once(self):
         self.tell(BETTY, "@pm stop everything")

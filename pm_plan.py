@@ -34,7 +34,7 @@ class Planner:
     async def start_plan(self, room: MatrixRoom, sender: str) -> None:
         rid = room.room_id
         if not await room_state.bound(self.client, rid):  # a moderator asked to plan here: bind the room
-            await self.change_level(rid, "off")
+            await self.write_level(rid, "off")
         agent = self.own_agent(room, sender)
         if agent is None:
             await self.say(rid, f"I plan with your own agent, and {ownership.agent_id(sender).split(':')[0][1:]} "
