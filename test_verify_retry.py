@@ -129,11 +129,40 @@ class Retry(unittest.TestCase):
         self.assertIn(f"{REPO}#9", self.lp.state)
         self.assertIn("Nothing is paused", self.said())
 
+    def test_retry_never_starts_a_second_pr(self):
+        self.fail_verify()
+        self.lp.state[f"{REPO}#9"]["pr"] = 14
+        self.lp.pr_open = mock.AsyncMock(return_value=True)
+        asyncio.run(self.lp.retry(self.room, "@anna:x", 9))
+        self.assertIn(f"{REPO}#9", self.lp.state)
+        self.assertIn("PR #14 for #9 is still open", self.said())
+
     def test_only_a_moderator_can_retry(self):
         self.fail_verify()
         with mock.patch.object(room_state, "is_moderator", mock.AsyncMock(return_value=False)):
             asyncio.run(self.lp.retry(self.room, "@betty:x", 9))
         self.assertIn(f"{REPO}#9", self.lp.state)
+
+
+class Review13(unittest.TestCase):
+    """GPT review 13: approvals that weren't, negated modes, retry guesses, unbounded verify."""
+    def test_talk_is_not_consent(self):
+        for t in ("good for you", "let us approve", "yes?", "ok 👎", "ok?"):
+            self.assertFalse(intents.is_approval(t) or intents.is_yes(t), t)
+
+    def test_a_negated_mode_is_not_a_request(self):
+        self.assertEqual(intents.classify("do not go autonomous"), intents.UNKNOWN)
+        self.assertEqual(intents.classify("take it all the way"), intents.AUTONOMOUS)
+
+    def test_retry_numbers(self):
+        self.assertEqual((intents.issue_named("retry 9"), intents.issue_named("retry #12345678")), (9, None))
+
+    def test_verify_size_counts_every_file(self):
+        tree = Path(tempfile.mkdtemp())
+        for i in range(mcp_verify.MAX_FILES + 1):
+            (tree / f"f{i}").write_text("")
+        with self.assertRaises(tasks.TaskError):
+            mcp_verify.repo_text(tree)
 
 
 class OneClick(unittest.TestCase):

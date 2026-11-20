@@ -10,23 +10,31 @@ from mcp_build import require_autonomous
 from mcp_core import AGENT, claim, mcp, report, safely
 
 
+MAX_FILES = 500
+
+
 def repo_text(tree: Path) -> str:
-    """Every text file in the clone, path first; refuses what can't be read in full."""
+    """Every text file in the clone, path first, all of it counted; refuses what can't be read in full."""
     parts, size = [], 0
-    for p in sorted(Path(d) / f for d, dirs, files in os.walk(tree) for f in files):   # never follows links
-        if ".git" in p.relative_to(tree).parts:
-            continue
+    paths = sorted(Path(d) / f for d, dirs, files in os.walk(tree) for f in files)   # never follows links
+    paths = [p for p in paths if ".git" not in p.relative_to(tree).parts]
+    if len(paths) > MAX_FILES:
+        raise tasks.TaskError("the repository has too many files to check in full here")
+    for p in paths:
         if p.is_symlink():                         # a link could point anywhere on this computer
-            parts.append(f"=== {p.relative_to(tree)} ===\n(a symbolic link; not followed)")
-            continue
-        try:
-            body = p.read_text()
-        except (UnicodeDecodeError, OSError):
-            body = "(binary or unreadable file)"   # listed, so the agent knows it exists
-        size += len(body)
+            body = "(a symbolic link; not followed)"
+        elif p.stat().st_size > tasks.MAX_DIFF_CHARS:
+            raise tasks.TaskError("the repository is too large to check in full here")
+        else:
+            try:
+                body = p.read_text()
+            except (UnicodeDecodeError, OSError):
+                body = "(binary or unreadable file)"   # listed, so the agent knows it exists
+        part = f"=== {p.relative_to(tree)} ===\n{body}"
+        size += len(part) + 2
         if size > tasks.MAX_DIFF_CHARS:            # never confirm what the checker couldn't fully see
             raise tasks.TaskError("the repository is too large to check in full here")
-        parts.append(f"=== {p.relative_to(tree)} ===\n{body}")
+        parts.append(part)
     return "\n\n".join(parts)
 
 

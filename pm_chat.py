@@ -94,7 +94,11 @@ class Chat:
             await self.set_repo(room, sender, intents.repo_named(text) or "")
             return
         if intent == intents.RETRY:           # so is an issue number
-            await self.retry(room, sender, intents.issue_named(text))
+            n = intents.issue_named(text)
+            if n is None and re.search(r"\d", text):
+                await self.say(room.room_id, "Which issue? Say it like \"@pm retry #9\".")   # never guess
+            else:
+                await self.retry(room, sender, n)
             return
         if intent == intents.OFF or pm_brain.BRAIN == "off":
             await self.by_rules(room, sender, text, intent)    # "stop" never waits for a model

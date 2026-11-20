@@ -103,7 +103,7 @@ class Settings:
     async def change_level(self, room_id: str, level: str) -> str | None:
         """Write the room's loop level; returns an error line, or None when done. Any explicit mode
         change cancels a confirmation still waiting (it was asked for under the old mode)."""
-        if self.pending.get(room_id, {}).get("kind", "autonomous") == "autonomous":
+        if self.pending.get(room_id, {}).get("kind", "autonomous") in ("autonomous", "mode"):
             self.pending.pop(room_id, None)
         if level == "off" and not await room_state.bound(self.client, room_id):
             return None                       # stopping never binds a room to the repo (anyone may stop)

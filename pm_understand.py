@@ -93,7 +93,7 @@ class Understanding:
                                 "\"don't bring my agent\", \"ask me first\".")
             return                            # a setting or grant changes only on the person's own clear words
         waiting = self.pending.get(rid, {})
-        if action == "approve" and waiting and not (intents.is_approval(text) or reply_to == waiting.get("event_id")):
+        if action == "approve" and waiting and not intents.is_approval(text):
             await self.say(rid, "To approve it, react 👍 to the message above (or reply \"ok\" to it).")
             return
         if action == "approve":

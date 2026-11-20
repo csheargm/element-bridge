@@ -266,3 +266,22 @@ No XSS from visitors and no exposed admin or internal ports. Adopted:
   the unclaimed AUR package name was removed because someone else could squat it.
 
 Self-caught while fixing: `curl -f` would have hidden the 401 body the invite-only check reads.
+
+## GPT review 13: approvals, retry, Hermes verify (70db407..4a3377f)
+
+Adopted:
+- **Talk read as consent.** "good for you", "let us approve", "yes?" and "ok 👎" no longer count.
+  A question is never a yes, and a bare yes may only end in spaces, "." or "!".
+- **The model path** now needs the person's own approving words, even in a reply to the question.
+- **"do not go autonomous"** no longer classifies as autonomous (or assist).
+- **A stale mode question** is cancelled by any explicit mode change (the "mode" kind was missed).
+- **Retry** refuses while the paused item's PR is still open, so there is never a second PR for
+  one issue. "retry 9" is read as #9, and a number it can't read gets a question instead of
+  a guess. It reads the room's repo when the cache is empty.
+- **Verify is bounded.** File sizes are checked before reading, headers and placeholders count,
+  and there are at most 500 files. Symlinks were already fixed in 4a3377f.
+- **The last direct stop** (GitHub not counting an approval) goes through `stop`, with retry help.
+
+Deferred: a close task whose dispatch @pm already timed out can still run, because liveness comes
+from recent events. Close also doesn't re-check that the issue text is unchanged since the
+verdict. Both need task expiry in mcp_core; see ROADMAP.

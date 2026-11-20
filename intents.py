@@ -50,7 +50,7 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
     (HELP, r"\b(help|what can you do|how do (i|we) use you)\b"),
 ]
 _COMPILED = [(intent, re.compile(rx, re.I)) for intent, rx in _RULES]
-YES_RE = re.compile(r"^\s*(yes|yep|yeah|confirm(ed)?|go|do it|ok(ay)?|sure|✅|👍|👌)\W*\s*$", re.I)
+YES_RE = re.compile(r"^\s*(yes|yep|yeah|confirm(ed)?|go|do it|ok(ay)?|sure|✅|👍|👌)[\s.!]*$", re.I)
 CONFIRM_REACTIONS = ("✅", "✔", "☑", "👍", "👌", "🆗", "💯")
 
 
@@ -62,7 +62,10 @@ def is_confirm_reaction(key: str) -> bool:
 
 def classify(text: str) -> str:
     for intent, rx in _COMPILED:
-        if rx.search(text) and (intent != SET_REPO or repo_named(text)):
+        m = rx.search(text)
+        if m and intent in (ASSIST, AUTONOMOUS) and NEGATED.search(text[:m.start()]):
+            return UNKNOWN            # "do not go autonomous" is not a request for it
+        if m and (intent != SET_REPO or repo_named(text)):
             return intent
     return UNKNOWN
 
@@ -91,7 +94,7 @@ _APPROVE_FILLER = {"ahead", "do", "it", "it's", "its", "please", "pls", "plz", "
                    "nice", "now", "then", "and", "thanks", "thank", "you", "pm", "sounds", "looks", "seems", "me",
                    "for", "to", "on", "start", "work", "works", "make", "makes", "sense", "i", "we", "so", "just",
                    "really", "very", "totally", "move", "forward", "of", "course", "a", "open", "issue", "issues",
-                   "go", "is", "set", "both", "one", "these", "those", "yes", "ok"}
+                   "go", "is", "set", "both", "one", "these", "those", "yes", "ok"} - {"us", "you", "for"}
 _APPROVE_TOKEN = re.compile(r"[a-z']+|👍|✅|👌")
 _APPROVE_MAX_WORDS = 15
 
@@ -99,6 +102,8 @@ _APPROVE_MAX_WORDS = 15
 def is_approval(text: str) -> bool:
     """A yes said in a sentence. Only for messages addressed to @pm (or replies to its question)."""
     t = text.lower().replace("’", "'")
+    if "?" in t:
+        return False              # a question is never a yes
     words = _APPROVE_TOKEN.findall(t)
     leftover = _APPROVE_TOKEN.sub("", t)
     if not words or len(words) > _APPROVE_MAX_WORDS or re.search(r"[^\s.,!:;()\-–—️@]", leftover):
@@ -109,5 +114,5 @@ def is_approval(text: str) -> bool:
 
 def issue_named(text: str) -> int | None:
     """The issue number in "retry #9" / "retry issue 9" (None: not said)."""
-    m = re.search(r"(?:#|\bissue\s+)(\d{1,7})\b", text, re.I)
+    m = re.search(r"(?:#|\bissue\s+|\bretry\s+)(\d{1,7})\b", text, re.I)
     return int(m.group(1)) if m else None

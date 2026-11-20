@@ -199,7 +199,7 @@ class Progress:
             await self.say(rid, "Only the room's owner or a maintainer can restart paused work.")
             return
         async with self.lock:                   # never between a poll and its results
-            repo = self.room_repos.get(rid)
+            repo = self.room_repos.get(rid) or await room_state.repo_of(self.client, rid)
             paused = sorted((k for k, v in self.state.items() if v["room"] == rid and v.get("repo") == repo
                              and v["stage"] == "stopped"), key=num)
             key = paused[0] if n is None and len(paused) == 1 else (issue_key(repo, n) if n and repo else None)
@@ -209,9 +209,20 @@ class Progress:
                                if paused and n is None else
                                "Nothing is paused here." if not paused else f"#{n} isn't paused. Paused here: {listed}.")
                 return
+            pr = self.state[key].get("pr")
+            if pr and await self.pr_open(pr, repo):  # a fresh build would race it: one PR per issue
+                await self.say(rid, f"PR #{pr} for #{num(key)} is still open. Merge or close it on GitHub, "
+                                    f"then say \"@pm retry #{num(key)}\" again.")
+                return
             del self.state[key]
             self.save()
         await self.say(rid, f"OK, #{num(key)} goes back in the queue; I'll pick it up within a minute.")
+
+    async def pr_open(self, pr: int, repo: str) -> bool:
+        try:
+            return (await github.run_json(["pr", "view", str(pr), "-R", repo, "--json", "state"])).get("state") == "OPEN"
+        except github.GitHubError:
+            return True               # can't tell: assume it's open (never start a second PR blind)
 
     async def claim_next(self, room: MatrixRoom, lvl: str) -> None:
         fresh = self.open_issues.get(room.room_id, [])
@@ -257,9 +268,8 @@ class Progress:
             item["stage"] = "ready"
             await self.say(room_id, f"PR #{item['pr']} ready — a person merges")
         elif not ok and item["stage"] == "approved" and info.get("reviewDecision") != "APPROVED":
-            item["stage"] = "stopped"   # an agent approved but GitHub doesn't count it: protection missing?
-            await self.say(room_id, f"PR #{item['pr']}: GitHub reports {info.get('reviewDecision') or 'no required review'}"
-                           " — check the repo's branch rules; a person merges")
+            await self.stop(room_id, key, item, f"GitHub reports PR #{item['pr']} as "     # protection missing?
+                            f"{info.get('reviewDecision') or 'needing no review'}; check the repo's branch rules")
         self.save()
 
     async def advance_close(self, room_id: str, key: str, item: dict, lvl: str) -> None:
