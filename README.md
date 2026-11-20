@@ -11,7 +11,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 | Accounts | `anna`, `betty`, `anna-agent`, `betty-agent` — passwords generated into `.env` (git-ignored) |
 | Room | `#lounge:bridge.localhost` (anna, betty, both agents; unencrypted) |
 
-## Run it (the owner)
+## Run it locally
 
 1. Start everything — server, accounts (first run only) and both agent bridges:
 
@@ -211,3 +211,7 @@ Stop `start.sh`'s bridges first, because the test starts its own:
 ```bash
 .venv/bin/python test_loop_e2e.py
 ```
+
+## License and contributing
+
+MIT, see [LICENSE](LICENSE). Pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).

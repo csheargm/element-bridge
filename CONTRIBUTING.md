@@ -1,0 +1,34 @@
+# Contributing
+
+Thanks for improving hagency-bridge. Changes come in as pull requests, from your own fork.
+
+## The quick way: ask your agent
+
+In your private room with your own agent, describe the change ("make the transcript caption
+shorter"). Your agent works on its own copy, runs the tests and shows you what changed, and you
+choose to use it yourself or send it here as a pull request. *(In-chat flow: in progress.)*
+
+## By hand
+
+```bash
+git clone https://github.com/<you>/element-bridge && cd element-bridge
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m unittest discover -p 'test_*.py'
+```
+
+The `test_*_e2e.py` files are scripts that drive a live local server (`./start.sh`); run them by
+hand when you change chat behaviour.
+
+## What a good pull request has
+
+- **One concern.** One fix or feature per pull request.
+- **Tests.** A test for every new behaviour and a regression test for every bug fix. The test
+  workflow must pass.
+- **Small files.** Keep functions under 50 lines and files under 300. Split a file rather than
+  growing it past that.
+- **No secrets.** Never commit `.env`, tokens, passwords or room data.
+- **The why.** Say why in the commit message, not just what changed.
+- **Security.** Changes to the owner check or the agent sandbox need a note in the PR
+  description; see [SECURITY.md](SECURITY.md).
+
+By contributing you agree your work is released under the [MIT License](LICENSE).
