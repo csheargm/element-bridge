@@ -163,6 +163,38 @@ class CheckoutOnDisk(unittest.TestCase):
         self.assertEqual(len(finished), 1)
 
 
+class FixOverMcp(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        core._open.clear()
+        self.posted = []
+        base = Path(tempfile.mkdtemp())
+
+        async def prepare_fix(agent, base_, t):
+            root = base / f"issue-{t['issue']}"
+            (root / "git").mkdir(parents=True, exist_ok=True)
+            (root / "tree").mkdir(parents=True, exist_ok=True)
+            return core.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b")
+
+        async def finish_fix(agent, co, summary, pr):
+            return {"kind": "fix", "issue": 7, "pr": pr, "line": f"updated PR #{pr} after the review"}
+        for target, name, fn in ((core, "BASE", base), (core, "recent_events", lambda: [task_event("F", "fix", pr=9, feedback="add hello")]),
+                                 (core, "post", lambda line, result=None, room=None: self.posted.append((line, result))),
+                                 (core.tasks, "prepare_fix", prepare_fix), (core.tasks, "finish_fix", finish_fix)):
+            p = mock.patch.object(target, name, fn)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_fix_flow_over_mcp(self):
+        self.assertEqual(m.next_task()["next"], "Call start_fix(task_id).")
+        out = asyncio.run(m.start_fix("F"))
+        self.assertIn("add hello", out["instructions"])
+        self.assertEqual(m.write_files("F", {"docs/HELLO.md": "hello"})["written"], ["docs/HELLO.md"])
+        done = asyncio.run(m.finish_fix("F", "added hello"))
+        self.assertEqual(done["done"], "updated PR #9 after the review")
+
+
 class ContainedWrites(CheckoutOnDisk):
     def setUp(self):
         super().setUp()

@@ -11,16 +11,17 @@ import agents
 import github
 
 # Stages in which an item is still in flight (anything else is done/stopped).
-ACTIVE = ("building", "reviewing", "approved", "ready", "merging", "merge_sent",
+ACTIVE = ("building", "reviewing", "fixing", "approved", "ready", "merging", "merge_sent",
           "verifying", "confirmed_done", "close_ready", "closing", "close_sent")
 CLOSE_STAGES = ("confirmed_done", "close_ready", "close_sent")
-AGENT_STAGES = ("building", "reviewing", "verifying", "merging", "closing")   # waiting on an agent
+AGENT_STAGES = ("building", "reviewing", "fixing", "verifying", "merging", "closing")   # waiting on an agent
 GITHUB_STAGES = ("approved", "merge_sent", "close_sent")                    # waiting on GitHub
 # ("ready" / "close_ready" wait on a person in Assist: no timeout.)
 # A step's answer is overdue once the agent's own turn limit plus its gh/git calls have surely passed.
 STEP_TIMEOUT_S = float(os.environ.get("LOOP_STEP_TIMEOUT_S", agents.TURN_TIMEOUT_S + 600))
 GITHUB_WAIT_S = float(os.environ.get("LOOP_GITHUB_WAIT_S", 900))
 MAX_SENDS = 2                    # first send + one resend, then a person takes over
+MAX_FIX_ROUNDS = 2               # times a builder revises its PR after "changes requested"
 
 
 class Progress:
@@ -96,6 +97,34 @@ class Progress:
         """Stop an item GitHub has kept blocked too long, judged AFTER advance() saw GitHub's state."""
         if item["stage"] == before and before in GITHUB_STAGES and time.time() - item["since"] > GITHUB_WAIT_S:
             await self.stop(room_id, key, item, f"GitHub still blocks #{key} after {GITHUB_WAIT_S / 60:.0f} min")
+
+    async def after_review_step(self, room_id: str, item: dict, key: str, result: dict) -> None:
+        """A review approves (→ GitHub's gate) or asks for changes (→ the builder fixes); a fix goes
+        back to the same reviewer, whose new review is pinned to the new commit."""
+        if result["kind"] == "fix":
+            item["stage"] = "reviewing"
+            await self.dispatch(room_id, item, item["reviewer"],
+                                f"{item['reviewer']}: review PR #{item['pr']} again (after fixes) against #{key}",
+                                {"kind": "review", "issue": int(key), "pr": item["pr"]})
+            return
+        item["sha"] = str(result["sha"])
+        if result.get("verdict") == "approve":
+            item["stage"] = "approved"
+        else:
+            await self.request_fix(room_id, item, key, str(result.get("reasons", "")))
+
+    async def request_fix(self, room_id: str, item: dict, key: str, reasons: str) -> None:
+        """Changes requested: the builder revises its own PR (up to MAX_FIX_ROUNDS), then a person."""
+        rounds = item.get("fix_rounds", 0)
+        if rounds >= MAX_FIX_ROUNDS:
+            await self.stop(room_id, key, item, f"PR #{item['pr']} still has changes requested after "
+                                                f"{rounds} rounds of fixes")
+            return
+        item.update(stage="fixing", fix_rounds=rounds + 1)
+        await self.say(room_id, f"{item['reviewer'].split(':')[0][1:]} asked for changes on PR #{item['pr']}; "
+                                f"{item['builder'].split(':')[0][1:]} revises it (round {rounds + 1}/{MAX_FIX_ROUNDS}).")
+        await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: fix PR #{item['pr']} for #{key} "
+                            "after the review", {"kind": "fix", "issue": int(key), "pr": item["pr"], "feedback": reasons})
 
     async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
         item.update(stage="stopped", why=why)

@@ -126,7 +126,8 @@ Watch the pinned **Project status**:
 - then `ready — a person merges`
 
 The builders take turns. Each PR is reviewed by **the other person's agent**, and GitHub's rule
-requires that approval.
+requires that approval. If the reviewer asks for changes, the builder's agent revises its PR
+("fixing review feedback", up to 2 rounds) before a person is called in.
 
 Human review: click the PR link in the room, read the change, and merge it on GitHub. Or, to let
 the agents finish on their own:

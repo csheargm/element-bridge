@@ -21,7 +21,7 @@ import github
 log = logging.getLogger("loop")
 RECENT_S = 24 * 3600            # finished items stay on the board this long
 MAX_QUEUED = 5
-STEP_WORDS = {"building": "building", "reviewing": "reviewing", "approved": "approved, waiting for GitHub",
+STEP_WORDS = {"building": "building", "reviewing": "reviewing", "fixing": "fixing review feedback", "approved": "approved, waiting for GitHub",
               "ready": "ready — a person merges", "merging": "merging", "merge_sent": "merging",
               "verifying": "checking it's already done", "confirmed_done": "confirmed already done",
               "close_ready": "already done — a person closes", "closing": "closing", "close_sent": "closing"}

@@ -36,7 +36,7 @@ POLL_S = float(os.environ.get("LOOP_POLL_S", "30"))
 FAST_POLL_S = min(POLL_S, 5.0)        # while waiting on GitHub (mergeability, a merge, a close)
 GITHUB_WAITS = (*GITHUB_STAGES, "merging", "closing")
 STATE_FILE = Path(os.environ.get("LOOP_STATE", ROOT / "loop-state.json"))   # git-ignored; per-issue progress
-EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging",
+EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging", "fix": "fixing",
                   "verify": "verifying", "close": "closing"}
 CHECKER_KINDS = ("review", "verify")      # results only the second agent may report
 
@@ -219,8 +219,8 @@ class Loop(Progress, Boards, Chat, Planner):
                 await self.dispatch(room.room_id, item, item["reviewer"],
                                     f"{item['reviewer']}: review PR #{item['pr']} against #{key}",
                                     {"kind": "review", "issue": int(key), "pr": item["pr"]})
-        elif kind == "review" and int(result["pr"]) == item["pr"]:
-            item.update(stage="approved" if result.get("verdict") == "approve" else "stopped", sha=str(result["sha"]))
+        elif kind in ("review", "fix") and int(result["pr"]) == item["pr"]:
+            await self.after_review_step(room.room_id, item, key, result)      # loop_progress.py
         elif kind == "merge":
             item["stage"] = "merge_sent"    # done only once GitHub itself reports MERGED
         self.save()

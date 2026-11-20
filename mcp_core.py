@@ -69,12 +69,12 @@ class WrongTask(ValueError):
     """The agent passed a task id for a different step; tell it, don't stop the loop."""
 
 
-def task(task_id: str, kind: str) -> dict:
+def task(task_id: str, kind: str | tuple[str, ...]) -> dict:
     current = next_task().get("task_id")         # only the newest unanswered task counts: an old,
     if task_id != current:                       # answered or superseded one is never acted on again
         raise WrongTask(f"task {task_id} isn't your current task. Call next_task for your current task.")
     t = _find(task_id)
-    if t.get("kind") != kind:
+    if t.get("kind") not in ((kind,) if isinstance(kind, str) else kind):
         raise WrongTask(f"task {task_id} is a {t.get('kind')} task, not {kind}. Call next_task for your current task.")
     return t
 
@@ -110,7 +110,7 @@ async def safely(task_id: str, kind: str, step) -> dict:
         return {"failed": line, "next": "Tell the room in one line that this step failed. Stop."}
 
 
-def claim(task_id: str, kind: str) -> tuple[dict | None, dict | None]:
+def claim(task_id: str, kind: str | tuple[str, ...]) -> tuple[dict | None, dict | None]:
     """(hint for the agent, None) if task_id isn't its current `kind` task, else (None, task)."""
     try:
         t = task(task_id, kind)
@@ -135,7 +135,7 @@ def next_task() -> dict:
         if t.get("task_id") in answered:
             return {"task": None, "next": "No open task for you. Say so in one line."}
         _open.setdefault(t["task_id"], {**t, "_room": ev.get("room_id")})   # keep what earlier steps stored
-        step = {"build": "start_build", "review": "get_review", "merge": "merge_pr",
+        step = {"build": "start_build", "fix": "start_fix", "review": "get_review", "merge": "merge_pr",
                 "plan": "get_plan_request", "file_issues": "open_issues"}.get(t.get("kind"))
         return {"task_id": t["task_id"], "kind": t.get("kind"), "issue": t.get("issue"), "pr": t.get("pr"),
                 "next": f"Call {step}(task_id)." if step else

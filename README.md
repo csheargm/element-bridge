@@ -156,6 +156,9 @@ reviewer is always a *different* person's agent. Each step runs in that person's
   `workspace-write` and no network. The bridge then commits, pushes and opens the PR.
 - Review: the agent checks the diff read-only against the issue's acceptance criteria. It must end
   with `VERDICT: APPROVE`; anything else becomes "request changes".
+- Fix: on "changes requested", the builder's agent gets the reviewer's reasons and revises its
+  own PR branch (a new commit, so earlier approvals don't count), and the same reviewer looks
+  again. After 2 rounds without approval, a person takes over.
 - Merge: the builder merges only when **GitHub itself** reports the PR `MERGEABLE` + `CLEAN` +
   `APPROVED`, re-checked in its bridge just before merging.
 

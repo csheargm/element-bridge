@@ -53,6 +53,40 @@ async def start_build(task_id: str) -> dict:
     return await safely(task_id, "build", step)
 
 
+@mcp.tool()
+async def start_fix(task_id: str) -> dict:
+    """Your PR got "changes requested": check out your own PR branch and read the review."""
+    problem, t = claim(task_id, "fix")
+    if problem:
+        return problem
+
+    async def step():
+        co = saved_checkout(task_id, t)
+        if co is None:
+            co = await tasks.prepare_fix(AGENT, core.BASE, t)
+            save_checkout(task_id, co)
+            core.post(f"fix: revising PR #{t['pr']} after the review", room=t.get("_room"))
+        t["checkout"] = co
+        return {"instructions": tasks.fix_prompt(co, str(t.get("feedback", ""))),
+                "next": "Change files with read_file/write_files as for a build, then call "
+                        "finish_fix(task_id, summary)."}
+    return await safely(task_id, "fix", step)
+
+
+@mcp.tool()
+async def finish_fix(task_id: str, summary: str) -> dict:
+    """Commit and push your revision to the same PR; the reviewer looks again."""
+    problem, co = build_checkout(task_id)
+    if problem:
+        return problem
+    t = core._open[task_id]
+
+    async def step():
+        return {"done": report(task_id, await tasks.finish_fix(AGENT, co, summary, int(t["pr"]))),
+                "next": "Stop; the reviewer looks again."}
+    return await safely(task_id, "fix", step)
+
+
 def repo_path(co: tasks.Checkout, path: str) -> Path:
     """A path inside the checkout; anything that could reach outside it (or into .git) is refused."""
     rel = Path(path)
@@ -65,7 +99,7 @@ def repo_path(co: tasks.Checkout, path: str) -> Path:
 
 
 def build_checkout(task_id: str) -> tuple[dict | None, tasks.Checkout | None]:
-    problem, t = claim(task_id, "build")
+    problem, t = claim(task_id, ("build", "fix"))     # the file tools work on a build or a fix checkout
     if problem:
         return problem, None
     co = t.get("checkout") or saved_checkout(task_id, t)

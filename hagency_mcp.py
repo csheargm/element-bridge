@@ -10,13 +10,13 @@ Run by the agent as a stdio MCP server, e.g. in a Hermes profile's config.yaml:
   mcp_servers: {hagency: {command: .../.venv/bin/python, args: [.../hagency_mcp.py],
                 env: {HAGENCY_AGENT: anna-hermes-agent, HAGENCY_ROOM: "!room:server"}}}
 """
-from mcp_build import (finish_build, get_review, merge_pr, read_file, start_build,
+from mcp_build import (finish_build, finish_fix, get_review, merge_pr, read_file, start_build, start_fix,
                        submit_review, write_files)
 from mcp_core import mcp, next_task, report_failure
 from mcp_plan import get_plan_request, open_issues, submit_plan
 
 # Importing the tool modules registers their tools on `mcp`; re-exported for tests and tooling.
-__all__ = ["finish_build", "get_plan_request", "get_review", "mcp", "merge_pr", "next_task", "open_issues",
+__all__ = ["finish_build", "finish_fix", "get_plan_request", "start_fix", "get_review", "mcp", "merge_pr", "next_task", "open_issues",
            "read_file", "report_failure", "start_build", "submit_plan", "submit_review", "write_files"]
 
 if __name__ == "__main__":
