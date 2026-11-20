@@ -1,0 +1,153 @@
+--- a/plugins/platforms/matrix/adapter.py
++++ b/plugins/platforms/matrix/adapter.py
+@@ -852,6 +852,7 @@
+         # Mention/thread gating — parsed once from config.extra or env vars.
+         self._require_mention: bool = self._parse_require_mention(config)
+         self._thread_require_mention: bool = self._parse_thread_require_mention(config)
++        self._reply_to_mode: str = self._parse_reply_to_mode(config)
+         free_rooms_raw = config.extra.get("free_response_rooms")
+         if free_rooms_raw is None:
+             free_rooms_raw = os.getenv("MATRIX_FREE_RESPONSE_ROOMS", "")
+@@ -982,6 +983,21 @@
+         return False
+ 
+     @staticmethod
++    def _parse_reply_to_mode(config) -> str:
++        """Parse reply_to_mode ("off" | "first" | "all") from config.extra or env var.
++
++        Controls whether replies carry an ``m.in_reply_to`` (shown as a quote of the
++        question in most clients): ``all`` chunks (the historical Matrix behaviour and
++        the default), only the ``first`` chunk, or ``off``. Thread relations are kept
++        in every mode. YAML 1.1 parses bare ``off`` as ``False``.
++        """
++        configured = config.extra.get("reply_to_mode")
++        if configured is None:
++            configured = os.getenv("MATRIX_REPLY_TO_MODE", "all")
++        mode = "off" if configured is False else str(configured).strip().lower()
++        return mode if mode in {"off", "first", "all"} else "all"
++
++    @staticmethod
+     def _parse_require_mention(config) -> bool:
+         """Parse require_mention from config.extra or env var.
+ 
+@@ -1522,7 +1538,7 @@
+         for i, chunk in enumerate(chunks):
+             msg_content = self._build_text_message_content(chunk)
+ 
+-            self._apply_relation_metadata(msg_content, reply_to=reply_to, metadata=metadata)
++            self._apply_relation_metadata(msg_content, reply_to=reply_to, metadata=metadata, chunk_index=i)
+ 
+             try:
+                 event_id = await asyncio.wait_for(
+@@ -3778,9 +3794,13 @@
+         *,
+         reply_to: Optional[str] = None,
+         metadata: Optional[Dict[str, Any]] = None,
++        chunk_index: int = 0,
+     ) -> None:
+         """Apply Matrix reply/thread relation metadata to an outbound payload."""
+         thread_id = str((metadata or {}).get("thread_id") or "")
++        mode = getattr(self, "_reply_to_mode", "all")
++        if mode == "off" or (mode == "first" and chunk_index > 0):
++            reply_to = None
+         if reply_to:
+             msg_content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to}}
+         if thread_id:
+@@ -4345,6 +4365,9 @@
+         os.environ["MATRIX_SESSION_SCOPE"] = str(matrix_cfg["session_scope"]).lower()
+     if "auto_thread" in matrix_cfg and not os.getenv("MATRIX_AUTO_THREAD"):
+         os.environ["MATRIX_AUTO_THREAD"] = str(matrix_cfg["auto_thread"]).lower()
++    if "reply_to_mode" in matrix_cfg and not os.getenv("MATRIX_REPLY_TO_MODE"):
++        rtm = matrix_cfg["reply_to_mode"]
++        os.environ["MATRIX_REPLY_TO_MODE"] = "off" if rtm is False else str(rtm).lower()
+     if "dm_mention_threads" in matrix_cfg and not os.getenv("MATRIX_DM_MENTION_THREADS"):
+         os.environ["MATRIX_DM_MENTION_THREADS"] = str(matrix_cfg["dm_mention_threads"]).lower()
+     return None
+diff --git a/tests/gateway/test_matrix_reply_to_mode.py b/tests/gateway/test_matrix_reply_to_mode.py
+new file mode 100644
+index 000000000..22bcf0d37
+--- /dev/null
++++ b/tests/gateway/test_matrix_reply_to_mode.py
+@@ -0,0 +1,82 @@
++"""Matrix reply_to_mode: whether replies quote the message they answer (m.in_reply_to)."""
++import os
++from unittest.mock import patch
++
++import pytest
++
++from gateway.config import PlatformConfig
++
++
++def _make_adapter(**extra):
++    from plugins.platforms.matrix.adapter import MatrixAdapter
++
++    config = PlatformConfig(enabled=True, token="syt_test_token",
++                            extra={"homeserver": "https://matrix.example.org",
++                                   "user_id": "@hermes:example.org", **extra})
++    return MatrixAdapter(config)
++
++
++def _relation(adapter, chunk_index=0, thread_id=None):
++    content = {}
++    adapter._apply_relation_metadata(content, reply_to="$question",
++                                     metadata={"thread_id": thread_id} if thread_id else None,
++                                     chunk_index=chunk_index)
++    return content.get("m.relates_to")
++
++
++def test_default_quotes_every_chunk_as_before(monkeypatch):
++    monkeypatch.delenv("MATRIX_REPLY_TO_MODE", raising=False)
++    adapter = _make_adapter()
++    assert _relation(adapter, 0) == {"m.in_reply_to": {"event_id": "$question"}}
++    assert _relation(adapter, 1) == {"m.in_reply_to": {"event_id": "$question"}}
++
++
++def test_off_never_quotes():
++    adapter = _make_adapter(reply_to_mode="off")
++    assert _relation(adapter, 0) is None
++    assert _relation(adapter, 3) is None
++
++
++def test_off_keeps_the_thread():
++    adapter = _make_adapter(reply_to_mode="off")
++    rel = _relation(adapter, 0, thread_id="$root")
++    assert rel["rel_type"] == "m.thread" and rel["event_id"] == "$root"
++    assert rel["m.in_reply_to"] == {"event_id": "$root"}   # spec fallback to the root, not the question
++
++
++def test_first_quotes_only_the_first_chunk():
++    adapter = _make_adapter(reply_to_mode="first")
++    assert _relation(adapter, 0) == {"m.in_reply_to": {"event_id": "$question"}}
++    assert _relation(adapter, 1) is None
++
++
++def test_yaml_false_and_env_and_unknown(monkeypatch):
++    assert _make_adapter(reply_to_mode=False)._reply_to_mode == "off"
++    assert _make_adapter(reply_to_mode="bogus")._reply_to_mode == "all"
++    monkeypatch.setenv("MATRIX_REPLY_TO_MODE", "first")
++    assert _make_adapter()._reply_to_mode == "first"
++
++
++def test_yaml_key_becomes_env(monkeypatch):
++    from plugins.platforms.matrix.adapter import _apply_yaml_config
++
++    monkeypatch.delenv("MATRIX_REPLY_TO_MODE", raising=False)
++    with patch.dict(os.environ, {}, clear=False):
++        _apply_yaml_config({}, {"reply_to_mode": False})
++        assert os.environ["MATRIX_REPLY_TO_MODE"] == "off"
++
++
++@pytest.mark.asyncio
++async def test_send_passes_the_chunk_index(monkeypatch):
++    adapter = _make_adapter(reply_to_mode="first")
++    seen = []
++    monkeypatch.setattr(adapter, "_apply_relation_metadata",
++                        lambda content, **kw: seen.append(kw.get("chunk_index")))
++    monkeypatch.setattr(adapter, "truncate_message", lambda text, limit: ["a", "b"])
++
++    class Client:
++        async def send_message_event(self, *a, **k):
++            return "$e"
++    adapter._client = Client()
++    await adapter.send("!r:example.org", "hello", reply_to="$question")
++    assert seen == [0, 1]
