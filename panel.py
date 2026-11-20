@@ -34,12 +34,41 @@ log = logging.getLogger("loop")
 
 PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hagency</title>
-<style>body{font:14px system-ui,sans-serif;margin:12px;color:#222}h2{font-size:15px;margin:16px 0 6px}
-.box{background:#f6f6f7;border-radius:8px;padding:8px 12px}.muted{color:#777}li{margin:2px 0}
-button{font:inherit;padding:4px 10px;margin:2px 4px 2px 0;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
-button.on{background:#0b6e4f;color:#fff;border-color:#0b6e4f}button:disabled{opacity:.45;cursor:default}
-.row{margin:6px 0}#msg{color:#0b6e4f;white-space:pre-line}input{font:inherit;padding:3px 6px;width:16em}#me{color:#444;margin-bottom:6px}#me b{font-size:16px;color:#111}</style>
-<div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls"></div><div id="p"></div>
+<style>
+:root{--bg:#f7f7f8;--card:#fff;--ink:#17191c;--muted:#6b7078;--line:#e4e6ea;--accent:#0b6e4f;--accent-soft:#e3f2ec;
+--warn:#8a5a00;--warn-soft:#fff4dc;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#15171a;--card:#1d2024;--ink:#e8eaed;--muted:#9aa0a8;--line:#2c3036;
+--accent:#3fb68b;--accent-soft:#17352b;--warn:#f0b54a;--warn-soft:#3a2f17}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);padding:16px}
+.wrap{max-width:760px;margin:0 auto;display:grid;gap:12px}.stack{display:grid;gap:12px;min-width:0}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;justify-content:space-between}
+h1{font-size:18px;margin:0;font-weight:650}.sub{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--card);
+border:1px solid var(--line);font-size:12px;color:var(--muted)}.chip.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.chip.role{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:650}
+.card.attn{border-color:var(--warn);background:var(--warn-soft)}.card.attn h2{color:var(--warn)}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.set{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:8px 0}
+.set+.set{border-top:1px solid var(--line)}.hint{color:var(--muted);font-size:12.5px;margin-top:6px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
+.seg button{border:0;border-radius:0;margin:0;background:transparent;padding:5px 12px;color:var(--ink)}
+.seg button+button{border-left:1px solid var(--line)}.seg button.on{background:var(--accent);color:#fff}
+button{font:inherit;padding:5px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.field{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:8px;
+background:var(--bg);color:var(--ink);flex:1;min-width:12em}
+#msg:empty{display:none}#msg{padding:8px 12px;border-radius:8px;background:var(--accent-soft);color:var(--accent);white-space:pre-line}
+.board{font-size:13.5px}.board p{margin:4px 0}.board ul{margin:4px 0;padding-left:18px}.board a{color:var(--accent)}
+.agents{list-style:none;margin:0;padding:0}.agents li{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 0}
+.agents li+li{border-top:1px solid var(--line)}.agents b{font-weight:600}.muted{color:var(--muted)}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:4px 0 8px}
+</style>
+<div class="wrap"><header><div><h1 id="title">Hagency</h1><div class="sub" id="sub"></div></div><div id="who"></div></header>
+<div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls" class="stack"></div><div id="p" class="stack"></div>
+<footer>Change anything here or by telling @pm in the chat.</footer></div>
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
 const ELEMENT = __ELEMENT_ORIGIN__;
@@ -84,9 +113,13 @@ async function start() {
 async function act(action, value) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value});
   $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
+const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
+  assist: "Agents build and review; a person merges each change.",
+  autonomous: "Agents build, review and merge on their own."};
+const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
 function buttons(name, values, current, enabled) {
-  return values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
-    ${enabled ? '' : 'disabled'}>${esc(v)}</button>`).join(""); }
+  return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
+    ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
   if (b) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.v); });
 async function refresh() {
@@ -95,16 +128,22 @@ async function refresh() {
   if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
   const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
   if (document.activeElement && document.activeElement.id === "repo") return;   // don't wipe what's being typed
-  $("me").innerHTML = `<b>${esc(s.room)}</b> · ${esc(s.repo || "no repo yet")}<br>Signed in as ${esc(s.user)} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
-  let h = `<h2>Project repo</h2><div class=row>${s.moderator ? `<input id=repo placeholder="owner/name"
-    value="${esc(s.repo || "")}"> <button data-a="repo">Use for this room</button>` : esc(s.repo || "none yet")}
-    ${s.repo ? '<button data-a="check">Check readiness</button>' : ""}</div><h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
-  if (s.waiting && s.waiting.mine) h += `<h2>Waiting for you</h2><div class=row>${esc(s.waiting.kind)}${s.waiting.items.length ?
-    ": " + s.waiting.items.map(esc).join(" · ") : ""} <button data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div>`;
-  if (s.agent) h += `<h2>My agent (${esc(s.agent)})</h2>
-    <div class=row>Comes along when I join a project room: ${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
-    <div class=row>Web research in this room: ${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}
-    <span class=muted>(each request is shown in the chat)</span></div>`;
+  $("me").textContent = "";
+  $("title").textContent = s.room;
+  $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">No project repo yet</span>`;
+  $("who").innerHTML = `<span class="chip">${esc(s.user)}</span> <span class="chip role">${s.moderator ? "Owner / maintainer" : "Contributor"}</span>`;
+  let h = "";
+  if (s.waiting && s.waiting.mine) h += `<section class="card attn"><h2>Waiting for you</h2><div class="set"><div>${esc(cap(s.waiting.kind))}${
+    s.waiting.items.length ? ": " + s.waiting.items.map(esc).join(" · ") : ""}</div>
+    <button class="primary" data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div></section>`;
+  h += `<div class="grid"><section class="card"><h2>Mode</h2>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}
+    <div class="hint">${esc(MODES[s.mode] || "")}${s.moderator ? "" : " Only the owner or a maintainer can change it."}</div></section>
+    <section class="card"><h2>Project repo</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
+    value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
+    ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
+  if (s.agent) h += `<section class="card"><h2>My agent · ${esc(s.agent)}</h2>
+    <div class="set"><div>Comes along when I join a project room</div>${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
+    <div class="set"><div>Web research in this room<div class="hint">Each search is listed under your question.</div></div>${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}</div></section>`;
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }
 start(); setInterval(refresh, %d);
@@ -117,17 +156,19 @@ def render(loop, room_id: str) -> str:
     if room is None:
         return "<p class=muted>@pm isn't in this room.</p>"
     board = loop.boards.get(room_id, {}).get("text") or "No status yet."
+    if board.startswith("📋"):                # its title line repeats the page header (repo, mode)
+        board = board.split("\n", 1)[1].strip() if "\n" in board else "No status yet."
     waiting = loop.pending.get(room_id)
-    parts = [f"<h2>Project status</h2><div class=box>{markdown.markdown(github.linkify(board))}</div>"]
+    parts = [f"<section class=card><h2>Project status</h2><div class=board>{markdown.markdown(github.linkify(board))}</div></section>"]
     if waiting:
         who = html.escape(str(waiting.get("by", "")).split(":")[0].lstrip("@"))
         what = {"plan": "a plan", "plan_request": "turning the discussion into work", "bring": "bringing an agent",
                 "mode": f"switching to {html.escape(str(waiting.get('level')))}"}.get(waiting.get("kind"), "a change")
-        parts.append(f"<h2>Waiting for approval</h2><p>{what} — {who or 'the owner'} reacts 👍 in the chat</p>")
+        parts.append(f"<section class=card><h2>Waiting for approval</h2><div>{what} · {who or 'the owner'} clicks 👍 in the chat</div></section>")
     plan = loop.last_plans.get(room_id, {}).get("items", [])
     if plan:
         items = "".join(f"<li><b>{html.escape(i['title'])}</b></li>" for i in plan)
-        parts.append(f"<h2>Current plan</h2><ol>{items}</ol>")
+        parts.append(f"<section class=card><h2>Current plan</h2><ol>{items}</ol></section>")
     agents = []
     grants = loop.grants_cache.get(room_id, {}) if hasattr(loop, "grants_cache") else {}
     for user in sorted(room.users):
@@ -136,11 +177,12 @@ def render(loop, room_id: str) -> str:
             here = "" if ownership.joined(room, owner) else " <span class=muted>(owner not here: idle)</span>"
             follow = registry.follow(owner.split(":")[0].lstrip("@"))
             caps = ", ".join(sorted(grants.get(user, {}))) or "project only"
-            agents.append(f"<li>{html.escape(user.split(':')[0][1:])} — "
-                          f"{html.escape(owner.split(':')[0][1:])}'s agent, follows: {follow}, "
-                          f"may use: {html.escape(caps)}{here}</li>")
-    parts.append("<h2>Agents</h2><ul>" + ("".join(agents) or "<li class=muted>none</li>") + "</ul>")
-    parts.append(f"<p class=muted>Repo: {html.escape(getattr(loop, 'room_repos', {}).get(room_id) or 'none yet')} · change anything by telling @pm in the chat</p>")
+            agents.append(f"<li><div><b>{html.escape(user.split(':')[0][1:])}</b> <span class=muted>· "
+                          f"{html.escape(owner.split(':')[0][1:].capitalize())}'s agent{here}</span></div>"
+                          f"<div><span class=chip>comes along: {html.escape(follow)}</span> "
+                          f"<span class=chip>uses: {html.escape(caps)}</span></div></li>")
+    parts.append("<section class=card><h2>Agents in this room</h2><ul class=agents>"
+                 + ("".join(agents) or "<li class=muted>None yet</li>") + "</ul></section>")
     return "".join(parts)
 
 
