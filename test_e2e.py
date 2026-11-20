@@ -34,15 +34,27 @@ def send(token, room_id, body, mention):
     return api("PUT", f"/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn}", token, content)["event_id"]
 
 
+def answers_after(msgs, since_event, from_user):
+    """from_user's plain messages after since_event, oldest first (answers come without a quote
+    unless others spoke in between; threads and edits aren't answers)."""
+    out = []
+    for ev in msgs:                       # newest first
+        if ev.get("event_id") == since_event:
+            return out[::-1]
+        rel = ev.get("content", {}).get("m.relates_to", {})
+        if ev.get("sender") == from_user and rel.get("rel_type") not in ("m.replace", "m.thread"):
+            out.append(ev)
+    return []                             # since_event not in view: nothing known to follow it
+
+
 def wait_reply(token, room_id, since_event, from_user):
     """Poll room messages until from_user replies to since_event; also report typing seen."""
     deadline, saw_typing = time.time() + REPLY_TIMEOUT_S, False
     while time.time() < deadline:
         msgs = api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=30", token)["chunk"]
-        for ev in msgs:
-            rel = ev.get("content", {}).get("m.relates_to", {}).get("m.in_reply_to", {})
-            if ev.get("sender") == from_user and rel.get("event_id") == since_event:
-                return ev["content"]["body"], saw_typing
+        found = answers_after(msgs, since_event, from_user)
+        if found:
+            return found[0]["content"]["body"], saw_typing
         sync = api("GET", "/_matrix/client/v3/sync?timeout=0&filter=" + urllib.parse.quote(
             json.dumps({"room": {"timeline": {"limit": 0}, "rooms": [room_id]}})), token)
         eph = sync.get("rooms", {}).get("join", {}).get(room_id, {}).get("ephemeral", {}).get("events", [])
@@ -81,8 +93,7 @@ def main():
           f"{time.time()-t0:.1f}s: {body[:80]!r}")
 
     msgs = api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=30", anna)["chunk"]
-    stray = [m for m in msgs if m["sender"] == betty_agent
-             and m.get("content", {}).get("m.relates_to", {}).get("m.in_reply_to", {}).get("event_id") == ev]
+    stray = answers_after(msgs, ev, betty_agent)
     check("betty-agent stays quiet when not mentioned", not stray)
     check_owner_only(betty, room_id, anna_agent)
     check_encrypted_room_warning(anna, anna_agent)
@@ -94,8 +105,7 @@ def check_owner_only(betty, room_id, anna_agent):
     ev = send(betty, room_id, "anna-agent: what is 2+2?", anna_agent)
     time.sleep(15)  # a Codex turn takes ~5 s; give it 3x before concluding it stayed quiet
     msgs = api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=10", betty)["chunk"]
-    replied = [m for m in msgs if m["sender"] == anna_agent and
-               m.get("content", {}).get("m.relates_to", {}).get("m.in_reply_to", {}).get("event_id") == ev]
+    replied = answers_after(msgs, ev, anna_agent)
     check("anna-agent ignores betty by default (owner-only)", not replied)
 
 

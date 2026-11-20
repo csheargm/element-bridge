@@ -36,17 +36,23 @@ def owners_room() -> str | None:
     """The room where the owner just @mentioned this agent (last 15 min). If they did so in more than
     one room, refuse to guess: a turn in one room must never borrow another room's grants or
     conversation (the MCP call itself doesn't say which room it came from)."""
-    owner = core.owner_id()
-    now_ms = time.time() * 1000
     rooms = []
+    for ev in owners_asks():
+        if ev.get("room_id") not in rooms:
+            rooms.append(ev.get("room_id"))
+    return rooms[0] if len(rooms) == 1 else None
+
+
+def owners_asks() -> list[dict]:
+    """The owner's recent messages that @mention this agent, newest first."""
+    owner, now_ms, asks = core.owner_id(), time.time() * 1000, []
     for ev in core.recent_events():
         content = ev.get("content", {})
         mentions = content.get("m.mentions") if isinstance(content.get("m.mentions"), dict) else {}
         ids = mentions.get("user_ids") if isinstance(mentions.get("user_ids"), list) else []
-        if (ev.get("sender") == owner and core.USER_ID in ids
-                and now_ms - ev.get("origin_server_ts", 0) < RECENT_S * 1000 and ev.get("room_id") not in rooms):
-            rooms.append(ev.get("room_id"))
-    return rooms[0] if len(rooms) == 1 else None
+        if ev.get("sender") == owner and core.USER_ID in ids and now_ms - ev.get("origin_server_ts", 0) < RECENT_S * 1000:
+            asks.append(ev)
+    return asks
 
 
 @mcp.tool()

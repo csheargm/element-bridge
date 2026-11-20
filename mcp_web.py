@@ -16,7 +16,7 @@ import capabilities
 import intents
 import mcp_core as core
 import safe_fetch
-from mcp_context import owners_room
+from mcp_context import owners_asks, owners_room
 from mcp_core import mcp
 
 MAX_TEXT = 20_000
@@ -38,8 +38,14 @@ fetch = safe_fetch.fetch
 
 
 async def note_request(room: str, what: str) -> None:
-    """Every outbound web request is shown in the room, so the owner can see what left (GPT 8 #3)."""
+    """Every outbound web request is shown in the room, so the owner can see what left (GPT 8 #3),
+    in a thread under the owner's question: the chat itself shows only the question and the answer."""
     content = {"msgtype": "m.notice", "body": f"🔎 web: {' '.join(what.split())[:160]}"}
+    asks = [ev for ev in await asyncio.to_thread(owners_asks) if ev.get("room_id") == room]
+    if asks and asks[0].get("event_id"):
+        root = asks[0]["event_id"]
+        content["m.relates_to"] = {"rel_type": "m.thread", "event_id": root, "is_falling_back": True,
+                                   "m.in_reply_to": {"event_id": root}}
     await asyncio.to_thread(core.api, "PUT", core.room_path(room, f"/send/m.room.message/w{time.time_ns()}"),
                             content, core.token())
 

@@ -102,7 +102,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"], "repo": item["repo"]})
 
     async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None,
-                  plain: bool = False) -> str:
+                  plain: bool = False, reply_to: str | None = None) -> str:
         if task is not None:          # the one thing every agent surely reads; bridges use the task field
             body += " — use your hagency tools: call next_task"
         content = {"msgtype": "m.notice" if task is None else "m.text", "body": body}
@@ -114,6 +114,8 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
             content.update(format="org.matrix.custom.html", formatted_body=markdown.markdown(source))
         if task is not None:
             content[github.TASK_KEY] = {**task, "agent": mention}         # task["repo"]: the room's repo
+        if reply_to:                  # attached to that message (e.g. a voice message's transcript)
+            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to}}
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not isinstance(resp, RoomSendResponse):
             raise SendError(f"could not post to {room_id}: {resp}")

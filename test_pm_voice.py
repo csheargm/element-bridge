@@ -18,10 +18,11 @@ class Voice(unittest.TestCase):
         self.lp = loop.Loop.__new__(loop.Loop)
         self.lp.user_id, self.lp.pending, self.lp.busy = PM, {}, set()
         self.lp.client = SimpleNamespace(download=mock.AsyncMock(return_value=SimpleNamespace(body=b"OggS...")))
-        self.said, self.heard = [], []
+        self.said, self.heard, self.replies = [], [], []
 
         async def say(room_id, body, mention=None, task=None, **kw):
             self.said.append(body)
+            self.replies.append(kw.get("reply_to"))
             return "$e"
 
         async def on_human(room, event):
@@ -37,8 +38,9 @@ class Voice(unittest.TestCase):
 
     def test_saying_pm_addresses_it_and_the_room_sees_the_words(self):
         self.voice("Product manager, let's build it.")
-        self.assertIn("🎙 anna said: “Product manager, let's build it.”", self.said)
+        self.assertIn("📝 Transcript: “Product manager, let's build it.”", self.said)
         self.assertEqual(self.heard, [("let's build it.", [PM])])
+        self.assertEqual(self.replies, ["$v"])            # attached to the voice message, as its caption
 
     def test_ok_go_ahead_to_a_waiting_question_needs_no_name(self):
         self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA}
@@ -52,7 +54,7 @@ class Voice(unittest.TestCase):
     def test_too_long_is_refused_without_downloading(self):
         self.voice("x", duration=10 * 60 * 1000)
         self.lp.client.download.assert_not_called()
-        self.assertIn("Please type it", self.said[-1])
+        self.assertIn("No transcript (it's longer than 5 minutes)", self.said[-1])
         self.assertEqual(self.heard, [])
 
     def test_no_speech_to_text_says_so(self):

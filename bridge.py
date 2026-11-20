@@ -13,7 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import markdown
-from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessageText
+from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessage, RoomMessageText
 
 import agents
 import capabilities
@@ -59,6 +59,7 @@ class Bridge:
         self.started_ms = int(time.time() * 1000)
         self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
         self.seen_tasks: set[str] = set()     # event ids: a redelivered task never runs twice
+        self.last_message: dict[str, str] = {}  # room → newest message event id (to answer without a quote)
 
     # --- trigger rules -------------------------------------------------------------
     def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
@@ -231,13 +232,19 @@ class Bridge:
         html = markdown.markdown(source or body, extensions=["fenced_code", "tables"])
         content = {"msgtype": "m.text", "body": body,
                    "format": "org.matrix.custom.html", "formatted_body": html}
-        if reply_to is not None:
-            content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to.event_id}}
+        if reply_to is not None:              # a quote only when other messages came in between
+            if self.last_message.get(room_id) != reply_to.event_id:
+                content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to.event_id}}
             content["m.mentions"] = {"user_ids": [reply_to.sender]}
         content.update(extra or {})
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not hasattr(resp, "event_id"):
             raise RuntimeError(f"failed to send to {room_id}: {resp}")
+
+    async def note_last(self, room: MatrixRoom, event: RoomMessage) -> None:
+        rel = event.source.get("content", {}).get("m.relates_to")
+        if not (isinstance(rel, dict) and rel.get("rel_type") in ("m.replace", "m.thread")):
+            self.last_message[room.room_id] = event.event_id    # edits (the status board) and threads don't count
 
     # --- lifecycle -----------------------------------------------------------------
     async def run(self) -> None:
@@ -250,6 +257,7 @@ class Bridge:
         self.client.add_event_callback(self.on_invite, InviteMemberEvent)
 
         def register() -> None:
+            self.client.add_event_callback(self.note_last, RoomMessage)     # first: on_message reads it
             self.client.add_event_callback(self.on_message, RoomMessageText)
             self.client.add_event_callback(self.on_encrypted, MegolmEvent)
         await lifecycle.first_sync(self.client, f"{self.owner}-agent", self.sync_point, register,

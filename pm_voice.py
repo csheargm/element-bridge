@@ -87,7 +87,6 @@ class Voice:
         info = event.source.get("content", {}).get("info")
         duration = info.get("duration") if isinstance(info, dict) else None
         size = info.get("size") if isinstance(info, dict) else None
-        who = event.sender.split(":")[0].lstrip("@")
         try:
             if isinstance(duration, int) and duration > MAX_MS:      # a hint only: decoding is capped anyway
                 raise VoiceError("it's longer than 5 minutes")
@@ -103,16 +102,17 @@ class Voice:
                     raise VoiceError("I couldn't download it" if not isinstance(body, bytes) else "it's too large")
                 text = await transcribe(body)
         except VoiceError as e:               # said in the room: the person knows to type it instead
-            await self.say(room.room_id, f"🎙 I couldn't understand {who}'s voice message ({e}). Please type it.")
+            await self.say(room.room_id, f"📝 No transcript ({e}).", reply_to=event.event_id)
             return
         except (OSError, RuntimeError, ValueError) as e:   # download/Matrix/subprocess trouble: logged and said
             log.error("voice message from %s failed: %s", event.sender, e)
-            await self.say(room.room_id, f"🎙 Something went wrong with {who}'s voice message. Please type it.")
+            await self.say(room.room_id, "📝 No transcript (something went wrong).", reply_to=event.event_id)
             return
         if not text:
-            await self.say(room.room_id, f"🎙 I heard no words in {who}'s voice message.")
+            await self.say(room.room_id, "📝 No words heard.", reply_to=event.event_id)
             return
-        await self.say(room.room_id, f"🎙 {who} said: “{text}”", plain=True)   # what I understood, for everyone
+        # A caption on the voice message itself (not @pm talking), so everyone, agents too, can read it.
+        await self.say(room.room_id, f"📝 Transcript: “{text}”", plain=True, reply_to=event.event_id)
         await self.on_human(room, self.as_text(room, event, text))
 
     def as_text(self, room: MatrixRoom, event: RoomMessageAudio, text: str) -> SimpleNamespace:
