@@ -123,7 +123,7 @@ class ButtonHelper(unittest.TestCase):
         b.client.add_event_callback = lambda fn, kind: callbacks.append(kind.__name__)
         with mock.patch.object(bridge.lifecycle, "first_sync", mock.AsyncMock(side_effect=lambda c, n, s, register, f: register())), \
                 mock.patch.object(bridge.lifecycle, "serve", mock.AsyncMock()), \
-                mock.patch.object(bridge, "read_env", return_value={"PW_ANNA_AGENT": "x"}), \
+                mock.patch.object(bridge, "agent_password", return_value="x"), \
                 mock.patch.object(b.client, "login", mock.AsyncMock(return_value=bridge.LoginResponse("@anna-agent:x", "D", "t"))):
             asyncio.run(b.run())
         self.assertEqual(callbacks, ["ReactionEvent"])   # never answers messages or invites: Hermes does (GPT review 20)

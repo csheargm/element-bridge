@@ -10,8 +10,6 @@ records the choice in agents.json, and for Hermes sets up the room profile "<per
 Run it again any time: it only fills in what's missing. Then ./start.sh runs everyone's agent.
 """
 import argparse
-import re
-import secrets
 import sys
 import urllib.parse
 
@@ -19,21 +17,20 @@ import agents
 import github
 import hermes_profile
 import registry
-from setup_accounts import ROOT, SERVER_NAME, api, load_env, login, register, save_env
+import setup_accounts
+from setup_accounts import SERVER_NAME, api, load_env, login, mark_direct
 
-NAME_RE = re.compile(r"^[a-z][a-z0-9]{1,23}$")
+NAME_RE = registry.NAME_RE
 
 
 def ensure_user(env: dict, user: str, shared_secret: str) -> str:
-    key = "PW_" + user.upper().replace("-", "_")
-    if key not in env:
-        env[key] = secrets.token_urlsafe(18)
-        save_env(env)                          # saved first, so a failed register can be retried
-        r = register(user, env[key], shared_secret)
-        if "_status" in r:
-            raise SystemExit(f"couldn't create @{user}: {r.get('errcode')} {r.get('error')}")
+    try:
+        password, created = setup_accounts.ensure_user(env, user, shared_secret)
+    except setup_accounts.AccountError as e:
+        raise SystemExit(str(e)) from e
+    if created:
         print(f"  created @{user}:{SERVER_NAME}")
-    return env[key]
+    return password
 
 
 def ensure_dm(person: str, person_pw: str, agent_pw: str, known: str | None) -> str:
@@ -46,12 +43,7 @@ def ensure_dm(person: str, person_pw: str, agent_pw: str, known: str | None) -> 
                                                             "invite": [bot_id]}, token=me)["room_id"]
     api("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(room)}", {}, token=bot)
     for token, user_id, other in ((me, me_id, bot_id), (bot, bot_id, me_id)):
-        path = f"/_matrix/client/v3/user/{urllib.parse.quote(user_id)}/account_data/m.direct"
-        direct = api("GET", path, token=token)
-        direct = {k: v for k, v in direct.items() if not k.startswith("_") and k != "errcode" and k != "error"}
-        if room not in direct.get(other, []):
-            direct[other] = [*direct.get(other, []), room]
-            api("PUT", path, direct, token=token)
+        mark_direct(token, user_id, other, room)
     return room
 
 
@@ -62,8 +54,7 @@ def main() -> None:
     args = ap.parse_args()
     if not NAME_RE.match(args.person):
         raise SystemExit("use a short lowercase name, letters and digits (e.g. anna)")
-    yaml = (ROOT / "data" / "homeserver.yaml").read_text()
-    shared_secret = re.search(r'^registration_shared_secret: "?([^"\n]+)"?', yaml, re.M).group(1)
+    shared_secret = setup_accounts.shared_secret()
     env = load_env()
     print(f"{args.person}:")
     person_pw = ensure_user(env, args.person, shared_secret)

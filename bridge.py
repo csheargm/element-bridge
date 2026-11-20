@@ -27,9 +27,7 @@ from redact import room_safe
 import room_state
 import tasks
 
-ROOT = Path(__file__).parent
-HOMESERVER = "http://127.0.0.1:8648"
-SERVER_NAME = "bridge.localhost"
+from bridge_config import HOMESERVER, ROOT, SERVER_NAME, agent_password, read_env  # noqa: F401 (loop.py reads read_env)
 TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapses
 TYPING_TIMEOUT_MS = 30_000
 MAX_REPLY_CHARS = 30_000
@@ -37,15 +35,6 @@ MAX_CONCURRENT_TURNS = 3     # CLI processes per bridge across all rooms
 CLOCK_SKEW_MS = 5_000        # tolerance when dropping events from before startup
 
 log = logging.getLogger("bridge")
-
-
-def read_env() -> dict[str, str]:
-    env = {}
-    for line in (ROOT / ".env").read_text().splitlines():
-        if "=" in line and not line.startswith("#"):
-            k, v = line.split("=", 1)
-            env[k] = v
-    return env
 
 
 class Bridge(BridgeVoice, BridgeCustom):
@@ -244,7 +233,7 @@ class Bridge(BridgeVoice, BridgeCustom):
 
     # --- lifecycle -----------------------------------------------------------------
     async def run(self) -> None:
-        password = read_env()[f"PW_{self.owner.upper()}_AGENT"]
+        password = agent_password(self.owner)   # bridge_config.py: .env, or connect.py's file
         resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"login failed for {self.user_id}: {resp}")

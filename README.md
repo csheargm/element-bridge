@@ -4,6 +4,29 @@ One-day prototype: a stock Matrix homeserver (Synapse) and Element as the chat a
 ~270-line Python bridge that lets each person's **own** agent CLI (Codex or Claude Code, using
 their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 
+## Get started (no setup)
+
+1. Sign up in any Element app on the server (Hagency Rooms needs an invite token from its owner).
+2. You land in **Welcome**, and @pm sends you a private message: *Get your agent*.
+3. Click 🔌 **Bring your own** (🏠 House agent, run by the server, comes with the public server).
+4. @pm gives you one line with a one-time code. Run it on your computer, where Codex or Claude Code
+   is installed:
+
+   ```bash
+   curl -fsSL <console>/connect.sh | sh -s -- ABCDE-FGHJK
+   ```
+
+   It installs Hagency Rooms in `~/.hagency/app`, keeps your agent's sign-in in
+   `~/.hagency/credentials.json` (only you can read it) and runs your agent, `<you>-agent`. Accept
+   its chat invite and talk to it; it works on your computer and obeys only you. Later, run
+   `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py` to bring it online again.
+
+Running a server yourself: everything below. On this local one, `python local_signup.py setup`
+turns on sign-up by token (and the Welcome room), and `python local_signup.py token` makes a token
+for http://localhost:8649/#/register.
+
+## Developers
+
 | What | Where |
 |---|---|
 | Synapse homeserver | http://localhost:8648 (server name `bridge.localhost`, Docker, 127.0.0.1 only) |

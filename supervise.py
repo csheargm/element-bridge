@@ -109,6 +109,8 @@ def children(agent: str, allow_members: bool) -> list[Child]:
     kids = []
     for person, info in sorted(registry.load().items()):
         choice = info.get("agent", agent)
+        if choice == registry.REMOTE:            # runs on the person's own computer (connect.py), not here
+            continue
         if choice == "hermes":
             hermes_profile.set_repos(f"{person}room")    # its MCP server works on this run's repos
             kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"],

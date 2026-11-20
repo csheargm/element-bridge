@@ -13,6 +13,7 @@ import markdown
 from aiohttp import web
 
 import console
+import remote_agent
 import github
 import ownership
 import registry
@@ -203,7 +204,8 @@ async def start(loop) -> web.AppRunner | None:
         return web.Response(text=PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(ELEMENT_ORIGIN)),
                             content_type="text/html", headers=HEADERS)
     app = web.Application()
-    app.add_routes([web.get("/panel", page), web.get("/console", page), *console.routes(loop, render)])
+    app.add_routes([web.get("/panel", page), web.get("/console", page), *console.routes(loop, render),
+                    *remote_agent.routes()])     # bring-your-own pairing (remote_agent.py)
     runner = web.AppRunner(app, access_log=None)        # the widget polls every 3 s: don't flood the log
     await runner.setup()
     try:

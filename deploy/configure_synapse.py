@@ -2,6 +2,8 @@
 running it again changes nothing):
   - Postgres instead of SQLite (the database block is replaced);
   - sign-up only with a registration token (an invite), no guests, no URL previews;
+  - every new account joins the private Welcome room, created by @pm, where @pm greets them
+    (pm_welcome.py; @pm must exist before the first sign-up, or Synapse can't create the room);
   - the public URL; Synapse's own default rate limits (the local prototype relaxes them).
 It refuses a config whose server_name differs from .env (a server's name can never change). The
 new file is written next to the old one and swapped in, so an interruption never leaves half a
@@ -17,6 +19,29 @@ from pathlib import Path
 import envfile
 
 MARKER = ".hagency-configured"
+WELCOME_LOCALPART = "welcome"                 # #welcome:<server>; pm_welcome.py looks for this room
+PM_LOCALPART = "pm"
+
+
+def welcome_settings(server_name: str) -> dict:
+    """New accounts are auto-joined to a private Welcome room that @pm creates on first use."""
+    return {
+        "auto_join_rooms": json.dumps([f"#{WELCOME_LOCALPART}:{server_name}"]),
+        "autocreate_auto_join_rooms": "true",
+        "auto_join_mxid_localpart": PM_LOCALPART,    # @pm creates it and owns it
+        "autocreate_auto_join_room_preset": "private_chat",   # invite-only: Synapse invites each new account
+        "auto_join_rooms_for_guests": "false",
+    }
+
+
+def set_keys(text: str, values: dict) -> str:
+    """Set top-level `key: value` lines (replace, or append once): running again changes nothing."""
+    for key, value in values.items():
+        if re.search(rf"(?m)^{key}:", text):
+            text = re.sub(rf"(?m)^{key}:.*$", lambda _m: f"{key}: {value}", text)
+        else:
+            text += ("" if text.endswith("\n") else "\n") + f"{key}: {value}\n"
+    return text
 
 
 def configure(text: str, e: dict) -> str:
@@ -37,13 +62,9 @@ def configure(text: str, e: dict) -> str:
         "allow_guest_access": "false",
         "max_upload_size": "20M",
         "url_preview_enabled": "false",              # previews would fetch arbitrary URLs from the server
+        **welcome_settings(e["SERVER_NAME"]),
     }
-    for key, value in extra.items():
-        if re.search(rf"(?m)^{key}:", text):
-            text = re.sub(rf"(?m)^{key}:.*$", f"{key}: {value}", text)
-        else:
-            text += f"{key}: {value}\n"
-    return text
+    return set_keys(text, extra)
 
 
 def install(path: Path, e: dict) -> None:
@@ -63,4 +84,4 @@ if __name__ == "__main__":
     if envfile.validate(values):
         raise SystemExit("✗ run `python3 envfile.py check` first")
     install(Path(sys.argv[1]), values)
-    print("✓ homeserver.yaml configured: Postgres, invite-only sign-up")
+    print("✓ homeserver.yaml configured: Postgres, invite-only sign-up, Welcome room")

@@ -2,7 +2,7 @@
 import unittest
 
 import envfile
-from configure_synapse import configure
+from configure_synapse import configure, set_keys, welcome_settings
 
 GENERATED = """server_name: "matrix.example.org"
 database:
@@ -30,6 +30,22 @@ class Configure(unittest.TestCase):
         self.assertEqual(out.count("enable_registration:"), 1)            # replaced, not appended twice
         self.assertIn("url_preview_enabled: false", out)
         self.assertIn('public_baseurl: "https://matrix.example.org/"', out)
+
+    def test_new_accounts_join_the_private_welcome_room_pm_owns(self):
+        out = configure(GENERATED, ENV)
+        self.assertIn('auto_join_rooms: ["#welcome:matrix.example.org"]', out)
+        self.assertIn("autocreate_auto_join_rooms: true", out)
+        self.assertIn("auto_join_mxid_localpart: pm", out)
+        self.assertIn("autocreate_auto_join_room_preset: private_chat", out)
+        self.assertIn("auto_join_rooms_for_guests: false", out)
+        self.assertEqual(out.count("\nauto_join_rooms:"), 1)
+
+    def test_set_keys_replaces_in_place_and_appends_once(self):
+        text = "a: 1\nb: 2"                                   # no final newline: the new key gets its own line
+        out = set_keys(text, {"a": "9", "c": "3"})
+        self.assertEqual(out, "a: 9\nb: 2\nc: 3\n")
+        self.assertEqual(set_keys(out, {"a": "9", "c": "3"}), out)
+        self.assertEqual(welcome_settings("x.org")["auto_join_rooms"], '["#welcome:x.org"]')
 
     def test_refuses_an_unexpected_file(self):
         with self.assertRaises(SystemExit):

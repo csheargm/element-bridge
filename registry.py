@@ -2,10 +2,13 @@
 and setup. One line per person, e.g. {"anna": {"agent": "hermes", "dm": "!room:server"}}."""
 import json
 import os
+import re
 from pathlib import Path
 
 PATH = Path(os.environ.get("HAGENCY_AGENTS", Path(__file__).parent / "agents.json"))
-DEFAULT = {"anna": {}, "betty": {}}   # before anyone has onboarded: start.sh's --agent applies
+DEFAULT = {"anna": {}, "betty": {}}
+NAME_RE = re.compile(r"^[a-z][a-z0-9]{1,23}$")   # a person who can have an agent here (anna, newbie1)
+REMOTE = "remote"                    # their agent runs on their own computer (connect.py), not here   # before anyone has onboarded: start.sh's --agent applies
 
 
 def load() -> dict:

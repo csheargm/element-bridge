@@ -150,14 +150,14 @@ class Chat:
         await self.start_plan(room, sender)
         return True
 
-    async def offer_thumb(self, room_id: str, event_id: str) -> None:
-        """Put a 👍 under my own question, so approving is one click on it (my own reaction never counts:
-        is_person skips me). Best effort on purpose: typing "ok" or reacting yourself still works."""
+    async def offer_thumb(self, room_id: str, event_id: str, key: str = "👍") -> None:
+        """Put a 👍 (or another button) under my own question, so answering is one click on it (my own
+        reaction never counts: is_person skips me). Best effort on purpose: typing still works."""
         try:
             await self.client.room_send(room_id, "m.reaction", {"m.relates_to": {
-                "rel_type": "m.annotation", "event_id": event_id, "key": "👍"}})
+                "rel_type": "m.annotation", "event_id": event_id, "key": key}})
         except Exception as e:                 # noqa: BLE001 — a missing shortcut must not lose the question
-            log.warning("couldn't add the 👍 shortcut in %s: %s", room_id, e)
+            log.warning("couldn't add the %s shortcut in %s: %s", key, room_id, e)
 
     async def on_reaction(self, room: MatrixRoom, event: ReactionEvent) -> None:
         wanted = self.pending.get(room.room_id, {}).get("event_id")

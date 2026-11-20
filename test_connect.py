@@ -1,0 +1,108 @@
+"""Unit tests: an agent run from a person's own computer (connect.py, bridge_config.py), and the
+server leaving it alone (supervise.py, setup_accounts.py). Run: .venv/bin/python -m unittest test_connect"""
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+import bridge_config
+import connect
+import hermes_profile
+import registry
+import supervise
+
+CREDS = {"homeserver": "https://matrix.example.org", "user_id": "@newbie1-agent:example.org",
+         "password": "s3cret", "owner": "newbie1"}
+
+
+def write(data) -> str:
+    path = Path(tempfile.mkdtemp()) / "credentials.json"
+    path.write_text(json.dumps(data))
+    return str(path)
+
+
+class Config(unittest.TestCase):
+    def test_no_file_means_this_server(self):
+        self.assertEqual(bridge_config.load_credentials(None), {})
+
+    def test_a_good_file_is_read(self):
+        self.assertEqual(bridge_config.load_credentials(write(CREDS))["owner"], "newbie1")
+
+    def test_bad_files_stop_with_a_plain_message(self):
+        for bad in ({**CREDS, "password": ""}, {**CREDS, "owner": "mallory"}, [1], "x"):
+            with self.assertRaises(SystemExit):
+                bridge_config.load_credentials(write(bad))
+        with self.assertRaises(SystemExit):
+            bridge_config.load_credentials("/nonexistent/credentials.json")
+
+    def test_a_bridge_started_with_the_file_uses_its_server_and_password(self):
+        code = ("import bridge, bridge_config as c; "
+                "print(c.HOMESERVER, c.SERVER_NAME, bridge.Bridge('newbie1', 'codex').owner_id, c.agent_password('newbie1'))")
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                             cwd=Path(__file__).parent, env={**os.environ, "HAGENCY_CREDENTIALS": write(CREDS)}).stdout
+        self.assertEqual(out.split(), ["https://matrix.example.org", "example.org", "@newbie1:example.org", "s3cret"])
+
+    def test_the_file_is_only_for_its_owner(self):
+        with mock.patch.object(bridge_config, "CREDENTIALS", CREDS):
+            with self.assertRaises(SystemExit):
+                bridge_config.agent_password("anna")
+
+
+class Connect(unittest.TestCase):
+    def test_passwords_travel_over_https_or_stay_on_this_computer(self):
+        for ok in ("https://rooms.example.org", "http://localhost:8650", "http://127.0.0.1:8650"):
+            self.assertTrue(connect.safe_url(ok), ok)
+        for bad in ("http://rooms.example.org", "ftp://x", "__HAGENCY_CONSOLE__", ""):
+            self.assertFalse(connect.safe_url(bad), bad)
+
+    def test_saved_only_for_me(self):
+        path = Path(tempfile.mkdtemp()) / "h" / "credentials.json"
+        connect.save(path, CREDS)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+        self.assertEqual(json.loads(path.read_text()), CREDS)
+
+    def test_which_cli(self):
+        self.assertEqual(connect.pick_backend("claude", "codex"), "claude")
+        self.assertEqual(connect.pick_backend(None, "codex"), "codex")
+        with mock.patch.object(connect.shutil, "which", lambda b: b == "claude"):
+            self.assertEqual(connect.pick_backend(None, None), "claude")
+        with mock.patch.object(connect.shutil, "which", lambda b: None), self.assertRaises(SystemExit):
+            connect.pick_backend(None, None)
+        with mock.patch.object(connect.shutil, "which", lambda b: True), \
+                mock.patch.object(connect.sys.stdin, "isatty", lambda: True):
+            answers = iter(["hermes", "Codex"])
+            self.assertEqual(connect.pick_backend(None, None, ask=lambda _: next(answers)), "codex")
+
+    def test_an_odd_answer_from_the_server_is_not_saved(self):
+        for bad in ({**CREDS, "homeserver": "http://evil.example"}, {**CREDS, "user_id": "@anna:example.org"},
+                    {**CREDS, "owner": "anna"}, {"error": "x"}):
+            response = mock.MagicMock()
+            response.__enter__.return_value.read.return_value = json.dumps(bad).encode()
+            with mock.patch.object(connect.urllib.request, "urlopen", return_value=response), self.assertRaises(SystemExit):
+                connect.redeem("http://localhost:8650", "ABCDE-FGHJK")
+
+
+class ServerLeavesItAlone(unittest.TestCase):
+    def test_supervisor_skips_remote_agents(self):
+        with mock.patch.object(registry, "load", return_value={"newbie1": {"agent": "remote"}, "betty": {"agent": "claude"}}), \
+                mock.patch.object(hermes_profile, "set_repos"):
+            names = [k.name for k in supervise.children("codex", False)]
+        self.assertEqual(names, ["betty-agent", "pm"])
+
+    def test_people_who_signed_up_themselves_stay_out_of_setup(self):
+        reg = Path(tempfile.mkdtemp()) / "agents.json"
+        reg.write_text(json.dumps({"anna": {}, "newbie1": {"agent": "remote"}}))
+        code = "import setup_accounts as s; print(' '.join(s.USERS))"
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                             cwd=Path(__file__).parent, env={**os.environ, "HAGENCY_AGENTS": str(reg)}).stdout
+        self.assertEqual(out.split(), ["anna", "anna-agent", "pm"])
+
+
+if __name__ == "__main__":
+    unittest.main()

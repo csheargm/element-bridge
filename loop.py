@@ -34,6 +34,7 @@ from saved_dict import SavedDict
 from pm_plan import Planner
 from pm_understand import Understanding
 from pm_voice import Voice
+from pm_welcome import Welcome
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -52,7 +53,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice):
+class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice, Welcome):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -136,7 +137,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
             await self.guarded(self.take_result(room, event.sender, result))
         elif self.is_person(room, event.sender):
             try:
-                await self.on_human(room, event)
+                await self.on_welcome_text(room, event) or await self.on_human(room, event)   # pm_welcome.py first
             except (SendError, github.GitHubError) as e:
                 log.error("couldn't answer %s: %s", event.sender, e)
                 try:
@@ -147,7 +148,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
     async def on_reaction_event(self, room: MatrixRoom, event: ReactionEvent) -> None:
         if not is_stale(event, self.started_ms) and self.is_person(room, event.sender):
             try:
-                await self.on_reaction(room, event)
+                await self.on_welcome_reaction(room, event) or await self.on_reaction(room, event)
             except SendError as e:
                 log.error("couldn't confirm for %s: %s", event.sender, e)   # they can react again
 
@@ -247,9 +248,11 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
             lambda: (self.client.add_event_callback(self.on_message, RoomMessageText),
                      self.client.add_event_callback(self.on_reaction_event, ReactionEvent),
                      self.client.add_event_callback(self.on_voice, RoomMessageAudio),
-                     self.client.add_event_callback(self.on_member, RoomMemberEvent)),
+                     self.client.add_event_callback(self.on_member, RoomMemberEvent),
+                     self.client.add_event_callback(self.on_welcome_member, RoomMemberEvent)),
             lambda ms: setattr(self, "started_ms", ms))
         log.info("pm online (one repo per room; poll %ss)", POLL_S)
+        await self.ensure_welcome_room()     # pm_welcome.py: where every new account starts
         await panel.start(self)              # the side panel (panel.py); never fatal
         await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())
 

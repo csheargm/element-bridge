@@ -11,16 +11,15 @@ import re
 import secrets
 import urllib.error
 import urllib.request
-from pathlib import Path
+import urllib.parse
 
 import registry
+from bridge_config import HOMESERVER as HS, ROOT, SERVER_NAME, read_env
 from github import LEVEL_EVENT, PM_BOT, REPO
 from room_state import content
-
-ROOT = Path(__file__).parent
-HS = "http://127.0.0.1:8648"
-SERVER_NAME = "bridge.localhost"
-PEOPLE = sorted(registry.load())                 # each gets a <person>-agent (onboard.py adds people)
+# each gets a <person>-agent (onboard.py adds people). People who signed up themselves and brought
+# their own agent (pm_welcome.py: "remote") have accounts we didn't create and stay out of the Lounge.
+PEOPLE = sorted(p for p, v in registry.load().items() if v.get("agent") != registry.REMOTE)
 # Bot → exact power level. @pm is the room's one bot: it writes the room's mode and pins its
 # status board, so it is a moderator (state events need 50); people decide, it applies.
 BOTS = {"pm": 50}
@@ -45,55 +44,85 @@ def api(method, path, body=None, token=None):
 
 
 def load_env():
-    env_path = ROOT / ".env"
-    env = {}
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if "=" in line and not line.startswith("#"):
-                k, v = line.split("=", 1)
-                env[k] = v
-    return env
+    return read_env() if (ROOT / ".env").exists() else {}
 
 
 def save_env(env):
     lines = [f"{k}={v}" for k, v in env.items()]
     path = ROOT / ".env"
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never world-readable
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")      # @pm writes it too (pm_welcome.py): readers never see half
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # never world-readable
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")
-    path.chmod(0o600)
+    os.replace(tmp, path)
 
 
-def register(user, password, shared_secret):
+class AccountError(RuntimeError):
+    """The homeserver refused to create or sign in an account."""
+
+
+def shared_secret() -> str:
+    """Synapse's registration secret, read from its config (never printed)."""
+    yaml = (ROOT / "data" / "homeserver.yaml").read_text()
+    return re.search(r'^registration_shared_secret: "?([^"\n]+)"?', yaml, re.M).group(1)
+
+
+def password_key(user: str) -> str:
+    return "PW_" + user.upper().replace("-", "_")
+
+
+def ensure_user(env: dict, user: str, secret: str, admin: bool = False) -> tuple[str, bool]:
+    """(password, created now) for `user`: a generated password saved to .env BEFORE registering, so
+    a failed register can be retried. Raises AccountError if the homeserver refuses."""
+    key = password_key(user)
+    if key in env:
+        return env[key], False
+    env[key] = secrets.token_urlsafe(18)
+    save_env(env)
+    r = register(user, env[key], secret, admin)
+    if "_status" in r:
+        raise AccountError(f"couldn't create @{user}: {r.get('errcode')} {r.get('error')}")
+    return env[key], True
+
+
+def register(user, password, shared_secret, admin=False):
     nonce = api("GET", "/_synapse/admin/v1/register")["nonce"]
     mac = hmac.new(shared_secret.encode(), digestmod=hashlib.sha1)
-    mac.update(b"\x00".join([nonce.encode(), user.encode(), password.encode(), b"notadmin"]))
+    mac.update(b"\x00".join([nonce.encode(), user.encode(), password.encode(), b"admin" if admin else b"notadmin"]))
     return api("POST", "/_synapse/admin/v1/register",
-               {"nonce": nonce, "username": user, "password": password, "mac": mac.hexdigest(), "admin": False})
+               {"nonce": nonce, "username": user, "password": password, "mac": mac.hexdigest(), "admin": admin})
+
+
+def try_login(user, password) -> str | None:
+    r = api("POST", "/_matrix/client/v3/login",
+            {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": user}, "password": password})
+    return r.get("access_token")
 
 
 def login(user, password):
-    r = api("POST", "/_matrix/client/v3/login",
-            {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": user}, "password": password})
-    if "access_token" not in r:
-        raise SystemExit(f"login failed for {user}: {r.get('errcode')}")
-    return r["access_token"]
+    token = try_login(user, password)
+    if not token:
+        raise SystemExit(f"login failed for {user}")
+    return token
+
+
+def mark_direct(token: str, user_id: str, other: str, room: str) -> None:
+    """Record `room` as user_id's DM with `other` (m.direct), so clients show it as a direct chat."""
+    path = f"/_matrix/client/v3/user/{urllib.parse.quote(user_id)}/account_data/m.direct"
+    direct = {k: v for k, v in api("GET", path, token=token).items() if not k.startswith("_") and k not in ("errcode", "error")}
+    if room not in direct.get(other, []):
+        direct[other] = [*direct.get(other, []), room]
+        api("PUT", path, direct, token=token)
 
 
 def main():
-    yaml = (ROOT / "data" / "homeserver.yaml").read_text()
-    shared_secret = re.search(r'^registration_shared_secret: "?([^"\n]+)"?', yaml, re.M).group(1)
-    env = load_env()
+    secret, env = shared_secret(), load_env()
     for user in USERS:
-        key = "PW_" + user.upper().replace("-", "_")
-        if key not in env:
-            env[key] = secrets.token_urlsafe(18)
-            save_env(env)   # persist before registering so a partial failure isn't unrecoverable
-            r = register(user, env[key], shared_secret)
-            if "_status" in r:
-                raise SystemExit(f"register {user} failed: {r.get('errcode')} {r.get('error')}")
-            print(f"created @{user}:{SERVER_NAME}")
-    save_env(env)
+        try:
+            if ensure_user(env, user, secret)[1]:
+                print(f"created @{user}:{SERVER_NAME}")
+        except AccountError as e:
+            raise SystemExit(str(e)) from e
 
     room_id = ensure_room(env, ROOM_ALIAS, "Lounge")
     print(f"room ready: #{ROOM_ALIAS}:{SERVER_NAME} ({room_id}); passwords in .env")

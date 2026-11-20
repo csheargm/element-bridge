@@ -65,7 +65,7 @@ class Progress:
     # --- polling: pick up issues, check GitHub's merge verdict -------------------------
     async def tick(self) -> None:
         issues_of: dict[str, list] = {}               # one GitHub call per repo per poll
-        for room_id, room in self.client.rooms.items():
+        for room_id, room in list(self.client.rooms.items()):   # a room joined mid-tick waits for the next one
             repo = await room_state.repo_of(self.client, room_id)
             if repo is None:
                 self.room_repos.pop(room_id, None)
