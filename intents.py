@@ -22,8 +22,14 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
     (HELP, r"\b(help|what can you do|how do (i|we) use you)\b"),
 ]
 _COMPILED = [(intent, re.compile(rx, re.I)) for intent, rx in _RULES]
-YES_RE = re.compile(r"^\s*(yes|yep|yeah|confirm(ed)?|go|do it|ok(ay)?|sure|✅|👍)\W*\s*$", re.I)
-CONFIRM_REACTIONS = ("✅", "👍", "✔️")
+YES_RE = re.compile(r"^\s*(yes|yep|yeah|confirm(ed)?|go|do it|ok(ay)?|sure|✅|👍|👌)\W*\s*$", re.I)
+CONFIRM_REACTIONS = ("✅", "✔", "☑", "👍", "👌", "🆗", "💯")
+
+
+def is_confirm_reaction(key: str) -> bool:
+    """Any common "OK" emoji, ignoring skin tones and the emoji/text variation selectors."""
+    base = "".join(ch for ch in key if ch not in "\ufe0f\ufe0e" and not 0x1F3FB <= ord(ch) <= 0x1F3FF)
+    return base in CONFIRM_REACTIONS
 
 
 def classify(text: str) -> str:

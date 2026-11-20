@@ -34,6 +34,13 @@ class Intents(unittest.TestCase):
         self.assertEqual(intents.classify("just get it done but check with us before merging"), intents.ASSIST)
         self.assertEqual(intents.classify("take it all the way, actually no, stop"), intents.OFF)
 
+    def test_any_ok_emoji_confirms(self):
+        """Seen live: anna reacted 👌, which wasn't accepted."""
+        for key in ("✅", "👌", "👍🏽", "✔️", "☑️", "🆗"):
+            self.assertTrue(intents.is_confirm_reaction(key), key)
+        for key in ("❤️", "👎", "😂"):
+            self.assertFalse(intents.is_confirm_reaction(key), key)
+
     def test_yes(self):
         for t in ("yes", "Yes!", "✅", "ok", "do it"):
             self.assertTrue(intents.is_yes(t), t)

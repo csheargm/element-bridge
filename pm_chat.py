@@ -55,7 +55,7 @@ class Chat:
 
     async def on_reaction(self, room: MatrixRoom, event: ReactionEvent) -> None:
         wanted = self.pending.get(room.room_id, {}).get("event_id")
-        if event.key in intents.CONFIRM_REACTIONS and event.reacts_to == wanted:
+        if intents.is_confirm_reaction(event.key) and event.reacts_to == wanted:
             await self.confirm(room, event.sender)
 
     async def act(self, room: MatrixRoom, sender: str, intent: str) -> None:
