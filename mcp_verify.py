@@ -1,6 +1,7 @@
 """hagency MCP tools for "is this issue already done?": the builder found nothing to change, so a
 second person's agent checks the repo (read-only) and, once confirmed, the builder closes the issue.
 The same steps the Codex/Claude bridge runs in tasks.verify / tasks.close."""
+import os
 from pathlib import Path
 
 import mcp_core as core
@@ -12,7 +13,12 @@ from mcp_core import AGENT, claim, mcp, report, safely
 def repo_text(tree: Path) -> str:
     """Every text file in the clone, path first; refuses what can't be read in full."""
     parts, size = [], 0
-    for p in sorted(x for x in tree.rglob("*") if x.is_file() and ".git" not in x.relative_to(tree).parts):
+    for p in sorted(Path(d) / f for d, dirs, files in os.walk(tree) for f in files):   # never follows links
+        if ".git" in p.relative_to(tree).parts:
+            continue
+        if p.is_symlink():                         # a link could point anywhere on this computer
+            parts.append(f"=== {p.relative_to(tree)} ===\n(a symbolic link; not followed)")
+            continue
         try:
             body = p.read_text()
         except (UnicodeDecodeError, OSError):

@@ -53,6 +53,10 @@ class HermesVerifies(unittest.TestCase):
         (tree / "index.html").write_text("<h1>Habari!</h1>")
         (tree / ".git").mkdir()
         (tree / ".git" / "config").write_text("secret-ish")
+        outside = Path(tempfile.mkdtemp()) / "id_rsa"
+        outside.write_text("PRIVATE-KEY")
+        (tree / "key").symlink_to(outside)                   # a planted link out of the clone
+        (tree / "dir").symlink_to(outside.parent, target_is_directory=True)
 
         async def material(agent, base, task):
             return 7, tree, "Check issue #7."
@@ -62,6 +66,7 @@ class HermesVerifies(unittest.TestCase):
             got = asyncio.run(m.get_verify("V"))
         self.assertIn("Habari!", got["instructions"])
         self.assertNotIn("secret-ish", got["instructions"])                                # .git is never shown
+        self.assertNotIn("PRIVATE-KEY", got["instructions"])                               # links aren't followed
         asyncio.run(m.submit_verify("V", True, "every criterion met"))
         self.assertEqual((self.posted[-1]["kind"], self.posted[-1]["verdict"]), ("verify", "approve"))
 
