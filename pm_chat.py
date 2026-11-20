@@ -3,7 +3,8 @@
 decides what is allowed:
   - stop: anyone in the room, at once, no confirmation (the safe direction is always open);
   - assist: the room owner or a maintainer;
-  - autonomous: the owner or a maintainer, and only after a ✅ (reaction or "yes") within 5 min.
+  - autonomous: the owner or a maintainer, at once (they asked in plain words; "stop" undoes it);
+  - turning the discussion into issues: the plan needs a ✅ from whoever asked for it.
 `!help`, `!status`, `!level …` still work as shortcuts for people who like commands.
 Mixed into loop.Loop (client, user_id, say, level, boards, agents_in, start_plan, file_plan).
 """
@@ -22,7 +23,7 @@ LEVEL_WORDS = {"off": "stopped: no new work is handed out and nothing is merged"
                "assist": "assist: agents build and review; a person merges each change",
                "autonomous": "autonomous: agents build, review and merge on their own"}
 HELP = ("Talk to me in plain words, for example:\n"
-        "- **@pm take it all the way**: agents build, review and merge on their own (owner or maintainer, with ✅)\n"
+        "- **@pm take it all the way**: agents build, review and merge on their own (owner or maintainer)\n"
         "- **@pm let us approve each change**: agents stop at each change for a person to merge\n"
         "- **@pm stop**: no new work and no merges, right away (anyone)\n"
         "- **@pm where are we?**: what's happening now\n"
@@ -90,10 +91,10 @@ class Chat:
         elif intent == intents.ASSIST:
             await self.say(rid, await self.change_level(rid, "assist") or
                            "OK: agents build and review, and each change waits for a person to merge it.")
-        elif intent == intents.AUTONOMOUS:
-            event_id = await self.say(rid, "Got it: I'll run this to the end on my own. Agents build, review "
-                                           "and merge without asking. Say \"stop\" anytime. ✅ to confirm?")
-            self.pending[rid] = {"event_id": event_id, "until": time.time() + CONFIRM_S, "by": sender}
+        elif intent == intents.AUTONOMOUS:   # an explicit phrase from the owner/maintainer: no extra ✅
+            await self.say(rid, await self.change_level(rid, "autonomous") or
+                           "Running on my own now: agents build, review and merge without asking. "
+                           "Say \"stop\" anytime.")
         elif intent == intents.SHOW_PLAN:
             await self.show_plan(rid)
         elif intent == intents.STATUS:

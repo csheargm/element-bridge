@@ -2,7 +2,7 @@
 no agents needed. Stop ./start.sh first (this starts its own @pm). Run: .venv/bin/python test_pm_e2e.py
 
 - "where are we?" answers with the mode; anyone can ask.
-- betty (a contributor) can't switch to autonomous; anna (the owner) can, but only after her ✅.
+- betty (a contributor) can't switch to autonomous; anna (the owner) can, by saying so.
 - betty can stop everything at once.
 """
 import os
@@ -25,11 +25,6 @@ PM = f"@pm:{SERVER_NAME}"
 def level(token, room_id):
     path = f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/state/{github.LEVEL_EVENT}/"
     return api("GET", path, token).get("level")
-
-
-def react(token, room_id, event_id, key):
-    api("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/send/m.reaction/r{time.time_ns()}", token,
-        {"m.relates_to": {"rel_type": "m.annotation", "event_id": event_id, "key": key}})
 
 
 def pm_says(token, room_id, words, ts):
@@ -60,21 +55,8 @@ def main():
 
         ts = int(time.time() * 1000)
         send(anna, room_id, "@pm take it all the way to the end", PM)
-        proposal = [e for e in api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/messages?dir=b&limit=10",
-                                   anna)["chunk"] if e["sender"] == PM and "✅ to confirm" in e["content"].get("body", "")]
-        deadline = time.time() + 30
-        while not proposal and time.time() < deadline:
-            time.sleep(1)
-            proposal = [e for e in api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/messages?dir=b&limit=10",
-                                       anna)["chunk"] if e["sender"] == PM and "✅ to confirm" in e["content"].get("body", "")
-                        and e["origin_server_ts"] >= ts]
-        check("owner's request waits for a ✅", bool(proposal) and level(anna, room_id) == "off")
-        react(betty, room_id, proposal[0]["event_id"], "✅")
-        time.sleep(4)
-        check("a contributor's ✅ doesn't count", level(anna, room_id) == "off")
-        react(anna, room_id, proposal[0]["event_id"], "✅")
         pm_says(anna, room_id, "Running on my own now", ts)
-        check("owner's ✅ switches to autonomous", level(anna, room_id) == "autonomous")
+        check("the owner's plain request switches to autonomous at once", level(anna, room_id) == "autonomous")
 
         ts = int(time.time() * 1000)
         send(betty, room_id, "@pm kill all the AI", PM)

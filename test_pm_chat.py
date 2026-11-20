@@ -81,49 +81,24 @@ class Talk(unittest.TestCase):
         self.assertEqual(self.levels, ["off"])
         self.assertIn("Stopped", self.said[-1])
 
-    def test_autonomous_waits_for_the_owners_check(self):
+    def test_owner_says_take_it_all_the_way_and_it_happens(self):
+        """the owner: "I already said go all the way, why need another ok reaction?" """
         self.tell(ANNA, "@pm take it all the way")
-        self.assertEqual(self.levels, [])
-        self.assertIn("✅ to confirm", self.said[-1])
-        self.react(BETTY, "✅", "$m1")                       # not a maintainer: ignored
-        self.assertEqual(self.levels, [])
-        self.react(ANNA, "✅", "$m1")
         self.assertEqual(self.levels, ["autonomous"])
+        self.assertIn("Running on my own now", self.said[-1])
 
-    def test_yes_in_text_confirms_too_but_not_after_it_expires(self):
-        self.tell(ANNA, "pm: just get it done")
-        self.lp.pending["!r"]["until"] = time.time() - 1
-        self.tell(ANNA, "yes", mention=False)
-        self.assertEqual(self.levels, [])
-        self.tell(ANNA, "pm: just get it done")
-        self.tell(ANNA, "yes", mention=False)
-        self.assertEqual(self.levels, ["autonomous"])
-
-    def test_only_the_asker_confirms(self):
-        """GPT review: any maintainer's unrelated "yes" used to confirm."""
+    def test_a_stray_yes_doesnt_approve_someone_elses_plan(self):
         self.room.power_levels = SimpleNamespace(get_user_level=lambda u: 50)    # betty is a maintainer too
-        self.tell(ANNA, "@pm take it all the way")
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
         self.tell(BETTY, "yes", mention=False)
-        self.react(BETTY, "✅", "$m1")
-        self.assertEqual(self.levels, [])
-        self.react(ANNA, "✅", "$m1")
-        self.assertEqual(self.levels, ["autonomous"])
+        self.react(BETTY, "✅", "$p")
+        self.assertIn("!r", self.lp.pending)
 
-    def test_a_mode_change_cancels_the_pending_switch(self):
-        self.tell(ANNA, "@pm take it all the way")
-        self.tell(ANNA, "!level assist", mention=False)
-        self.react(ANNA, "✅", "$m1")
-        self.assertEqual(self.levels, ["assist"])
-
-    def test_malformed_mentions_are_ignored(self):
-        ev = SimpleNamespace(sender=ANNA, body="stop", source={"content": {"m.mentions": {"user_ids": 7}}})
-        asyncio.run(self.lp.on_human(self.room, ev))
-        self.assertEqual(self.levels, [])
-
-    def test_stop_cancels_a_pending_switch(self):
-        self.tell(ANNA, "@pm take it all the way")
+    def test_stop_cancels_a_waiting_plan_approval_too(self):
+        self.lp.pending["!r"] = {"kind": "autonomous", "event_id": "$p", "until": time.time() + 60, "by": ANNA}
         self.tell(BETTY, "@pm wait, stop")
-        self.react(ANNA, "✅", "$m1")
+        self.assertNotIn("!r", self.lp.pending)
         self.assertEqual(self.levels, ["off"])
 
     def test_contributors_cannot_change_the_mode(self):

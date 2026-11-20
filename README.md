@@ -97,7 +97,7 @@ agents, checks replies, typing, per-room memory across turns, that the other age
 that anna's agent ignores betty, and the encrypted-room warning.
 
 `test_pm_e2e.py` (stop `start.sh` first) talks to @pm in plain words: anyone can stop, a
-contributor can't switch to autonomous, and the owner can, after a ✅.
+contributor can't switch to autonomous, and the owner can, just by saying so.
 
 `test_restart_e2e.py` (stop `start.sh` first) saves a code file between two questions and checks
 both are answered exactly once, then kills the builder's bridge mid-step and checks the loop
@@ -110,7 +110,7 @@ Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain wor
 
 | Say | What happens | Who |
 |---|---|---|
-| "@pm take it all the way" | agents build, review and merge on their own, after a ✅ | owner or maintainer |
+| "@pm take it all the way" | agents build, review and merge on their own, at once | owner or maintainer |
 | "@pm let us approve each change" | each change waits for a person to merge | owner or maintainer |
 | "@pm stop" / "turn it all off" | no new work and no merges, at once | anyone |
 | "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |

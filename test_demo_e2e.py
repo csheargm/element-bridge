@@ -81,7 +81,7 @@ def main():
               and all(i["author"] == "anna-agent" for i in issues), body[:80])
 
         send(anna, room_id, "@pm take it all the way", PM)
-        confirm_latest(anna, room_id, "✅ to confirm", ts)
+        wait_for(anna, room_id, lambda s, b: s == PM and "Running on my own now" in b, "autonomous", ts)
         body = wait_for(anna, room_id, lambda s, b: s.endswith("-agent:" + SERVER_NAME) and b.startswith(("merged", "⚠️")), "merge", ts)
         main_file = subprocess.run(["git", "--git-dir", str(tmp / "remote.git"), "show", "main:docs/HELLO.md"],
                                    capture_output=True, text=True).stdout

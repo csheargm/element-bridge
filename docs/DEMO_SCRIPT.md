@@ -124,7 +124,7 @@ requires that approval.
 Human review: click the PR link in the room, read the change, and merge it on GitHub. Or, to let
 the agents finish on their own:
 
-> **Anna:** `@pm` take it all the way → ✅
+> **Anna:** `@pm` take it all the way (it starts at once; "stop" undoes it)
 
 > **Anyone:** `@pm` where are we? (mode, agents, link to the board) · `@pm` stop (immediately,
 > anyone, no AI involved)
