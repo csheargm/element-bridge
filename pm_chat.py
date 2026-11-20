@@ -12,17 +12,18 @@ import asyncio
 import re
 import time
 
-from nio import MatrixRoom, ReactionEvent, RoomGetEventResponse, RoomMessageText
+from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
 import github
 import intents
+import logging
+
 import pm_brain
 from saved_dict import SavedDict
 import room_state
 
+log = logging.getLogger("loop")
 CONFIRM_S = 300
-BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": intents.AUTONOMOUS,
-                 "plan": intents.PLAN, "show_plan": intents.SHOW_PLAN, "status": intents.STATUS}
 NOTE_WORDS = 6               # a longer message to @pm that isn't a command is a requirement, not noise
 LEVEL_WORDS = {"off": "stopped: no new work is handed out and nothing is merged",
                "assist": "assist: agents build and review; a person merges each change",
@@ -53,6 +54,7 @@ def without_quote(body: str) -> str:
 
 
 class Chat:
+    generation: dict                     # room → bumped by "stop" (cancels in-flight decisions)
     pending: dict           # room → the autonomous switch waiting for a ✅
 
     def addressed_text(self, event: RoomMessageText) -> str | None:
@@ -77,16 +79,23 @@ class Chat:
             if (reply_to in (None, waiting)) and await self.confirm(room, sender):
                 return                # "yes", "@pm ok", or ok in a reply to the question: confirms it
             if text is not None:      # an OK meant for me, but nothing (or something else) is waiting
-                await self.answer_stale_ok(room.room_id, reply_to)
+                await self.answer_stale_ok(room.room_id, reply_to, sender)
                 return
         if text is None:
             return
         intent = intents.classify(text)
-        if intent != intents.OFF:             # "stop" never waits for a model
-            decision = await self.think(room, sender, text, reply_to)
-            if decision is not None:
-                await self.apply(room, sender, *decision, reply_to)
-                return
+        if intent == intents.OFF or pm_brain.BRAIN == "off":
+            await self.by_rules(room, sender, text, intent)    # "stop" never waits for a model
+            return
+        # The model can take seconds: decide in the background so the sync loop (and a "stop"
+        # right behind this message) is never held up; a stop meanwhile cancels the decision.
+        gen = self.generation.get(room.room_id, 0)
+        job = asyncio.create_task(self.decide(room, sender, text, intent, reply_to, gen))
+        self.busy.add(job)
+        job.add_done_callback(self.busy.discard)
+
+    async def by_rules(self, room: MatrixRoom, sender: str, text: str, intent: str) -> None:
+        """The phrase rules (intents.py): the fast path for "stop", and the fallback for the model."""
         if intent == intents.UNKNOWN and await self.revise_plan(room, sender):
             return
         if intent == intents.UNKNOWN and len(text.split()) >= NOTE_WORDS:
@@ -94,55 +103,6 @@ class Chat:
                                          "discussion into work.")    # it is part of the discussion that gets planned
             return
         await self.act(room, sender, intent)
-
-    async def think(self, room: MatrixRoom, sender: str, text: str, reply_to: str | None) -> tuple | None:
-        """Ask the understanding step (pm_brain.py) with the room's context; None means use the rules."""
-        if pm_brain.BRAIN == "off":
-            return None
-        rid = room.room_id
-        waiting = self.pending.get(rid)
-        plan = self.last_plans.get(rid, {}).get("items", []) if hasattr(self, "last_plans") else []
-        ctx = {"repo": github.REPO, "mode": await self.level(rid), "sender": sender.split(":")[0].lstrip("@"),
-               "role": "owner or maintainer" if await room_state.is_moderator(self.client, room, sender) else "contributor",
-               "waiting": (f"{waiting.get('kind') or 'autonomous'} (asked by {str(waiting.get('by', '')).split(':')[0]})"
-                           if waiting else "nothing"),
-               "plan": "; ".join(i["title"] for i in plan) or "none",
-               "board": self.boards.get(rid, {}).get("text", "(none yet)"),
-               "transcript": await asyncio.to_thread(self.discussion, rid, True),
-               "replied": await self.replied_text(rid, reply_to), "text": text}
-        await self.client.room_typing(rid, True, timeout=30_000)
-        try:
-            return await pm_brain.understand(ctx)
-        finally:
-            await self.client.room_typing(rid, False)
-
-    async def replied_text(self, room_id: str, event_id: str | None) -> str:
-        if not event_id:
-            return ""
-        r = await self.client.room_get_event(room_id, event_id)
-        if not isinstance(r, RoomGetEventResponse):
-            return ""
-        what = self.outcomes().get(event_id)
-        body = without_quote(getattr(r.event, "body", "") or "")[:1500]
-        return f"{r.event.sender.split(':')[0].lstrip('@')}: {body}" + (f"\n(@pm's note: this was {what})" if what else "")
-
-    async def apply(self, room: MatrixRoom, sender: str, action: str, reply: str, reply_to: str | None) -> None:
-        """Code decides: the model's action goes through the same permission checks as the rules."""
-        rid = room.room_id
-        if action == "approve":
-            if not await self.confirm(room, sender):
-                waiting = self.pending.get(rid)
-                if waiting and waiting.get("by") not in (None, sender):
-                    await self.say(rid, "Only the person who asked for it can approve that one.")
-                else:
-                    await self.answer_stale_ok(rid, reply_to)
-        elif action == "none":
-            await self.say(rid, reply or "Noted.")
-        elif action == "plan" and reply and await room_state.is_moderator(self.client, room, sender):
-            await self.say(rid, reply)        # a promise ("I'll draft…"), not a claim; then do it
-            await self.act(room, sender, intents.PLAN)
-        else:
-            await self.act(room, sender, BRAIN_ACTIONS[action])
 
     async def revise_plan(self, room: MatrixRoom, sender: str) -> bool:
         """A plan waits for ✅ and the owner/maintainer says what to change: plan again with it."""
@@ -162,6 +122,7 @@ class Chat:
     async def act(self, room: MatrixRoom, sender: str, intent: str) -> None:
         rid = room.room_id
         if intent == intents.OFF:                                 # never gated: stopping is always safe
+            self.generation[rid] = self.generation.get(rid, 0) + 1    # drop decisions still being thought about
             self.pending.pop(rid, None)
             await self.say(rid, await self.change_level(rid, "off") or
                            "Stopped. No new work is handed out and nothing is merged; steps already "
@@ -213,9 +174,10 @@ class Chat:
             await self.start_plan(room, sender)                 # planned with the confirming owner's agent
         elif p.get("kind") == "plan":
             await self.file_plan(room, p, sender)               # pm_plan.py
-        else:
-            await self.say(room.room_id, await self.change_level(room.room_id, "autonomous") or
-                           "Running on my own now. Say \"stop\" anytime.")
+        else:                                 # a mode switch asked about with ✅ (ask_mode)
+            level = p.get("level", "autonomous")
+            await self.say(room.room_id, await self.change_level(room.room_id, level) or
+                           f"OK — {LEVEL_WORDS[level]}. Say \"stop\" anytime.")
         return True
 
     def outcomes(self) -> dict:
@@ -229,10 +191,16 @@ class Chat:
         if event_id:
             self.outcomes()[event_id] = what
 
-    async def answer_stale_ok(self, room_id: str, reply_to: str | None) -> None:
+    async def answer_stale_ok(self, room_id: str, reply_to: str | None, sender: str = "") -> None:
         """An OK for something already settled (or for nothing): say what happened, never "didn't catch"."""
         done = self.outcomes().get(reply_to) if reply_to else None
-        first = f"That one is already taken care of: {done}." if done else "Nothing is waiting for your OK right now."
+        waiting = self.pending.get(room_id, {})
+        if done:
+            first = f"That one is already taken care of: {done}."
+        elif waiting.get("by") and waiting["by"] != sender:
+            first = f"That's waiting for {waiting['by'].split(':')[0].lstrip('@')} to approve."
+        else:
+            first = "Nothing is waiting for your OK right now."
         await self.say(room_id, f"{first} {await self.status_text(room_id)}")
 
     async def change_level(self, room_id: str, level: str) -> str | None:

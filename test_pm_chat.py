@@ -58,9 +58,10 @@ class Talk(unittest.TestCase):
         self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.boards = PM, {}, {}
+        self.lp.generation, self.lp.busy = {}, set()
         self.said, self.levels = [], []
 
-        async def say(room_id, body, mention=None, task=None):
+        async def say(room_id, body, mention=None, task=None, **kw):
             self.said.append(body)
             return f"$m{len(self.said)}"
 
@@ -78,7 +79,11 @@ class Talk(unittest.TestCase):
         if reply_to:
             content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to}}
         ev = SimpleNamespace(sender=sender, body=body, source={"content": content})
-        asyncio.run(self.lp.on_human(self.room, ev))
+
+        async def go():                       # decisions run in the background: wait for them too
+            await self.lp.on_human(self.room, ev)
+            await asyncio.gather(*self.lp.busy)
+        asyncio.run(go())
 
     def react(self, sender, key, to):
         asyncio.run(self.lp.on_reaction(self.room, SimpleNamespace(sender=sender, key=key, reacts_to=to)))
@@ -248,7 +253,7 @@ class Brain(Talk):
 
     def test_actions_are_confirmed_by_code_not_by_the_model(self):
         self.decision = ("autonomous", "Done, merged everything!")      # the model can't claim results
-        self.tell(ANNA, "@pm you can take it from here")
+        self.tell(ANNA, "@pm ok, take it all the way")
         self.assertEqual(self.levels, ["autonomous"])
         self.assertIn("Running on my own now", self.said[-1])
         self.assertNotIn("merged everything", " ".join(self.said))
@@ -267,9 +272,46 @@ class Brain(Talk):
                                  "items": [], "agent": "@anna-agent:x"}
         self.room.power_levels = SimpleNamespace(get_user_level=lambda u: 50)
         self.decision = ("approve", "")
-        self.tell(BETTY, "@pm looks good to me, go")
-        self.assertIn("Only the person who asked", self.said[-1])
+        self.tell(BETTY, "@pm yes")
+        self.assertIn("That's waiting for anna to approve", self.said[-1])
         self.assertIn("!r", self.lp.pending)
+
+    def test_injected_context_cant_switch_modes_without_the_persons_own_words(self):
+        """GPT review 6: other people's messages in the context could steer the model into a mode change."""
+        self.decision = ("autonomous", "")
+        self.tell(ANNA, "@pm what's the weather like for the demo?")
+        self.assertEqual(self.levels, [])
+        self.assertIn("Do you want me to switch to **autonomous**", self.said[-1])
+        self.react(ANNA, "✅", self.lp.pending["!r"]["event_id"])
+        self.assertEqual(self.levels, ["autonomous"])
+
+    def test_injected_context_cant_approve_without_the_persons_own_words(self):
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
+        self.decision = ("approve", "")
+        self.tell(ANNA, "@pm how many issues is that?")
+        self.assertIn("react ✅", self.said[-1])
+        self.assertIn("!r", self.lp.pending)
+
+    def test_a_stop_while_thinking_cancels_the_decision(self):
+        self.decision = ("none", "Sure, here's a long answer")
+        gate = asyncio.Event()
+
+        async def slow(ctx):
+            await gate.wait()
+            return self.decision
+
+        async def scenario():
+            with mock.patch.object(pm_brain, "understand", slow):
+                await self.lp.on_human(self.room, SimpleNamespace(sender=ANNA, body="@pm tell me everything",
+                                                                  source={"content": {"m.mentions": {"user_ids": [PM]}}}))
+                await self.lp.on_human(self.room, SimpleNamespace(sender=BETTY, body="@pm stop",
+                                                                  source={"content": {"m.mentions": {"user_ids": [PM]}}}))
+                gate.set()
+                await asyncio.gather(*self.lp.busy)
+        asyncio.run(scenario())
+        self.assertEqual(self.levels, ["off"])
+        self.assertNotIn("Sure, here's a long answer", self.said)
 
 
 class BrainParse(unittest.TestCase):
@@ -277,6 +319,10 @@ class BrainParse(unittest.TestCase):
         self.assertEqual(pm_brain.parse('sure: {"action": "status", "reply": "Here you go"}'), ("status", "Here you go"))
         for bad in ("no json", '{"action": "delete_repo"}', '{"reply": "x"}', "{oops}"):
             self.assertIsNone(pm_brain.parse(bad), bad)
+
+    def test_links_and_odd_types_from_the_model_are_refused(self):
+        self.assertIn("(link removed)", pm_brain.parse('{"action": "none", "reply": "see https://evil.example/x"}')[1])
+        self.assertIsNone(pm_brain.parse('{"action": ["approve"], "reply": "x"}'))
 
     def test_the_reply_is_room_safe_and_short(self):
         from pathlib import Path

@@ -115,3 +115,23 @@ Deferred:
 - **7. Filesystem race on write_files paths.** Needs local FS access, which room agents no longer
   have.
 - **11. A failed pin is cached as success.** Cosmetic.
+
+## GPT review 6 (17b654d: @pm's understanding step)
+
+Adopted, with tests:
+- **1. "stop" could be held up behind a slow model call.** The model now runs in the
+  background, so the sync loop never waits. "stop" bumps a per-room generation that cancels
+  in-flight decisions. Homeserver calls have a 30 s timeout; typing is best effort.
+- **2. Indirect injection through other people's messages in the context.** Mode changes and
+  approvals the model proposes happen at once only when the person's own words say so (the rules
+  agree, or an OK reply to the waiting question). Otherwise @pm asks for a ✅.
+- **3. Model text in @pm's voice; Codex's read-only sandbox can still read files.** The
+  understanding step now runs Claude Code with NO tools (verified: it can't read a file), no MCP,
+  no project settings and a minimal environment. Model replies are posted as plain text with
+  links removed. Action confirmations are always code-written.
+- **4. Failures that skipped the fallback.** A missing CLI, an unknown PM_BRAIN, non-string
+  actions and history errors all fall back to the rules.
+
+Deferred:
+- **5. Killing the CLI's descendants on timeout.** lifecycle.communicate kills the direct child.
+- **6. A merge already in flight when "stop" lands may complete** (documented).

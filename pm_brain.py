@@ -4,9 +4,10 @@
 the message being replied to, what is waiting for approval, the plan and the status board, and
 answers with ONE action from a fixed list plus a short sentence for the room. Code then checks
 who may do what (pm_chat.py), so wording can't produce anything outside the list, and "stop"
-never waits for a model. The model runs on the host's own agent CLI in the same lockdown as
-the agents (agents.py: read-only, no MCP, connectors, web or computer use). If it fails or is
-slow, @pm falls back to its phrase rules (intents.py).
+never waits for a model. The model runs as Claude Code with NO tools at all (it can't read a file
+or run anything: an injected "print ~/.ssh/…" has nothing to print), no MCP, no project settings,
+in an empty folder with a minimal environment. If it fails or is slow, @pm uses its phrase rules
+(intents.py). PM_BRAIN=codex is possible but weaker: Codex's read-only sandbox can still read files.
 """
 import asyncio
 import json
@@ -15,10 +16,11 @@ import os
 import re
 
 import agents
+import lifecycle
 from bridge import ROOT
 from redact import room_safe
 
-BRAIN = os.environ.get("PM_BRAIN", "codex")          # codex | claude | off
+BRAIN = os.environ.get("PM_BRAIN", "claude")         # claude (no tools) | codex | off
 WORKDIR = ROOT / "rooms" / "pm-brain"
 TIMEOUT_S = float(os.environ.get("PM_BRAIN_TIMEOUT_S", "45"))
 TRANSCRIPT_CHARS = 8_000
@@ -62,19 +64,35 @@ def parse(text: str) -> tuple[str, str] | None:
         data = json.loads(m.group(0)) if m else None
     except json.JSONDecodeError:
         data = None
-    if not isinstance(data, dict) or data.get("action") not in ACTIONS:
+    if not isinstance(data, dict) or not isinstance(data.get("action"), str) or data["action"] not in ACTIONS:
         return None                                 # anything else: fall back to the rules
     reply = " ".join(str(data.get("reply", "")).split())
+    reply = re.sub(r"https?://\S+|www\.\S+", "(link removed)", reply)   # no links from the model in @pm's voice
     return data["action"], room_safe(reply, MAX_REPLY)
 
 
+async def run_model(text: str) -> str:
+    """One answer from the model, with no tools and nothing of the host's but the login."""
+    if BRAIN == "codex":
+        return await agents.run_turn("codex", WORKDIR, text, fresh=True)
+    if BRAIN != "claude":
+        raise agents.AgentError(f"unknown PM_BRAIN {BRAIN!r}")
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+    env = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "LANG", "TMPDIR") if k in os.environ}
+    proc = await asyncio.create_subprocess_exec(
+        "claude", "-p", "--output-format", "json", "--tools", "", "--strict-mcp-config", "--setting-sources", "user",
+        cwd=WORKDIR, env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    out, _ = await lifecycle.communicate(proc, text.encode(), TIMEOUT_S)
+    return agents.BACKENDS["claude"][1](out.decode(errors="replace")).text
+
+
 async def understand(ctx: dict) -> tuple[str, str] | None:
-    """(action, reply) from the model, or None (off, failed, slow, or nonsense)."""
+    """(action, reply) from the model, or None (off, failed, slow, or nonsense): then the rules."""
     if BRAIN == "off":
         return None
     try:
-        out = await asyncio.wait_for(agents.run_turn(BRAIN, WORKDIR, prompt(ctx), fresh=True), TIMEOUT_S)
-    except (agents.AgentError, asyncio.TimeoutError) as e:
+        out = await asyncio.wait_for(run_model(prompt(ctx)), TIMEOUT_S)
+    except (agents.AgentError, asyncio.TimeoutError, OSError, ValueError) as e:
         log.warning("@pm's understanding step failed, using the phrase rules: %s", e)
         return None
     decision = parse(out)

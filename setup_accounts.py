@@ -26,6 +26,7 @@ BOTS = {"pm": 50}
 DISPLAY_NAMES = {"pm": "Product Manager"}        # what people see in Element
 USERS = [*PEOPLE, *(f"{p}-agent" for p in PEOPLE), *BOTS]
 ROOM_ALIAS = "lounge"
+HTTP_TIMEOUT_S = 30                      # never hang on the homeserver
 TEST_ROOM_ALIAS = "bridge-test"          # automated tests talk here, never in the Lounge
 
 
@@ -36,7 +37,7 @@ def api(method, path, body=None, token=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as r:
             return json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         return {"_status": e.code, **json.loads(e.read() or b"{}")}

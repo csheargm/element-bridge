@@ -29,6 +29,7 @@ from loop_progress import GITHUB_STAGES, Progress
 from pm_chat import Chat
 from saved_dict import SavedDict
 from pm_plan import Planner
+from pm_understand import Understanding
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -47,7 +48,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat, Planner):
+class Loop(Progress, Boards, Chat, Planner, Understanding):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -65,6 +66,7 @@ class Loop(Progress, Boards, Chat, Planner):
         # live code fix) doesn't drop a plan someone is about to approve
         self.pending: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-pending.json"))
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
+        self.generation: dict = {}                  # room → bumped by "stop" (pm_chat.py)
         self.last_plans: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-plans.json"))
 
     def save(self) -> None:
@@ -92,7 +94,8 @@ class Loop(Progress, Boards, Chat, Planner):
         self.save()
         await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
 
-    async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None) -> str:
+    async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None,
+                  plain: bool = False) -> str:
         if task is not None:          # the one thing every agent surely reads; bridges use the task field
             body += " — use your hagency tools: call next_task"
         content = {"msgtype": "m.notice" if task is None else "m.text", "body": body}
@@ -100,7 +103,8 @@ class Loop(Progress, Boards, Chat, Planner):
         if mention:
             content["m.mentions"] = {"user_ids": [mention]}
             source = source.replace(mention, f"[{mention.split(':')[0]}](https://matrix.to/#/{mention})")  # a pill
-        content.update(format="org.matrix.custom.html", formatted_body=markdown.markdown(source))
+        if not plain:                 # plain: a model's words, shown as text (no links or formatting)
+            content.update(format="org.matrix.custom.html", formatted_body=markdown.markdown(source))
         if task is not None:
             content[github.TASK_KEY] = {**task, "agent": mention, "repo": github.REPO}
         resp = await self.client.room_send(room_id, "m.room.message", content)
