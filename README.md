@@ -140,7 +140,7 @@ Delete `data/`, `.env` and `rooms/` to start from scratch.
 `agent-ok` on **the room's own repo** and drives each issue through the room, one step per line.
 
 **One room, one repo.** The room owner or a maintainer picks it: say `@pm this room works on
-owner/name`, or use **Project repo** in the Hagency console. The console's **Check it's ready**
+owner/name`, or use **Project repo** in the Hagency console. The console's **Check readiness**
 button runs the same read-only check as `github_setup.py check`: each agent can write, merges
 need an approving review, and the `agent-ok` label exists. The repo is stored as a list in the
 room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A project that spans

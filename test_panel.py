@@ -42,6 +42,24 @@ class Render(unittest.TestCase):
         self.assertIn("isn't in this room", panel.render(self.loop, "!other"))
 
 
+class PageScript(unittest.TestCase):
+    """Seen live: an apostrophe in a button label ("it\\'s") lost its escape in the Python string and
+    broke the whole console's script. Unit tests never ran the JavaScript; node checks it here."""
+    def test_the_page_script_parses(self):
+        import re
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        page = panel.PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(panel.ELEMENT_ORIGIN))
+        script = re.search(r"<script>(.*)</script>", page, re.S).group(1)
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+            f.write(script)
+        done = subprocess.run([node, "--check", f.name], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr[-500:])
+
+
 class Widget(unittest.TestCase):
     def test_pinned_at_the_top_where_people_see_it(self):
         import asyncio

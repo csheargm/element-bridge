@@ -41,9 +41,9 @@ class Settings:
             failed = await self.write_level(rid, await self.level(rid) if self.room_repos.get(rid) == repo else "off", repo)
             if not failed:
                 self.room_repos[rid] = repo
-            await self.say(rid, failed or f"This room now works on **{repo}**. Check it's ready (the agents' write "
-                                          "access, the merge rule and the agent-ok label) under Project repo in "
-                                          "the Hagency console.")
+            await self.say(rid, failed or f"This room now works on **{repo}**. Check that it is ready (the agents' write "
+                                          "access, the merge rule and the agent-ok label) with Check readiness "
+                                          "under Project repo in the Hagency console.")
 
     async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
         """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""

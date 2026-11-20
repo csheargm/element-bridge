@@ -98,7 +98,7 @@ async function refresh() {
   $("me").innerHTML = `<b>${esc(s.room)}</b> · ${esc(s.repo || "no repo yet")}<br>Signed in as ${esc(s.user)} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
   let h = `<h2>Project repo</h2><div class=row>${s.moderator ? `<input id=repo placeholder="owner/name"
     value="${esc(s.repo || "")}"> <button data-a="repo">Use for this room</button>` : esc(s.repo || "none yet")}
-    ${s.repo ? '<button data-a="check">Check it\'s ready</button>' : ""}</div><h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
+    ${s.repo ? '<button data-a="check">Check readiness</button>' : ""}</div><h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
   if (s.waiting && s.waiting.mine) h += `<h2>Waiting for you</h2><div class=row>${esc(s.waiting.kind)}${s.waiting.items.length ?
     ": " + s.waiting.items.map(esc).join(" · ") : ""} <button data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div>`;
   if (s.agent) h += `<h2>My agent (${esc(s.agent)})</h2>
