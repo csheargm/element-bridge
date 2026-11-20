@@ -107,8 +107,14 @@ class Chat:
             await self.start_plan(room, sender)
         elif intent == intents.HELP:
             await self.say(rid, HELP)
+        elif intent == intents.ABOUT:
+            await self.say(rid, "I'm the Product Manager: a coordinator, with no AI model of my own. I turn your "
+                                "discussion into work and keep it moving; the thinking and building are done by "
+                                "your own agents, on their owners' models and accounts.")
         else:
-            await self.say(rid, "I didn't catch that. Say \"help\" to see what I can do.")
+            await self.say(rid, "I didn't catch that. You can say: **show the plan** · **let's build it** · "
+                                "**let us approve each change** · **take it all the way** · **stop** · "
+                                "**where are we?**")
 
     async def confirm(self, room: MatrixRoom, sender: str) -> bool:
         """Apply the pending autonomous switch if a moderator confirms in time."""

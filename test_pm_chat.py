@@ -27,7 +27,8 @@ class Intents(unittest.TestCase):
                  "where are we?": intents.STATUS, "what's left": intents.STATUS,
                  "let's build it": intents.PLAN, "that's great! let's do it!": intents.PLAN,
                  "go for it": intents.PLAN, "can you reiterate teh plan": intents.SHOW_PLAN,
-                 "show me the plan": intents.SHOW_PLAN, "help": intents.HELP, "hello there": intents.UNKNOWN}
+                 "show me the plan": intents.SHOW_PLAN, "let me know your plan": intents.SHOW_PLAN,
+                 "what's your model?": intents.ABOUT, "help": intents.HELP, "hello there": intents.UNKNOWN}
         for text, want in cases.items():
             self.assertEqual(intents.classify(text), want, text)
 
@@ -172,7 +173,7 @@ class Talk(unittest.TestCase):
 
     def test_unknown_gets_a_hint(self):
         self.tell(ANNA, "@pm what's the weather")
-        self.assertIn("help", self.said[-1])
+        self.assertIn("show the plan", self.said[-1])
 
     def test_level_shortcut_still_works(self):
         self.tell(ANNA, "!level autonomous", mention=False)
