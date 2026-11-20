@@ -38,7 +38,7 @@ PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="wi
 .box{background:#f6f6f7;border-radius:8px;padding:8px 12px}.muted{color:#777}li{margin:2px 0}
 button{font:inherit;padding:4px 10px;margin:2px 4px 2px 0;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
 button.on{background:#0b6e4f;color:#fff;border-color:#0b6e4f}button:disabled{opacity:.45;cursor:default}
-.row{margin:6px 0}#msg{color:#0b6e4f}</style>
+.row{margin:6px 0}#msg{color:#0b6e4f}#me{color:#444;margin-bottom:6px}#me b{font-size:16px;color:#111}</style>
 <div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls"></div><div id="p"></div>
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
@@ -93,7 +93,7 @@ async function refresh() {
   const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
   if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
   const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
-  $("me").textContent = `Signed in as ${s.user} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
+  $("me").innerHTML = `<b>${esc(s.room)}</b> · ${esc(s.repo)}<br>Signed in as ${esc(s.user)} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
   let h = `<h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
   if (s.waiting && s.waiting.mine) h += `<h2>Waiting for you</h2><div class=row>${esc(s.waiting.kind)}${s.waiting.items.length ?
     ": " + s.waiting.items.map(esc).join(" · ") : ""} <button data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div>`;
