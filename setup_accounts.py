@@ -15,6 +15,7 @@ from pathlib import Path
 
 import registry
 from github import LEVEL_EVENT, REPO
+from room_state import content
 
 ROOT = Path(__file__).parent
 HS = "http://127.0.0.1:8648"
@@ -117,7 +118,7 @@ def ensure_room(env: dict, alias_name: str, name: str) -> str:
         add_bot(anna, login(bot, env["PW_" + bot.upper().replace("-", "_")]), room, bot, power)
     level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", token=anna)
     if "level" not in level:
-        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", {"level": "off", "repo": REPO}, token=anna)
+        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", content("off", REPO), token=anna)
     return room_id
 
 

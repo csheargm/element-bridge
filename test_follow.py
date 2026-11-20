@@ -66,6 +66,7 @@ class FollowMe(Registry):
     def setUp(self):
         super().setUp()
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {}
         self.lp.user_id, self.lp.pending, self.lp.started_ms = f"@pm:{S}", {}, 0
         self.lp.sync_point = SimpleNamespace(first_time=lambda e: True)
         self.said, self.invited, self.kicked = [], [], []

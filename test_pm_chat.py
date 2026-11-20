@@ -54,11 +54,13 @@ class Talk(unittest.TestCase):
     """The phrase rules (the understanding step off; see Brain for the model path)."""
     def setUp(self):
         for target, name, value in ((pm_brain, "BRAIN", "off"),
-                                    (room_state, "bound", mock.AsyncMock(return_value=True))):   # a project room
+                                    (room_state, "bound", mock.AsyncMock(return_value=True)),
+                                    (room_state, "repo_of", mock.AsyncMock(return_value="your-name/hagency-hello"))):   # a project room
             p = mock.patch.object(target, name, value)
             p.start()
             self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {}
         self.lp.user_id, self.lp.pending, self.lp.boards = PM, {}, {}
         self.lp.generation, self.lp.busy = {}, set()
         self.said, self.levels = [], []

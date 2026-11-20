@@ -14,10 +14,12 @@ AGENT = "@b-agent:x"
 
 class Watchdog(unittest.TestCase):
     def setUp(self):
-        _bound = mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=True))   # a project room
-        _bound.start()
-        self.addCleanup(_bound.stop)
+        for name, value in (("bound", True), ("repo_of", "your-name/hagency-hello")):   # a project room
+            _p = mock.patch.object(room_state, name, mock.AsyncMock(return_value=value))
+            _p.start()
+            self.addCleanup(_p.stop)
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {}
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {}
         self.lp.save = lambda: None
@@ -27,7 +29,7 @@ class Watchdog(unittest.TestCase):
 
     def item(self, stage, age_s, **kw):
         sent = time.time() - age_s
-        item = {"room": "!r", "stage": stage, "seen_stage": stage, "since": sent, "builder": AGENT,
+        item = {"room": "!r", "repo": "your-name/hagency-hello", "stage": stage, "seen_stage": stage, "since": sent, "builder": AGENT,
                 "agent": AGENT, "body": "b", "task": {"kind": "build", "issue": 7}, "sent_at": sent,
                 "sends": 1, "task_id": "OLD", "task_ids": ["OLD"], **kw}
         self.lp.state["7"] = item
@@ -120,9 +122,10 @@ class Watchdog(unittest.TestCase):
 class AllDone(unittest.TestCase):
     def setUp(self):
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {"!r": github.REPO}
         self.lp.boards, self.lp.save_boards, self.lp.open_issues = {}, lambda: None, {"!r": []}
         self.lp.say = mock.AsyncMock()
-        self.lp.state = {"1": {"room": "!r", "stage": "done", "ended": 100}, "2": {"room": "!r", "stage": "done", "ended": 200}}
+        self.lp.state = {"1": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "done", "ended": 100}, "2": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "done", "ended": 200}}
         p = mock.patch.object(github, "run_json", mock.AsyncMock(side_effect=github.GitHubError("404")))
         p.start()
         self.addCleanup(p.stop)
@@ -147,14 +150,14 @@ class AllDone(unittest.TestCase):
     def test_not_while_work_remains(self):
         self.lp.open_issues["!r"] = [{"number": 3, "title": "t"}]
         self.announce()
-        self.lp.state["3"] = {"room": "!r", "stage": "reviewing"}
+        self.lp.state["3"] = {"room": "!r", "repo": "your-name/hagency-hello", "stage": "reviewing"}
         self.lp.open_issues["!r"] = []
         self.announce()
         self.lp.say.assert_not_called()
 
     def test_the_next_round_is_announced_too(self):
         self.announce()
-        self.lp.state["5"] = {"room": "!r", "stage": "done", "ended": time.time() + 1}
+        self.lp.state["5"] = {"room": "!r", "repo": "your-name/hagency-hello", "stage": "done", "ended": time.time() + 1}
         self.announce()
         self.assertIn("All done: #5 merged", self.lp.say.call_args.args[1])
 
@@ -164,7 +167,8 @@ class FastPoll(unittest.TestCase):
         """the owner: 30 seconds feels long once the automation runs."""
         import loop
         lp = Loop.__new__(Loop)
-        lp.busy, lp.state, ticks = set(), {"7": {"room": "!r", "stage": "approved"}}, []
+        lp.room_repos = {}
+        lp.busy, lp.state, ticks = set(), {"7": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "approved"}}, []
 
         async def locked_tick():
             ticks.append(1)
@@ -184,6 +188,7 @@ class Kick(unittest.TestCase):
         """Seen live: after the owner's ✅ nothing visible happened for up to 30s."""
         import loop
         lp = Loop.__new__(Loop)
+        lp.room_repos = {}
         lp.busy, lp.state, ticks = set(), {}, []
 
         async def locked_tick():

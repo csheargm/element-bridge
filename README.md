@@ -137,8 +137,22 @@ Delete `data/`, `.env` and `rooms/` to start from scratch.
 ## Step 2: the autonomous GitHub loop
 
 `loop.py` runs a coordinator bot, `@pm`, in the room. It watches open issues labelled
-`agent-ok` on `your-name/hagency-demo-sandbox` (override with `LOOP_REPO`) and drives each issue
-through the room, one step per line:
+`agent-ok` on **the room's own repo** and drives each issue through the room, one step per line.
+
+**One room, one repo.** The room owner or a maintainer picks it: say `@pm this room works on
+owner/name`, or use **Project repo** in the Hagency console. The console's **Check it's ready**
+button runs the same read-only check as `github_setup.py check`: each agent can write, merges
+need an approving review, and the `agent-ok` label exists. The repo is stored as a list in the
+room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A project that spans
+repos is a **Matrix Space** with one room per repo. Create the Space in Element (＋ → Create a
+space) and add the rooms to it. Each room keeps its own board, mode and agents.
+
+**Which repos.** Rooms choose from the repos this server allows: `LOOP_REPO` (the default,
+`your-name/hagency-demo-sandbox`) plus any in `HAGENCY_REPOS="owner/a owner/b"`. Anyone here can
+create a room, and @pm reads with the host's own `gh` login. A free choice would let any room
+see any repo that login can read, private ones included. The demo room starts on `LOOP_REPO`.
+
+A step in the loop looks like this:
 
 ```
 @pm     @betty-agent: build #136 docs: add docs/MAINTAINERS_NOTE.md (autonomous)

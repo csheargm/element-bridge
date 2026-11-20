@@ -15,6 +15,7 @@ from nio import MatrixRoom
 import github
 import ownership
 import room_state
+from pm_settings import NO_REPO
 import planning
 from setup_accounts import api
 
@@ -33,20 +34,22 @@ class Planner:
 
     async def start_plan(self, room: MatrixRoom, sender: str) -> None:
         rid = room.room_id
-        if not await room_state.bound(self.client, rid):  # a moderator asked to plan here: bind the room
-            await self.write_level(rid, "off")
+        repo = await room_state.repo_of(self.client, rid)
+        if repo is None:
+            await self.say(rid, NO_REPO)
+            return
         agent = self.own_agent(room, sender)
         if agent is None:
             await self.say(rid, f"I plan with your own agent, and {ownership.agent_id(sender).split(':')[0][1:]} "
                                 "isn't in this room. Invite it, then ask me again.")
             return
         discussion = await asyncio.to_thread(self.discussion, rid)
-        issues = await github.run_json(["issue", "list", "-R", github.REPO, "--state", "open", "--label",
+        issues = await github.run_json(["issue", "list", "-R", repo, "--state", "open", "--label",
                                         github.LABEL, "--json", "title", "--limit", "100"])
         task_id = uuid.uuid4().hex
         self.plans[rid] = {"task_id": task_id, "agent": agent, "by": sender}
         await self.say(rid, f"{agent}: plan the work from this room's discussion", agent,
-                       {"kind": "plan", "task_id": task_id, "discussion": discussion,
+                       {"kind": "plan", "task_id": task_id, "repo": repo, "discussion": discussion,
                         "existing": [i["title"] for i in issues]})
 
     def discussion(self, room_id: str, include_self: bool = False) -> str:
@@ -124,4 +127,5 @@ class Planner:
                                     "proposal": pending.get("event_id")}
         await self.say(room.room_id, f"{pending['agent']}: open the approved issues", pending["agent"],
                        {"kind": "file_issues", "task_id": task_id, "items": pending["items"],
+                        "repo": await room_state.repo_of(self.client, room.room_id),
                         "approved_by": approver.split(":")[0].lstrip("@")})

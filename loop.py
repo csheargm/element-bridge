@@ -1,7 +1,6 @@
 """pm: the autonomous GitHub loop, coordinated in a Matrix room.
 
-Watches open `agent-ok` issues on github.REPO and, per room level (state event
-xyz.hagencylabs.loop, set by talking to @pm, see pm_chat.py):
+Watches open `agent-ok` issues on each room's own repo, per room level (xyz.hagencylabs.loop; pm_settings.py):
   assign a builder agent → it claims the issue and opens a PR → ask a DIFFERENT person's agent
   to review → when GitHub itself reports the PR mergeable+approved: Assist posts
   "ready — a person merges", Autonomous asks the builder agent to merge.
@@ -27,8 +26,9 @@ import ownership
 import panel
 from redact import room_safe
 import room_state
-from loop_progress import GITHUB_STAGES, Progress
+from loop_progress import GITHUB_STAGES, Progress, migrate, num
 from pm_chat import Chat
+from pm_settings import Settings
 from pm_follow import Follow
 from saved_dict import SavedDict
 from pm_plan import Planner
@@ -51,11 +51,11 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
+class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
-        self.state: dict = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+        self.state: dict = migrate(json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {})
         self.started_ms = int(time.time() * 1000)
         self.sync_point = lifecycle.SyncPoint(self.client)   # restart hand-off position
         # One transition at a time: results and polling never interleave on an item, and a
@@ -71,6 +71,7 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
         self.generation: dict = {}                  # room → bumped by "stop" (pm_chat.py)
         self.grants_cache: dict = {}                # room → agent grants, for the side panel
+        self.room_repos: dict = {}                  # room → its repo (room_state), refreshed every poll
         self.dm_rooms: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-dms.json"))  # person → our DM
         self.last_plans: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-plans.json"))
 
@@ -97,21 +98,21 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
             return
         item.pop("held", None)
         self.save()
-        await self.say(room_id, body, agent, {**task, "task_id": item["task_id"]})
+        await self.say(room_id, body, agent, {**task, "task_id": item["task_id"], "repo": item["repo"]})
 
     async def say(self, room_id: str, body: str, mention: str | None = None, task: dict | None = None,
                   plain: bool = False) -> str:
         if task is not None:          # the one thing every agent surely reads; bridges use the task field
             body += " — use your hagency tools: call next_task"
         content = {"msgtype": "m.notice" if task is None else "m.text", "body": body}
-        source = github.linkify(body)
+        source = github.linkify(body, (task or {}).get("repo") or self.room_repos.get(room_id))
         if mention:
             content["m.mentions"] = {"user_ids": [mention]}
             source = source.replace(mention, f"[{mention.split(':')[0]}](https://matrix.to/#/{mention})")  # a pill
         if not plain:                 # plain: a model's words, shown as text (no links or formatting)
             content.update(format="org.matrix.custom.html", formatted_body=markdown.markdown(source))
         if task is not None:
-            content[github.TASK_KEY] = {**task, "agent": mention, "repo": github.REPO}
+            content[github.TASK_KEY] = {**task, "agent": mention}         # task["repo"]: the room's repo
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not isinstance(resp, RoomSendResponse):
             raise SendError(f"could not post to {room_id}: {resp}")
@@ -171,11 +172,20 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
         job.add_done_callback(self.busy.discard)
         await asyncio.shield(job)
 
+    def key_for_result(self, room_id: str, result: dict) -> str | None:
+        """The item a result answers: this room's, this issue, and one of the task_ids it was sent."""
+        for key, item in self.state.items():
+            if (item.get("room") == room_id and str(num(key)) == str(result.get("issue"))
+                    and result.get("task_id") in item.get("task_ids", [item.get("task_id")])):
+                return key
+        return None
+
     async def on_result(self, room: MatrixRoom, sender: str, result: dict) -> None:
-        kind, key = result.get("kind"), str(result.get("issue"))
+        kind = result.get("kind")
         if kind in ("plan", "file_issues"):
             await self.on_plan_result(room, sender, result)
             return
+        key = self.key_for_result(room.room_id, result)
         item = self.state.get(key)
         if not isinstance(kind, str) or not item or item["room"] != room.room_id:
             return
@@ -185,31 +195,31 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
             return   # only the agent the step was given to can report on it
         if result.get("error"):
             item["stage"] = "stopped"
-            await self.say(room.room_id, f"loop stopped on #{key}; a person takes over")
+            await self.say(room.room_id, f"loop stopped on #{num(key)}; a person takes over")
         elif kind == "build" and result.get("already_done"):
             item["stage"] = "verifying"     # the builder's "nothing to do" needs a second agent's check
-            if await self.pick_reviewer(room, item, key, f"verify #{key} is already done"):
-                await self.dispatch(room.room_id, item, item["reviewer"], f"{item['reviewer']}: verify #{key} is already done",
-                                    {"kind": "verify", "issue": int(key)})
+            if await self.pick_reviewer(room, item, key, f"verify #{num(key)} is already done"):
+                await self.dispatch(room.room_id, item, item["reviewer"], f"{item['reviewer']}: verify #{num(key)} is already done",
+                                    {"kind": "verify", "issue": num(key)})
         elif kind == "verify":
             if result.get("verdict") == "approve":
                 item["stage"] = "confirmed_done"
             else:
                 item["stage"] = "stopped"
-                await self.say(room.room_id, f"agents disagree on #{key}; a person takes over")
+                await self.say(room.room_id, f"agents disagree on #{num(key)}; a person takes over")
         elif kind == "close":
             item["stage"] = "close_sent"    # done only once GitHub itself reports CLOSED
         elif kind == "build":
             item.update(stage="reviewing", pr=int(result["pr"]))
             if not await self.pr_is_builders(item, key):
                 item["stage"] = "stopped"
-                await self.say(room.room_id, f"PR #{item['pr']} isn't {item['builder']}'s branch for #{key}; stopping")
+                await self.say(room.room_id, f"PR #{item['pr']} isn't {item['builder']}'s branch for #{num(key)}; stopping")
                 self.save()
                 return
             if await self.pick_reviewer(room, item, key, f"review PR #{item['pr']}"):
                 await self.dispatch(room.room_id, item, item["reviewer"],
-                                    f"{item['reviewer']}: review PR #{item['pr']} against #{key}",
-                                    {"kind": "review", "issue": int(key), "pr": item["pr"]})
+                                    f"{item['reviewer']}: review PR #{item['pr']} against #{num(key)}",
+                                    {"kind": "review", "issue": num(key), "pr": item["pr"]})
         elif kind in ("review", "fix") and int(result["pr"]) == item["pr"]:
             await self.after_review_step(room.room_id, item, key, result)      # loop_progress.py
         elif kind == "merge":
@@ -224,15 +234,15 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
             item["stage"] = "stopped"
             await self.say(room.room_id, f"no second agent to {what}; a person does it")
             return False
-        item["reviewer"] = others[int(key) % len(others)]
+        item["reviewer"] = others[num(key) % len(others)]
         await self.say(room.room_id, f"{what.split()[0]} requested from {item['reviewer'].split(':')[0][1:]}")
         return True
 
     async def pr_is_builders(self, item: dict, key: str) -> bool:
         """The builder reports a PR number; check it is really its own branch for this issue."""
-        info = await github.run_json(["pr", "view", str(item["pr"]), "-R", github.REPO, "--json",
+        info = await github.run_json(["pr", "view", str(item["pr"]), "-R", item["repo"], "--json",
                                       "headRefName,isCrossRepository,state"])
-        branch = f"agent/{item['builder'].split(':')[0][1:]}/issue-{key}"
+        branch = f"agent/{item['builder'].split(':')[0][1:]}/issue-{num(key)}"
         return info.get("headRefName") == branch and not info.get("isCrossRepository") and info.get("state") == "OPEN"
 
     async def run(self) -> None:
@@ -246,7 +256,7 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
                      self.client.add_event_callback(self.on_reaction_event, ReactionEvent),
                      self.client.add_event_callback(self.on_member, RoomMemberEvent)),
             lambda ms: setattr(self, "started_ms", ms))
-        log.info("pm online for %s (poll %ss)", github.REPO, POLL_S)
+        log.info("pm online (one repo per room; poll %ss)", POLL_S)
         await panel.start(self)              # the side panel (panel.py); never fatal
         await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())
 

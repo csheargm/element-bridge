@@ -18,7 +18,7 @@ A = "@anna-hermes-agent:bridge.localhost"
 
 class Render(unittest.TestCase):
     def test_shows_step_agent_and_time(self):
-        text = render({"210": {"room": "!r", "stage": "building", "agent": A, "since": NOW - 180,
+        text = render({"210": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "building", "agent": A, "since": NOW - 180,
                                "title": "docs: add HERMES.md"}}, "autonomous", [], NOW)
         self.assertIn("loop: **autonomous**", text)
         self.assertIn("#210 docs: add HERMES.md — building · anna-hermes-agent · 3 min", text)
@@ -69,9 +69,10 @@ class FakeClient:
 
 class Board(unittest.TestCase):
     def setUp(self):
-        _bound = mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=True))   # a project room
-        _bound.start()
-        self.addCleanup(_bound.stop)
+        for name, value in (("bound", True), ("repo_of", "your-name/hagency-hello")):   # a project room
+            _p = mock.patch.object(room_state, name, mock.AsyncMock(return_value=value))
+            _p.start()
+            self.addCleanup(_p.stop)
         self.b = Boards()
         self.b.client, self.b.state, self.b.open_issues = FakeClient(), {}, {}
         self.b.grants_cache = {}
@@ -97,7 +98,7 @@ class Board(unittest.TestCase):
 
     def test_change_edits_the_same_message(self):
         self.refresh()
-        self.b.state["7"] = {"room": "!r", "stage": "building", "agent": A, "since": 0, "title": "x"}
+        self.b.state["7"] = {"room": "!r", "repo": "your-name/hagency-hello", "stage": "building", "agent": A, "since": 0, "title": "x"}
         self.refresh()
         edit = self.b.client.sent[-1]
         self.assertEqual(edit["m.relates_to"], {"rel_type": "m.replace", "event_id": "$e1"})
@@ -124,14 +125,14 @@ class Board(unittest.TestCase):
 
     def test_status_is_published_for_agents_to_read(self):
         """the owner: agents answered from their own memory ('awaiting room approval') after the project was done."""
-        import github
         self.refresh()
-        self.assertEqual(self.b.client.status["repo"], github.REPO)
+        self.assertEqual(self.b.client.status["repo"], "your-name/hagency-hello")   # this room's own repo
         self.assertIn("Project status", self.b.client.status["text"])
 
     def test_an_unbound_room_gets_no_board(self):
         """GPT review 7: any local account could invite @pm and read the repo's issues."""
-        with mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=False)):
+        with mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=False)), \
+                mock.patch.object(room_state, "repo_of", mock.AsyncMock(return_value=None)):
             self.refresh()
         self.assertEqual(self.b.client.sent, [])
 

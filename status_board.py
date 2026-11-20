@@ -19,6 +19,7 @@ from nio import RoomGetStateEventResponse, RoomSendResponse
 
 import capabilities
 import github
+from loop_progress import num
 import panel
 import room_state
 
@@ -46,24 +47,24 @@ def who(user_id: object) -> str:
     return str(user_id).split(":")[0].lstrip("@") if user_id else "—"
 
 
-def render(items: dict, level: str, queued: list[dict], now: float) -> str:
+def render(items: dict, level: str, queued: list[dict], now: float, repo: str = "") -> str:
     """The board's markdown for one room (items: this room's loop-state entries by issue number)."""
     def title(key: str, item: dict) -> str:
-        return f"#{int(key)} {safe(item.get('title', ''))}".rstrip()
+        return f"#{num(key)} {safe(item.get('title', ''))}".rstrip()
 
-    lines = [f"📋 **Project status** — {github.REPO} · loop: **{level}**", ""]
+    lines = [f"📋 **Project status** — {repo or 'no repo yet'} · loop: **{level}**", ""]
     active = [(k, v) for k, v in items.items() if v["stage"] in STEP_WORDS]
     lines += ["**Now**", ""] + ([f"- {title(k, v)} — {STEP_WORDS[v['stage']]} · {who(v.get('agent') or v.get('builder'))}"
-                             f" · {ago(now - v.get('since', now))}" for k, v in sorted(active, key=lambda kv: int(kv[0]))]
+                             f" · {ago(now - v.get('since', now))}" for k, v in sorted(active, key=lambda kv: num(kv[0]))]
                             or ["- nothing in progress"])
     if queued:
         lines += ["", "**Next**", ""] + [f"- #{int(i['number'])} {safe(i['title'])}" for i in queued[:MAX_QUEUED]]
     recent = [(k, v) for k, v in items.items() if v["stage"] in ("done", "stopped")
               and now - v.get("ended", 0) < RECENT_S]
     done = [f"- {title(k, v)}" + (f" → PR #{v['pr']} merged" if v.get("pr") else " (closed: already done)")
-            for k, v in sorted(recent, key=lambda kv: int(kv[0])) if v["stage"] == "done"]
+            for k, v in sorted(recent, key=lambda kv: num(kv[0])) if v["stage"] == "done"]
     stopped = [f"- {title(k, v)} — {safe(v.get('why') or 'stopped')}"
-               for k, v in sorted(recent, key=lambda kv: int(kv[0])) if v["stage"] == "stopped"]
+               for k, v in sorted(recent, key=lambda kv: num(kv[0])) if v["stage"] == "stopped"]
     if done:
         lines += ["", "**Done (last 24 h)**", "", *done]
     if stopped:
@@ -93,46 +94,47 @@ class Boards:
     async def refresh_boards(self) -> None:
         now = time.time()
         for room_id in list(self.client.rooms):
-            if not await room_state.bound(self.client, room_id):
-                continue                      # not a project room for this repo (yet)
+            repo = await room_state.repo_of(self.client, room_id)
+            if repo is None:
+                continue                      # not a project room (no repo yet)
             state = await self.client.room_get_state(room_id)
             events = getattr(state, "events", []) or []
             agents_with = {capabilities.agent_from_key(ev.get("state_key", "")) for ev in events
                            if ev.get("type") == capabilities.GRANTS_EVENT}
             self.grants_cache[room_id] = {a: {c: {} for c in capabilities.caps_in(events, a)} for a in agents_with}
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id}
-            text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now)
+            text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now, repo)
             board = self.boards.get(room_id, {})
             if board.get("text") == text:
                 if board.get("event_id") and not board.get("pinned"):   # e.g. posted before @pm was a moderator
                     board["pinned"] = await self.pin(room_id, board["event_id"], None)
                     self.save_boards()
                 if not board.get("published"):
-                    board["published"] = await self.publish(room_id, text)
+                    board["published"] = await self.publish(room_id, text, repo)
                     self.save_boards()
                 if not board.get("panel"):           # the side panel widget, once per room
                     board["panel"] = await panel.add_to_room(self.client, room_id)
                     self.save_boards()
                 continue
-            event_id = await self.show(room_id, board.get("event_id"), text)
+            event_id = await self.show(room_id, board.get("event_id"), text, repo)
             if event_id:
                 pinned = board.get("pinned", False) if event_id == board.get("event_id") else False
                 if not pinned:
                     pinned = await self.pin(room_id, event_id, board.get("event_id"))
                 self.boards[room_id] = {"event_id": event_id, "text": text, "pinned": pinned,
-                                        "published": await self.publish(room_id, text),
+                                        "published": await self.publish(room_id, text, repo),
                                         **{k: board[k] for k in ("announced", "panel") if k in board}}
                 self.save_boards()
 
-    async def publish(self, room_id: str, text: str) -> bool:
+    async def publish(self, room_id: str, text: str, repo: str) -> bool:
         """The same status as room state, so every agent in the room can read it (room_context.py)."""
         resp = await self.client.room_put_state(room_id, github.STATUS_EVENT,
-                                                {"repo": github.REPO, "text": text, "ts": int(time.time())})
+                                                {"repo": repo, "text": text, "ts": int(time.time())})
         return hasattr(resp, "event_id")
 
-    async def show(self, room_id: str, event_id: str | None, text: str) -> str | None:
+    async def show(self, room_id: str, event_id: str | None, text: str, repo: str) -> str | None:
         body = {"msgtype": "m.notice", "body": text, "format": "org.matrix.custom.html",
-                "formatted_body": markdown.markdown(github.linkify(text))}
+                "formatted_body": markdown.markdown(github.linkify(text, repo))}
         if event_id:                          # edit in place: Element shows the change live
             content = {**body, "body": "* " + text, "m.new_content": body,
                        "m.relates_to": {"rel_type": "m.replace", "event_id": event_id}}

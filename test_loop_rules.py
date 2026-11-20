@@ -77,9 +77,9 @@ class BridgeTaskTrust(unittest.TestCase):
 
 class TaskRules(unittest.TestCase):
     def test_wrong_repo_refused(self):
-        r = asyncio.run(tasks.handle("anna-agent", "codex", Path("/tmp"), {"kind": "merge", "repo": "evil/repo",
+        r = asyncio.run(tasks.handle("anna-agent", "codex", Path("/tmp"), {"kind": "merge", "repo": "evil/../x",
                                                                           "issue": 1, "pr": 2}))
-        self.assertIn("not this bridge's loop repo", r["error"])
+        self.assertIn("no valid repo", r["error"])
 
     def test_unknown_kind_refused(self):
         r = asyncio.run(tasks.handle("anna-agent", "codex", Path("/tmp"), {"kind": "rm", "repo": github.REPO}))
@@ -123,8 +123,9 @@ class LoopResults(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
+        self.lp.room_repos = {}
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
-        self.lp.state = {"7": {"room": "!r", "stage": "reviewing", "builder": "@b-agent:x",
+        self.lp.state = {"7": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "reviewing", "builder": "@b-agent:x",
                                "reviewer": "@r-agent:x", "pr": 9, "task_id": "T"}}
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()
@@ -171,8 +172,9 @@ class AlreadyDone(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
+        self.lp.room_repos = {}
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
-        self.lp.state = {"7": {"room": "!r", "stage": "building", "builder": "@b-agent:x", "task_id": "T"}}
+        self.lp.state = {"7": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "building", "builder": "@b-agent:x", "task_id": "T"}}
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()
         self.lp.agents_in = lambda room: ["@b-agent:x", "@r-agent:x"]
@@ -230,7 +232,8 @@ class AlreadyDone(unittest.TestCase):
 
 class Links(unittest.TestCase):
     def test_pr_and_issue_refs_link_to_the_repo(self):
-        md = github.linkify("merged PR #153 (closes #113)")
+        self.assertEqual(github.linkify("merged PR #153"), "merged PR #153")   # no repo known: no links
+        md = github.linkify("merged PR #153 (closes #113)", github.REPO)
         self.assertIn(f"[PR #153](https://github.com/{github.REPO}/pull/153)", md)
         self.assertIn(f"[#113](https://github.com/{github.REPO}/issues/113)", md)
 

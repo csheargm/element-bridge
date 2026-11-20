@@ -37,8 +37,12 @@ So other people can try it.
   for hagencylabs.xyz, and which subdomain to use.
 
 ## 4. Smaller follow-ups
-- Side panel: change settings from the panel, with Element's OpenID identity hand-off (reading
-  works without it).
+- Several repos per room. The storage is already a list; the board, planning ("which repo is
+  this issue for?") and the console's repo picker still assume one. Until then, use a Space with
+  one room per repo.
+- Let a repo's GitHub owner add it from the console. This needs proof that the Matrix user
+  controls that GitHub repo (for example, a one-time code they commit or put in a repo topic).
+  Without that proof, only the server operator adds repos (`HAGENCY_REPOS`).
 - Two-sided agent ownership for agents from other servers (federation).
 - Idempotent retries for resent steps (GPT reviews 4 #6, 5 #5).
 - Kill the model CLI's whole process group on timeout (GPT review 6 #5).

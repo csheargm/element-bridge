@@ -18,15 +18,15 @@ MAX_FILE_CHARS = 60_000
 SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-def endpoint(path: str) -> str | None:
+def endpoint(repo: str, path: str) -> str | None:
     """The contents endpoint for a repo path, or None if the path isn't plainly inside the repo.
     Checked on the raw input (before any normalising), and every segment must be a plain name."""
     if path in ("", "/"):
-        return f"repos/{github.REPO}/contents"
+        return f"repos/{repo}/contents"
     parts = path.strip("/").split("/")
     if path.startswith("/") or any(p in ("", ".", "..") or not SEGMENT_RE.match(p) for p in parts):
         return None
-    return f"repos/{github.REPO}/contents/" + "/".join(urllib.parse.quote(p, safe="") for p in parts)
+    return f"repos/{repo}/contents/" + "/".join(urllib.parse.quote(p, safe="") for p in parts)
 
 
 RECENT_S = 15 * 60
@@ -58,13 +58,17 @@ def project_status() -> dict:
     if room is None:
         return {"error": "no recent message from your owner to you in a project room"}
     snap = room_context.snapshot(core.token(), room)
-    return {"repo": github.REPO, **snap} if snap["status"] else {"error": "that room has no project status"}
+    return snap if snap["status"] else {"error": "that room has no project status"}
 
 
 @mcp.tool()
 async def read_project_file(path: str = "") -> dict:
     """Read a file (or list a folder, path "" for the top) on the project's default branch."""
-    url = endpoint(path)
+    room = owners_room()
+    repo = room and room_context.room_repo(core.token(), room)
+    if not repo:
+        return {"error": "no recent message from your owner to you in a room with a repo"}
+    url = endpoint(repo, path)
     if url is None:
         return {"error": "use a plain path inside the repo, e.g. README.md or docs/guide.md"}
     try:

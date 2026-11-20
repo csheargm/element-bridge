@@ -13,7 +13,7 @@ import supervise
 class Supervisor(unittest.TestCase):
     def kids(self, people, default="codex"):
         with mock.patch.object(registry, "load", return_value=people), \
-                mock.patch.object(hermes_profile, "set_repo") as set_repo:     # never touch real profiles
+                mock.patch.object(hermes_profile, "set_repos") as set_repo:     # never touch real profiles
             kids = {k.name: k.argv for k in supervise.children(default, False)}
         self.set_repo_calls = set_repo.call_args_list
         return kids
@@ -24,7 +24,7 @@ class Supervisor(unittest.TestCase):
         self.assertEqual(kids["betty-agent"][-3:], ["betty", "--agent", "claude"])
         self.assertEqual(kids["carl-agent"][-2:], ["--agent", "codex"])      # not onboarded: start.sh's choice
         self.assertIn("pm", kids)
-        self.assertEqual(self.set_repo_calls[0].args, ("annaroom", supervise.github.REPO))   # this run's repo
+        self.assertEqual(self.set_repo_calls[0].args, ("annaroom",))   # this run's repos
 
     def test_registry_defaults_to_the_two_demo_people(self):
         with mock.patch.object(registry, "PATH", Path(tempfile.mkdtemp()) / "missing.json"):
@@ -69,13 +69,19 @@ class HermesProfile(unittest.TestCase):
         hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)
         self.assertIn("provider: openai-codex", cfg.read_text())
 
-    def test_set_repo_points_the_mcp_server_at_this_runs_repo(self):
-        """Seen live: Hermes's MCP server didn't get LOOP_REPO and opened issues in the default repo."""
+    def test_set_repos_points_the_mcp_server_at_this_runs_repos(self):
+        """Seen live: Hermes's MCP server didn't get LOOP_REPO and opened issues in the default repo.
+        Now also the allowed repos (HAGENCY_REPOS), and only checked owner/name values reach the YAML."""
+        import github
         cfg = self.profile / "config.yaml"
-        hermes_profile.set_repo("annaroom", "me/project-a")
-        hermes_profile.set_repo("annaroom", "me/project-b")
-        self.assertEqual(cfg.read_text().count("LOOP_REPO:"), 1)
-        self.assertIn("LOOP_REPO: 'me/project-b'", cfg.read_text())
+        for allowed in ({"me/project-a"}, {"me/project-b", "me/c", "x'\n  evil: 1"}):
+            with mock.patch.object(github, "REPO", sorted(allowed)[0]), \
+                    mock.patch.object(github, "ALLOWED_REPOS", frozenset(allowed)):
+                hermes_profile.set_repos("annaroom")
+        text = cfg.read_text()
+        self.assertEqual((text.count("LOOP_REPO:"), text.count("HAGENCY_REPOS:")), (1, 1))
+        self.assertIn("HAGENCY_REPOS: 'me/c me/project-b'", text)
+        self.assertNotIn("evil", text)
 
     def test_room_rules_are_written_once(self):
         hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)

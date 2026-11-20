@@ -9,7 +9,6 @@ import time
 
 from nio import MatrixRoom, RoomGetEventResponse
 
-import github
 import intents
 import pm_brain
 import room_state
@@ -46,7 +45,7 @@ class Understanding:
         rid = room.room_id
         waiting = self.pending.get(rid)
         plan = self.last_plans.get(rid, {}).get("items", []) if hasattr(self, "last_plans") else []
-        ctx = {"repo": github.REPO, "mode": await self.level(rid), "sender": sender.split(":")[0].lstrip("@"),
+        ctx = {"repo": self.room_repos.get(rid) or "(no repo set for this room)", "mode": await self.level(rid), "sender": sender.split(":")[0].lstrip("@"),
                "role": "owner or maintainer" if await room_state.is_moderator(self.client, room, sender) else "contributor",
                "waiting": (f"{waiting.get('kind') or 'autonomous'} (asked by {str(waiting.get('by', '')).split(':')[0]})"
                            if waiting else "nothing"),

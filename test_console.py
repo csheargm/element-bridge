@@ -111,9 +111,11 @@ class Actions(unittest.TestCase):
                                     is_person=lambda r, u: u in r.users and not u.split(":")[0].endswith("-agent"),
                                     set_follow=set_follow, set_grant=set_grant, confirm=confirm, pending={},
                                     grants_cache={}, level=lambda rid: asyncio.sleep(0, "off"))
-        p2 = mock.patch.object(room_state, "is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA))
-        p2.start()
-        self.addCleanup(p2.stop)
+        for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
+                         ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello"))):
+            p2 = mock.patch.object(room_state, name, fn)
+            p2.start()
+            self.addCleanup(p2.stop)
 
     def act(self, user, action, value):
         return asyncio.run(console.act(self.loop, "!r", user, action, value))

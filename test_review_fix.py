@@ -28,10 +28,11 @@ B, R = "@b-agent:x", "@r-agent:x"
 class Rounds(unittest.TestCase):
     def setUp(self):
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {}
         self.lp.state, self.lp.save = {}, lambda: None
         self.lp.say = mock.AsyncMock()
         self.lp.level = mock.AsyncMock(return_value="autonomous")
-        self.item = self.lp.state["7"] = {"room": "!r", "stage": "reviewing", "builder": B, "reviewer": R, "pr": 9,
+        self.item = self.lp.state["7"] = {"room": "!r", "repo": "your-name/hagency-hello", "stage": "reviewing", "builder": B, "reviewer": R, "pr": 9,
                                           "task_id": "T", "task_ids": ["T"]}
 
     def result(self, sender, **r):
@@ -84,7 +85,7 @@ class FixStep(unittest.TestCase):
         for patch in (mock.patch.dict(os.environ, {"FAKE_GH_STATE": env["FAKE_GH_STATE"]}),
                       mock.patch.object(github, "GH_BIN", env["GH_BIN"]),
                       mock.patch.object(github, "IDENTITY_ROOT", Path(env["GH_IDENTITY_ROOT"])),
-                      mock.patch.object(github, "REPO", "test/sandbox"), mock.patch.object(tasks, "REPO", "test/sandbox")):
+                      mock.patch.object(github, "REPO", "test/sandbox")):
             patch.start()
             self.addCleanup(patch.stop)
         self.task = {"issue": 5, "repo": "test/sandbox"}

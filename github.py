@@ -14,8 +14,21 @@ from pathlib import Path
 import lifecycle
 
 ROOT = Path(__file__).parent
+# The default repo, only for seeding a room that has none yet; each room keeps its own (room_state).
 REPO = os.environ.get("LOOP_REPO", "your-name/hagency-demo-sandbox")
 LABEL = "agent-ok"
+REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")   # owner/name
+# The repos this server may work on: rooms choose among these. Anyone here can create a room, and
+# @pm reads with the host's own `gh` login, so a free choice would make a room a window into any
+# repo that login can see (private ones too). The operator lists them: HAGENCY_REPOS="a/b c/d".
+ALLOWED_REPOS = frozenset({REPO, *os.environ.get("HAGENCY_REPOS", "").replace(",", " ").split()})
+
+
+def allowed_repo(name) -> str | None:
+    """The operator's spelling of `name` if this server may work on it (GitHub names ignore case)."""
+    if not isinstance(name, str) or not REPO_RE.match(name):
+        return None
+    return next((r for r in sorted(ALLOWED_REPOS) if REPO_RE.match(r) and r.lower() == name.lower()), None)
 GH_BIN = os.environ.get("GH_BIN", "gh")          # tests point this at tests/fake_gh.py
 IDENTITY_ROOT = Path(os.environ.get("GH_IDENTITY_ROOT", ROOT / ".gh"))
 CMD_TIMEOUT_S = 120
@@ -33,11 +46,14 @@ PM_BOT = "pm"                    # Matrix localpart of the project coordinator, 
 REF_RE = re.compile(r"(?<![\w/\[])(PR )?#(\d+)\b")
 
 
-def linkify(text: str) -> str:
-    """Markdown with each issue/PR reference linked to github.com/REPO."""
+def linkify(text: str, repo: str | None = None) -> str:
+    """Markdown with each issue/PR reference linked to github.com/<repo> (no links without a repo)."""
+    if not repo or not REPO_RE.match(repo):
+        return text
+
     def link(m: re.Match) -> str:
         kind = "pull" if m.group(1) else "issues"
-        return f"[{m.group(0)}](https://github.com/{REPO}/{kind}/{m.group(2)})"
+        return f"[{m.group(0)}](https://github.com/{repo}/{kind}/{m.group(2)})"
     return REF_RE.sub(link, text)
 
 
@@ -94,9 +110,9 @@ async def git(args: list[str], agent: str, cwd: Path) -> str:
     return await run([*safe, *args], agent, cwd, program="git", extra_env=ISOLATED_GIT_ENV)
 
 
-async def merge_ready(pr: int, agent: str | None = None) -> tuple[bool, dict]:
+async def merge_ready(pr: int, agent: str | None = None, repo: str = REPO) -> tuple[bool, dict]:
     """GitHub's own verdict on whether PR can merge now (needs required-review protection)."""
-    info = await run_json(["pr", "view", str(pr), "-R", REPO, "--json",
+    info = await run_json(["pr", "view", str(pr), "-R", repo, "--json",
                            "state,mergeable,mergeStateStatus,reviewDecision,headRefOid"], agent)
     ok = (info.get("state") == "OPEN" and info.get("mergeable") == "MERGEABLE"
           and info.get("mergeStateStatus") == "CLEAN" and info.get("reviewDecision") == "APPROVED")

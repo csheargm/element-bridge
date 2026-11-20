@@ -152,21 +152,25 @@ class Bridge:
         what = f"PR #{task.get('pr')}" if task.get("pr") else f"#{task.get('issue')}"
         claimed = {"plan": "planning from the discussion…", "file_issues": "opening the planned issues…"}.get(
             task.get("kind"), f"{task.get('kind')}: claimed {what}")
-        await self.send(room_id, claimed, source=github.linkify(claimed))
+        await self.send(room_id, claimed, source=github.linkify(claimed, task.get("repo")))
         typing = asyncio.create_task(self.keep_typing(room_id))
         try:
             async with self.turns:
-                base = ROOT / "rooms" / self.owner / "work"
                 kind = task.get("kind")
-                if kind in tasks.AUTONOMOUS_ONLY and await room_state.level(self.client, room_id) != "autonomous":
+                room_repo = await room_state.repo_of(self.client, room_id)
+                if task.get("repo") != room_repo:   # only ever the repo this room's moderators chose
+                    result = {"kind": kind, "issue": task.get("issue"), "task_id": task.get("task_id"),
+                              "error": "wrong repo", "line": f"{kind} refused: the task isn't for this room's repo"}
+                elif kind in tasks.AUTONOMOUS_ONLY and await room_state.level(self.client, room_id) != "autonomous":
                     result = {"kind": kind, "issue": task.get("issue"), "task_id": task.get("task_id"),
                               "error": "room is no longer autonomous", "line": f"{kind} skipped: room is no longer autonomous"}
                 else:
+                    base = ROOT / "rooms" / self.owner / "work" / room_context.repo_dir(room_repo)
                     result = await tasks.handle(f"{self.owner}-agent", self.backend, base, task)
         finally:
             typing.cancel()
             await self.client.room_typing(room_id, False)
-        await self.send(room_id, result["line"], extra={github.RESULT_KEY: result}, source=github.linkify(result["line"]))
+        await self.send(room_id, result["line"], extra={github.RESULT_KEY: result}, source=github.linkify(result["line"], task.get("repo")))
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
@@ -181,7 +185,9 @@ class Bridge:
         except OSError as e:
             log.warning("no room context for %s: %s", room.room_id, e)
             snap = {"status": "", "conversation": ""}
-        has_files = await room_context.refresh_project(f"{self.owner}-agent", workdir / "project")
+        repo = snap.get("repo")
+        has_files = bool(repo) and await room_context.refresh_project(
+            f"{self.owner}-agent", repo, workdir / "projects" / room_context.repo_dir(repo))
         try:
             web = "web" in await asyncio.to_thread(capabilities.granted, self.client.access_token,
                                                    room.room_id, self.user_id)
@@ -190,7 +196,7 @@ class Bridge:
         prompt = (f"You are {self.owner}'s personal AI agent ({self.user_id}) in the Matrix chat room "
                   f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n\n"
                   + room_context.describe(snap)
-                  + ("\nThe project's files (default branch) are in ./project: read them when the question is "
+                  + ("\nThe project's files (default branch) are in ./projects/" + room_context.repo_dir(repo) + ": read them when the question is "
                      "about what the project contains or does.\n" if has_files else "")
                   + f"\nMessage addressed to you:\n{line}\n")
         typing = asyncio.create_task(self.keep_typing(room.room_id))

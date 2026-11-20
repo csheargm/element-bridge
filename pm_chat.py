@@ -11,14 +11,11 @@ Mixed into loop.Loop (client, user_id, say, level, boards, agents_in, start_plan
 import asyncio
 import re
 import time
-import urllib.parse
 
-from nio import MatrixRoom, ReactionEvent, RoomMessageText, RoomPreset
+from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
 import github
-import console
 import intents
-import panel
 import logging
 
 import pm_brain
@@ -41,7 +38,8 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm show the plan**: the plan waiting for your 👍\n"
         "- **@pm send me my console link**: settings in a page (also the Hagency panel in this room)\n"
         "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
-        f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
+        "- **@pm this room works on owner/name**: the GitHub repo for this room (one repo per room)\n"
+        "The pinned **Project status** and the **Hagency** panel show progress live.")
 
 
 def replied_to(event: RoomMessageText) -> str | None:
@@ -90,6 +88,9 @@ class Chat:
         if text is None:
             return
         intent = intents.classify(text)
+        if intent == intents.SET_REPO:        # a repo name is exact: never left to a model
+            await self.set_repo(room, sender, intents.repo_named(text) or "")
+            return
         if intent == intents.OFF or pm_brain.BRAIN == "off":
             await self.by_rules(room, sender, text, intent)    # "stop" never waits for a model
             return
@@ -217,48 +218,6 @@ class Chat:
             first = "Nothing is waiting for your OK right now."
         await self.say(room_id, f"{first} {await self.status_text(room_id)}")
 
-    async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
-        """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""
-        dm = await self.private_room(sender)
-        if dm is None:
-            await self.say(room.room_id, "I couldn't open a private chat with you; the console is also in this "
-                                         "room's Hagency panel (room info → Extensions).")
-            return
-        code = console.new_link(sender, room.room_id)               # the session it gives is for this room only
-        url = f"http://localhost:{panel.PORT}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
-        await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
-        await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
-
-    async def private_room(self, user: str) -> str | None:
-        known = self.dm_rooms.get(user)
-        room = self.client.rooms.get(known) if known else None
-        if room is not None and set(room.users) <= {self.user_id, user}:
-            return known                      # still just the two of us (joined or invited)
-        resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
-                                             name="Hagency (private)")
-        if not hasattr(resp, "room_id"):
-            log.warning("couldn't open a DM with %s: %s", user, resp)
-            return None
-        self.dm_rooms[user] = resp.room_id
-        return resp.room_id
-
-    async def change_level(self, room_id: str, level: str) -> str | None:
-        """Write the room's loop level; returns an error line, or None when done. Any explicit mode
-        change cancels a confirmation still waiting (it was asked for under the old mode)."""
-        if self.pending.get(room_id, {}).get("kind", "autonomous") == "autonomous":
-            self.pending.pop(room_id, None)
-        if level == "off" and not await room_state.bound(self.client, room_id):
-            return None                       # stopping never binds a room to the repo (anyone may stop)
-        return await self.write_level(room_id, level)
-
-    async def write_level(self, room_id: str, level: str) -> str | None:
-        """Write the level, which also binds the room to the repo: callers have checked a moderator asked."""
-        resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, {"level": level, "repo": github.REPO})
-        if not hasattr(resp, "event_id"):
-            return f"⚠️ I couldn't change the mode: {resp}"
-        self.kick()                           # start (or stop) now, not at the next poll
-        return None
-
     async def status_text(self, room_id: str) -> str:
         agents = ", ".join(a.split(":")[0][1:] for a in self.agents_in(self.client.rooms[room_id])) or "none"
         board = self.boards.get(room_id, {}).get("event_id")
@@ -272,7 +231,8 @@ class Chat:
         elif cmd == "!status":
             await self.say(room.room_id, await self.status_text(room.room_id))
         elif cmd == "!level" and not args:
-            await self.say(room.room_id, f"loop level: {await self.level(room.room_id)} for {github.REPO}")
+            await self.say(room.room_id, f"loop level: {await self.level(room.room_id)} for "
+                                         f"{await room_state.repo_of(self.client, room.room_id) or 'no repo yet'}")
         elif cmd == "!level":
             # The expert shortcut: an explicit level needs no ✅, but still needs a moderator.
             if args[0] not in github.LEVELS or len(args) != 1:
@@ -281,4 +241,4 @@ class Chat:
                 await self.say(room.room_id, "only room moderators can change the loop level")
             else:
                 await self.say(room.room_id, await self.change_level(room.room_id, args[0])
-                               or f"loop level: {args[0]} for {github.REPO}")
+                               or f"loop level: {args[0]} for {await room_state.repo_of(self.client, room.room_id)}")

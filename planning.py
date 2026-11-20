@@ -9,7 +9,7 @@ import json
 import re
 
 import github
-from github import REPO, run
+from github import run
 
 MAX_ITEMS = 12
 MAX_TITLE = 100
@@ -72,11 +72,11 @@ def show(items: list[dict]) -> str:
                        for i, it in enumerate(items, 1))
 
 
-async def file_issues(agent: str, items: list[dict], approved_by: str) -> list[int]:
+async def file_issues(agent: str, items: list[dict], approved_by: str, repo: str) -> list[int]:
     """Open one `agent-ok` issue per item, as `agent` (the loop picks them up in order)."""
     numbers = []
     for item in [clean_item(x) for x in items]:
-        url = (await run(["issue", "create", "-R", REPO, "--title", item["title"], "--label", github.LABEL,
+        url = (await run(["issue", "create", "-R", repo, "--title", item["title"], "--label", github.LABEL,
                           "--body", issue_body(item, approved_by)], agent)).strip().splitlines()[-1]
         numbers.append(int(url.rstrip("/").rsplit("/", 1)[1]))
     return numbers

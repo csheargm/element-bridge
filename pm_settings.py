@@ -1,0 +1,93 @@
+"""A room's settings, changed only through here (chat and the console both call these):
+  - its repo: one room, one repo, chosen by the owner or a maintainer ("@pm this room works on
+    owner/name" or the console). Stored as a list in the room's LEVEL_EVENT for multi-repo later;
+    a project that spans repos is a Matrix Space with one room per repo;
+  - its mode (off / assist / autonomous): stopping is open to anyone, never binds a room;
+  - the one-time console link, sent in a private room (it is a credential).
+Mixed into loop.Loop (client, user_id, say, level, state, room_repos, pending, dm_rooms, kick).
+"""
+import logging
+import urllib.parse
+
+from nio import MatrixRoom, RoomPreset
+
+import console
+import github
+import panel
+import room_state
+from loop_progress import ACTIVE
+
+log = logging.getLogger("loop")
+NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
+           "or set it in the Hagency console.")
+NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
+              "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
+
+
+class Settings:
+    async def set_repo(self, room: MatrixRoom, sender: str, repo: str) -> None:
+        """One room, one repo: the owner or a maintainer names it; never swapped under running work."""
+        rid, name = room.room_id, repo
+        repo = github.allowed_repo(name)
+        if not await room_state.is_moderator(self.client, room, sender):
+            await self.say(rid, "Only the room owner or a maintainer can choose this room's repo.")
+        elif not github.REPO_RE.match(name):
+            await self.say(rid, "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\".")
+        elif repo is None:            # never list the allowed repos here: their names can be private
+            await self.say(rid, f"This server isn't set up to work on {name}; its operator can add it to HAGENCY_REPOS.")
+        elif any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
+            await self.say(rid, "Work is still running on the current repo; say \"stop\" and let it finish first.")
+        else:
+            failed = await self.write_level(rid, await self.level(rid) if self.room_repos.get(rid) == repo else "off", repo)
+            if not failed:
+                self.room_repos[rid] = repo
+            await self.say(rid, failed or f"This room now works on **{repo}**. Check it's ready (the agents' write "
+                                          "access, the merge rule and the agent-ok label) under Project repo in "
+                                          "the Hagency console.")
+
+    async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
+        """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""
+        dm = await self.private_room(sender)
+        if dm is None:
+            await self.say(room.room_id, "I couldn't open a private chat with you; the console is also in this "
+                                         "room's Hagency panel (room info → Extensions).")
+            return
+        code = console.new_link(sender, room.room_id)               # the session it gives is for this room only
+        url = f"http://localhost:{panel.PORT}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
+        await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
+        await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
+
+    async def private_room(self, user: str) -> str | None:
+        known = self.dm_rooms.get(user)
+        room = self.client.rooms.get(known) if known else None
+        if room is not None and set(room.users) <= {self.user_id, user}:
+            return known                      # still just the two of us (joined or invited)
+        resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
+                                             name="Hagency (private)")
+        if not hasattr(resp, "room_id"):
+            log.warning("couldn't open a DM with %s: %s", user, resp)
+            return None
+        self.dm_rooms[user] = resp.room_id
+        return resp.room_id
+
+    async def change_level(self, room_id: str, level: str) -> str | None:
+        """Write the room's loop level; returns an error line, or None when done. Any explicit mode
+        change cancels a confirmation still waiting (it was asked for under the old mode)."""
+        if self.pending.get(room_id, {}).get("kind", "autonomous") == "autonomous":
+            self.pending.pop(room_id, None)
+        if level == "off" and not await room_state.bound(self.client, room_id):
+            return None                       # stopping never binds a room to the repo (anyone may stop)
+        return await self.write_level(room_id, level)
+
+    async def write_level(self, room_id: str, level: str, repo: str | None = None) -> str | None:
+        """Write the room's level (and repo): callers have checked that a moderator asked."""
+        repo = repo or await room_state.repo_of(self.client, room_id)
+        if repo is None:
+            return NO_REPO
+        resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo))
+        if not hasattr(resp, "event_id"):
+            if getattr(resp, "status_code", "") == "M_FORBIDDEN":    # a room someone made: I joined at power 0
+                return NEED_POWER
+            return f"⚠️ I couldn't save this room's settings: {resp}"
+        self.kick()                           # start (or stop) now, not at the next poll
+        return None

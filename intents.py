@@ -10,6 +10,8 @@ OFF, ASSIST, AUTONOMOUS, STATUS, SHOW_PLAN, PLAN, ABOUT, HELP, UNKNOWN = (
 FOLLOW_NEVER, FOLLOW_ASK, FOLLOW_ALWAYS = "follow_never", "follow_ask", "follow_always"
 GRANT_WEB, REVOKE_WEB = "grant_web", "revoke_web"
 CONSOLE = "console"
+SET_REPO = "set_repo"
+REPO_IN_TEXT = re.compile(r"(?:https?://github\.com/)?\b([A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100})\b")
 
 _RULES = [   # checked in order; the first match wins, so the safest meanings come first
     # The follow-me settings mention "my agent" explicitly, so they can go before "stop" without
@@ -30,6 +32,8 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
                  r"finish (it|the project|everything|all|them)|full auto|go all in)\b"),
     (STATUS, r"\b(status|where are we|progress|what'?s left|how'?s it going|what are (you|the agents) doing|"
              r"what'?s happening|update me)\b"),
+    (SET_REPO, r"\b(works? on|use|uses|repo is|switch (the room )?to|set (the |this room'?s? )?repo( to)?)\s+"
+               r"(https?://github\.com/)?[A-Za-z0-9-]+/[A-Za-z0-9._-]+"),
     (CONSOLE, r"\b(console|settings?)\b.*\blink\b|\bsend me (my |the )?(console|settings)\b|\bopen (the )?console\b"),
     (SHOW_PLAN, r"\b((show|reiterate|repeat|see|resend|what'?s|where'?s) (me )?(the |teh |our |that |this )?plan)\b"),
     (PLAN, r"\b(let'?s (build|do|start|go|make)|build (it|this|that)|start (the project|building|it)|go ahead|"
@@ -54,6 +58,12 @@ def classify(text: str) -> str:
         if rx.search(text):
             return intent
     return UNKNOWN
+
+
+def repo_named(text: str) -> str | None:
+    """The owner/name in a "this room works on owner/name" message (a GitHub URL works too)."""
+    m = REPO_IN_TEXT.search(text)
+    return m.group(1).removesuffix(".git") if m else None
 
 
 def is_yes(text: str) -> bool:

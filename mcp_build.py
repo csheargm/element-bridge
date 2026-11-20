@@ -20,14 +20,14 @@ def save_checkout(task_id: str, co: tasks.Checkout) -> None:
 
 def saved_checkout(task_id: str, t: dict) -> tasks.Checkout | None:
     n = int(t["issue"])
-    root = core.BASE / f"issue-{n}"
+    root = core.base_for(t) / f"issue-{n}"
     try:
         saved = json.loads((root / "task.json").read_text())
     except (OSError, ValueError):
         return None                      # no checkout for any task yet
     if saved.get("task_id") != task_id or not (root / "git").is_dir():
         return None                      # an older task's leftovers: start_build clones afresh
-    return tasks.Checkout(n, saved["issue"], root, f"agent/{AGENT}/issue-{n}")
+    return tasks.Checkout(n, saved["issue"], root, f"agent/{AGENT}/issue-{n}", t["repo"])
 
 
 @mcp.tool()
@@ -40,7 +40,7 @@ async def start_build(task_id: str) -> dict:
     async def step():
         co = saved_checkout(task_id, t)
         if co is None:                   # first call: clone; a repeat reuses it (never wipes edits)
-            co = await tasks.prepare_build(AGENT, core.BASE, t)
+            co = await tasks.prepare_build(AGENT, core.base_for(t), t)
             save_checkout(task_id, co)
             core.post(f"build: claimed #{t['issue']}", room=t.get("_room"))
         t["checkout"] = co
@@ -63,7 +63,7 @@ async def start_fix(task_id: str) -> dict:
     async def step():
         co = saved_checkout(task_id, t)
         if co is None:
-            co = await tasks.prepare_fix(AGENT, core.BASE, t)
+            co = await tasks.prepare_fix(AGENT, core.base_for(t), t)
             save_checkout(task_id, co)
             core.post(f"fix: revising PR #{t['pr']} after the review", room=t.get("_room"))
         t["checkout"] = co
@@ -206,6 +206,6 @@ async def merge_pr(task_id: str) -> dict:
         level = room_state.level_of(core.api("GET", core.room_path(t["_room"], f"/state/{github.LEVEL_EVENT}/"), token=core.token()))
         if level != "autonomous":
             raise tasks.TaskError(f"room is {level}, not autonomous")
-        return {"done": report(task_id, await tasks.merge(AGENT, "Hermes", core.BASE, t)), "next": "Stop."}
+        return {"done": report(task_id, await tasks.merge(AGENT, "Hermes", core.base_for(t), t)), "next": "Stop."}
     return await safely(task_id, "merge", step)
 

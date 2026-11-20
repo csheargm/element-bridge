@@ -36,7 +36,7 @@ def caps_in(state: list, agent_id: str) -> set[str]:
     for ev in state:
         if ev.get("type") == GRANTS_EVENT and ev.get("state_key") == key_for(agent_id) and ev.get("sender") == PM_ID:
             content = ev.get("content", {})
-            caps = content.get("caps", {}) if content.get("repo") == github.REPO else {}
+            caps = content.get("caps", {})
             return {c for c in caps if c in CAPS} if isinstance(caps, dict) else set()
     return set()
 
@@ -44,4 +44,4 @@ def caps_in(state: list, agent_id: str) -> set[str]:
 def record(current: set[str], cap: str, owner: str, on: bool) -> dict:
     """The agent's new grant record (built from what @pm itself wrote, never from anyone else's)."""
     caps = (current | {cap}) if on else (current - {cap})
-    return {"repo": github.REPO, "caps": {c: {"by": owner, "ts": int(time.time())} for c in sorted(caps)}}
+    return {"caps": {c: {"by": owner, "ts": int(time.time())} for c in sorted(caps)}}

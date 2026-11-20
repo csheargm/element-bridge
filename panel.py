@@ -38,7 +38,7 @@ PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="wi
 .box{background:#f6f6f7;border-radius:8px;padding:8px 12px}.muted{color:#777}li{margin:2px 0}
 button{font:inherit;padding:4px 10px;margin:2px 4px 2px 0;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer}
 button.on{background:#0b6e4f;color:#fff;border-color:#0b6e4f}button:disabled{opacity:.45;cursor:default}
-.row{margin:6px 0}#msg{color:#0b6e4f}#me{color:#444;margin-bottom:6px}#me b{font-size:16px;color:#111}</style>
+.row{margin:6px 0}#msg{color:#0b6e4f;white-space:pre-line}input{font:inherit;padding:3px 6px;width:16em}#me{color:#444;margin-bottom:6px}#me b{font-size:16px;color:#111}</style>
 <div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls"></div><div id="p"></div>
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
@@ -87,14 +87,18 @@ async function act(action, value) { $("msg").textContent = "…";
 function buttons(name, values, current, enabled) {
   return values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
     ${enabled ? '' : 'disabled'}>${esc(v)}</button>`).join(""); }
-document.addEventListener("click", e => { const b = e.target.closest("button[data-a]"); if (b) act(b.dataset.a, b.dataset.v); });
+document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
+  if (b) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.v); });
 async function refresh() {
   if (!session) return;
   const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
   if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
   const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
-  $("me").innerHTML = `<b>${esc(s.room)}</b> · ${esc(s.repo)}<br>Signed in as ${esc(s.user)} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
-  let h = `<h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
+  if (document.activeElement && document.activeElement.id === "repo") return;   // don't wipe what's being typed
+  $("me").innerHTML = `<b>${esc(s.room)}</b> · ${esc(s.repo || "no repo yet")}<br>Signed in as ${esc(s.user)} · ${s.moderator ? "owner/maintainer" : "contributor"}`;
+  let h = `<h2>Project repo</h2><div class=row>${s.moderator ? `<input id=repo placeholder="owner/name"
+    value="${esc(s.repo || "")}"> <button data-a="repo">Use for this room</button>` : esc(s.repo || "none yet")}
+    ${s.repo ? '<button data-a="check">Check it\'s ready</button>' : ""}</div><h2>Mode</h2><div class=row>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}</div>`;
   if (s.waiting && s.waiting.mine) h += `<h2>Waiting for you</h2><div class=row>${esc(s.waiting.kind)}${s.waiting.items.length ?
     ": " + s.waiting.items.map(esc).join(" · ") : ""} <button data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div>`;
   if (s.agent) h += `<h2>My agent (${esc(s.agent)})</h2>
@@ -136,7 +140,7 @@ def render(loop, room_id: str) -> str:
                           f"{html.escape(owner.split(':')[0][1:])}'s agent, follows: {follow}, "
                           f"may use: {html.escape(caps)}{here}</li>")
     parts.append("<h2>Agents</h2><ul>" + ("".join(agents) or "<li class=muted>none</li>") + "</ul>")
-    parts.append(f"<p class=muted>Repo: {html.escape(github.REPO)} · change anything by telling @pm in the chat</p>")
+    parts.append(f"<p class=muted>Repo: {html.escape(getattr(loop, 'room_repos', {}).get(room_id) or 'none yet')} · change anything by telling @pm in the chat</p>")
     return "".join(parts)
 
 

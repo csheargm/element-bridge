@@ -5,12 +5,14 @@ task id is never acted on again)."""
 import os
 import time
 import urllib.parse
+from pathlib import Path
 
 import markdown
 from mcp.server.fastmcp import FastMCP
 
 import github
 import registry
+import room_context
 import tasks
 from bridge import ROOT, SERVER_NAME
 from redact import room_safe
@@ -21,6 +23,11 @@ ROOM = os.environ.get("HAGENCY_ROOM")               # optional: one room only (t
 USER_ID = f"@{AGENT}:{SERVER_NAME}"
 PM_ID = f"@{github.PM_BOT}:{SERVER_NAME}"
 BASE = ROOT / "rooms" / AGENT / "work"
+
+
+def base_for(t: dict) -> Path:
+    """Work folders per repo: two rooms' repos can both have an issue #7 (claim() checked the repo)."""
+    return BASE / room_context.repo_dir(t["repo"])
 LOOKBACK = 100                                      # room events searched for this agent's task
 
 mcp = FastMCP("hagency", instructions=(
@@ -132,8 +139,9 @@ def claim(task_id: str, kind: str | tuple[str, ...]) -> tuple[dict | None, dict 
         return {"error": str(e), "next": "Call next_task, then use the task_id it returns."}, None
     if not owner_in(t.get("_room") or ""):   # an agent never works in a room without its owner
         return {"error": "your owner isn't in that room any more", "next": "Stop."}, None
-    if t.get("repo") != github.REPO:     # never act on another repo than the one this agent is set up for
-        return {"error": f"this task is for {t.get('repo')!r}, but I'm set up for {github.REPO!r}",
+    room_repo = room_context.room_repo(token(), t["_room"])
+    if t.get("repo") != room_repo:       # only ever the repo this room's moderators chose
+        return {"error": f"this task is for {t.get('repo')!r}, but the room works on {room_repo!r}",
                 "next": "Call report_failure(task_id, 'wrong repo') and tell your owner."}, None
     return None, t
 

@@ -57,6 +57,7 @@ class PmGrants(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {}
         self.lp.grants_cache = {}
         self.said, self.written, self.planted = [], [], []
 

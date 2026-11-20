@@ -28,16 +28,46 @@ MAX_SENDS = 2                    # first send + one resend, then a person takes 
 MAX_FIX_ROUNDS = 2               # times a builder revises its PR after "changes requested"
 
 
+def num(key: str) -> int:
+    """The issue number in a loop-state key ("owner/name#7" → 7)."""
+    return int(str(key).rsplit("#", 1)[-1])
+
+
+def issue_key(repo: str, n: int) -> str:
+    return f"{repo}#{n}"
+
+
+def migrate(state: dict) -> dict:
+    """Keys are "owner/name#7" (one room, one repo; two repos can both have an issue #7). Older
+    entries were keyed by number alone and belonged to the then server-wide repo."""
+    out = {}
+    for key, item in state.items():
+        repo = item.get("repo") or github.REPO
+        out[key if "#" in key else f"{repo}#{num(key)}"] = {**item, "repo": repo}
+    return out
+
+
 class Progress:
     # --- polling: pick up issues, check GitHub's merge verdict -------------------------
     async def tick(self) -> None:
-        issues = await github.run_json(["issue", "list", "-R", github.REPO, "--label", github.LABEL, "--state",
-                                        "open", "--json", "number,title", "--limit", "50"])
-        queued = sorted((i for i in issues if str(i["number"]) not in self.state), key=lambda i: i["number"])
+        issues_of: dict[str, list] = {}               # one GitHub call per repo per poll
         for room_id, room in self.client.rooms.items():
-            if not await room_state.bound(self.client, room_id):
-                continue                      # an unbound room never sees the repo's issues
-            self.open_issues[room_id] = queued        # shown on the board under "Next", even while stopped
+            repo = await room_state.repo_of(self.client, room_id)
+            if repo is None:
+                self.room_repos.pop(room_id, None)
+                continue                      # a room without a repo never sees any repo's issues
+            self.room_repos[room_id] = repo
+            if repo not in issues_of:
+                try:
+                    issues_of[repo] = await github.run_json(["issue", "list", "-R", repo, "--label", github.LABEL,
+                                                             "--state", "open", "--json", "number,title", "--limit", "50"])
+                except github.GitHubError as e:     # one unreadable repo never stops the other rooms
+                    log.warning("can't list issues on %s: %s", repo, str(e)[:200])
+                    issues_of[repo] = None
+            if issues_of[repo] is None:
+                continue
+            self.open_issues[room_id] = sorted((i for i in issues_of[repo] if issue_key(repo, i["number"]) not in self.state),
+                                               key=lambda i: i["number"])   # "Next" on the board, even while stopped
             lvl = await self.level(room_id)
             if lvl == "off":
                 continue
@@ -71,17 +101,18 @@ class Progress:
                    and v.get("ended", 0) > since]
         extra = f" ({', '.join('#' + k for k in stopped)} stopped and need a person.)" if stopped else ""
         await self.say(room_id, f"🎉 All done: {', '.join('#' + k for k in done)} merged.{extra} Try it: "
-                                f"{await self.where_to_try()}. Tell me what to change, then say \"let's build it\".")
+                                f"{await self.where_to_try(self.room_repos.get(room_id, ''))}. Tell me what to change, "
+                                "then say \"let's build it\".")
 
-    async def where_to_try(self) -> str:
+    async def where_to_try(self, repo: str) -> str:
         """The live site if the repo publishes one (GitHub Pages), else the repo and its README."""
         try:
-            site = await github.run_json(["api", f"repos/{github.REPO}/pages"])
+            site = await github.run_json(["api", f"repos/{repo}/pages"])
             if site.get("html_url"):
                 return f"{site['html_url']} (live site; updates a minute after each merge)"
         except github.GitHubError:
             pass                              # no Pages site: point at the repo instead
-        return f"https://github.com/{github.REPO} (see its README for how to run it)"
+        return f"https://github.com/{repo} (see its README for how to run it)"
 
     async def watchdog(self, room_id: str, key: str, item: dict) -> bool:
         """Never wait forever: resend a step with no answer once, and stop items GitHub keeps blocked.
@@ -93,16 +124,16 @@ class Progress:
         if item["stage"] in AGENT_STAGES and now - (item.get("sent_at") or item["since"]) > STEP_TIMEOUT_S:
             who = str(item.get("agent", "the agent")).split(":")[0].lstrip("@")
             if item.get("sends", 1) >= MAX_SENDS or "task" not in item:
-                return await self.stop(room_id, key, item, f"no answer from {who} on #{key}")
+                return await self.stop(room_id, key, item, f"no answer from {who} on #{num(key)}")
             await self.dispatch(room_id, item, item["agent"], item["body"], item["task"], resend=True)
-            await self.say(room_id, f"no answer from {who} on #{key} yet; asked again")
+            await self.say(room_id, f"no answer from {who} on #{num(key)} yet; asked again")
             return True
         return False
 
     async def github_timeout(self, room_id: str, key: str, item: dict, before: str) -> None:
         """Stop an item GitHub has kept blocked too long, judged AFTER advance() saw GitHub's state."""
         if item["stage"] == before and before in GITHUB_STAGES and time.time() - item["since"] > GITHUB_WAIT_S:
-            await self.stop(room_id, key, item, f"GitHub still blocks #{key} after {GITHUB_WAIT_S / 60:.0f} min")
+            await self.stop(room_id, key, item, f"GitHub still blocks #{num(key)} after {GITHUB_WAIT_S / 60:.0f} min")
 
     async def after_review_step(self, room_id: str, item: dict, key: str, result: dict) -> None:
         """A review approves (→ GitHub's gate) or asks for changes (→ the builder fixes); a fix goes
@@ -110,8 +141,8 @@ class Progress:
         if result["kind"] == "fix":
             item.update(stage="reviewing", fix_sha=result.get("sha"))
             await self.dispatch(room_id, item, item["reviewer"],
-                                f"{item['reviewer']}: review PR #{item['pr']} again (after fixes) against #{key}",
-                                {"kind": "review", "issue": int(key), "pr": item["pr"]})
+                                f"{item['reviewer']}: review PR #{item['pr']} again (after fixes) against #{num(key)}",
+                                {"kind": "review", "issue": num(key), "pr": item["pr"]})
             return
         item["sha"] = str(result["sha"])
         if result.get("verdict") == "approve":
@@ -128,8 +159,8 @@ class Progress:
             return
         item.update(stage="fixing", fix_rounds=rounds + 1)
         # The task first (stage and dispatch are recorded together); the announcement can't block it.
-        await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: fix PR #{item['pr']} for #{key} "
-                            "after the review", {"kind": "fix", "issue": int(key), "pr": item["pr"], "feedback": reasons})
+        await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: fix PR #{item['pr']} for #{num(key)} "
+                            "after the review", {"kind": "fix", "issue": num(key), "pr": item["pr"], "feedback": reasons})
         try:
             await self.say(room_id, f"{item['reviewer'].split(':')[0][1:]} asked for changes on PR #{item['pr']}; "
                                     f"{item['builder'].split(':')[0][1:]} revises it (round {rounds + 1}/{MAX_FIX_ROUNDS}).")
@@ -139,7 +170,7 @@ class Progress:
     async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
         item.update(stage="stopped", why=why)
         self.save()
-        await self.say(room_id, f"{why}; loop stopped on #{key}, a person takes over")
+        await self.say(room_id, f"{why}; loop stopped on #{num(key)}, a person takes over")
         return True
 
     async def claim_next(self, room: MatrixRoom, lvl: str) -> None:
@@ -150,8 +181,9 @@ class Progress:
         issue = fresh[0]
         n = issue["number"]
         builder = agents[n % len(agents)]
-        item = self.state[str(n)] = {"room": room.room_id, "stage": "building", "builder": builder,
-                                     "title": issue["title"]}
+        repo = self.room_repos[room.room_id]
+        item = self.state[issue_key(repo, n)] = {"room": room.room_id, "stage": "building", "builder": builder,
+                                                 "title": issue["title"], "repo": repo}
         self.open_issues[room.room_id] = fresh[1:]
         await self.say(room.room_id, f"Starting #{n} {issue['title']} with {builder.split(':')[0][1:]}.")
         await self.dispatch(room.room_id, item, builder, f"{builder}: build #{n} {issue['title']} ({lvl})",
@@ -163,11 +195,11 @@ class Progress:
             return
         if item["stage"] not in ("approved", "ready", "merge_sent"):
             return                                   # waiting on an agent's result message
-        ok, info = await github.merge_ready(item["pr"])
+        ok, info = await github.merge_ready(item["pr"], repo=item["repo"])
         if info.get("state") == "MERGED":
             by = "the loop" if item["stage"] == "merge_sent" else "a person"
             item["stage"] = "done"
-            await self.say(room_id, f"PR #{item['pr']} merged by {by}; #{key} done")
+            await self.say(room_id, f"PR #{item['pr']} merged by {by}; #{num(key)} done")
         elif item["stage"] == "merge_sent":
             pass                                     # merge requested; wait for GitHub to show MERGED
         elif item["stage"] == "approved" and info.get("mergeable") == "CONFLICTING":
@@ -175,12 +207,12 @@ class Progress:
         elif ok and info.get("headRefOid") and info["headRefOid"] != item.get("sha"):
             item["stage"] = "reviewing"       # the PR moved since it was approved: review what's there now
             await self.dispatch(room_id, item, item["reviewer"],
-                                f"{item['reviewer']}: review PR #{item['pr']} again (it changed) against #{key}",
-                                {"kind": "review", "issue": int(key), "pr": item["pr"]})
+                                f"{item['reviewer']}: review PR #{item['pr']} again (it changed) against #{num(key)}",
+                                {"kind": "review", "issue": num(key), "pr": item["pr"]})
         elif ok and lvl == "autonomous":
             item["stage"] = "merging"
             await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: merge PR #{item['pr']}",
-                                {"kind": "merge", "issue": int(key), "pr": item["pr"], "sha": item["sha"]})
+                                {"kind": "merge", "issue": num(key), "pr": item["pr"], "sha": item["sha"]})
         elif ok and item["stage"] == "approved":
             item["stage"] = "ready"
             await self.say(room_id, f"PR #{item['pr']} ready — a person merges")
@@ -192,16 +224,16 @@ class Progress:
 
     async def advance_close(self, room_id: str, key: str, item: dict, lvl: str) -> None:
         """An already-done issue, confirmed by a second agent: Autonomous closes it, Assist asks a person."""
-        issue = await github.run_json(["issue", "view", key, "-R", github.REPO, "--json", "state"])
+        issue = await github.run_json(["issue", "view", str(num(key)), "-R", item["repo"], "--json", "state"])
         if issue.get("state") == "CLOSED":
             by = "the loop" if item["stage"] == "close_sent" else "a person"
             item["stage"] = "done"
-            await self.say(room_id, f"#{key} closed by {by} (already done)")
+            await self.say(room_id, f"#{num(key)} closed by {by} (already done)")
         elif item["stage"] == "confirmed_done" and lvl == "autonomous":
             item["stage"] = "closing"
-            await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: close #{key} (already done)",
-                                {"kind": "close", "issue": int(key), "verifier": item["reviewer"]})
+            await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: close #{num(key)} (already done)",
+                                {"kind": "close", "issue": num(key), "verifier": item["reviewer"]})
         elif item["stage"] == "confirmed_done":
             item["stage"] = "close_ready"
-            await self.say(room_id, f"#{key} is already done (confirmed by {item['reviewer'].split(':')[0][1:]}) — a person closes")
+            await self.say(room_id, f"#{num(key)} is already done (confirmed by {item['reviewer'].split(':')[0][1:]}) — a person closes")
         self.save()

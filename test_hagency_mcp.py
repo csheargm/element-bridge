@@ -9,17 +9,21 @@ os.environ.setdefault("HAGENCY_ROOM", "!r:bridge.localhost")
 import github  # noqa: E402
 import hagency_mcp as m  # noqa: E402
 import mcp_core as core  # noqa: E402
+import room_context  # noqa: E402
 
 ME, BOT = core.USER_ID, core.PM_ID
-_owner_here = mock.patch.object(core, "owner_in", lambda room: True)   # owner present unless a test says not
+_patches = [mock.patch.object(core, "owner_in", lambda room: True),   # owner present unless a test says not
+            mock.patch.object(room_context, "room_repo", lambda token, room: github.REPO)]   # the room's repo
 
 
 def setUpModule():
-    _owner_here.start()
+    for p in _patches:
+        p.start()
 
 
 def tearDownModule():
-    _owner_here.stop()
+    for p in _patches:
+        p.stop()
 
 
 def task_event(task_id, kind="build", sender=BOT, agent=ME, **kw):
@@ -91,7 +95,7 @@ class Trust(unittest.TestCase):
         """Seen live: the MCP server ran on the default repo and opened issues there."""
         self.events([task_event("M", "merge", pr=9, sha="a", repo="someone/else")])
         out = asyncio.run(m.merge_pr("M"))
-        self.assertIn("I'm set up for", out["error"])
+        self.assertIn("the room works on", out["error"])
         self.assertEqual(self.posted, [])
 
     def test_nothing_happens_once_the_owner_has_left(self):
@@ -152,7 +156,7 @@ class CheckoutOnDisk(unittest.TestCase):
             self.clones += 1
             root = base / f"issue-{t['issue']}"
             (root / "git").mkdir(parents=True, exist_ok=True)
-            return core.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b")
+            return core.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b", t["repo"])
         for name, fn in (("recent_events", lambda: [task_event("B")]), ("post", lambda *a, **k: None)):
             q = mock.patch.object(core, name, fn)
             q.start()
@@ -192,7 +196,7 @@ class FixOverMcp(unittest.TestCase):
             root = base / f"issue-{t['issue']}"
             (root / "git").mkdir(parents=True, exist_ok=True)
             (root / "tree").mkdir(parents=True, exist_ok=True)
-            return core.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b")
+            return core.tasks.Checkout(int(t["issue"]), {"title": "x"}, root, "b", t["repo"])
 
         async def finish_fix(agent, co, summary, pr):
             return {"kind": "fix", "issue": 7, "pr": pr, "line": f"updated PR #{pr} after the review"}
@@ -216,7 +220,7 @@ class ContainedWrites(CheckoutOnDisk):
     def setUp(self):
         super().setUp()
         asyncio.run(m.start_build("B"))
-        self.tree = core.BASE / "issue-7" / "tree"
+        self.tree = core.BASE / room_context.repo_dir(github.REPO) / "issue-7" / "tree"
 
     def test_writes_land_in_the_checkout(self):
         out = m.write_files("B", {"docs/HELLO.md": "# Hello\n"})

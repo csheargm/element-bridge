@@ -14,17 +14,35 @@ async def read(client: AsyncClient, room_id: str, event_type: str) -> dict:
     return r.content if isinstance(r, RoomGetStateEventResponse) and isinstance(r.content, dict) else {}
 
 
+def repo_in(content: dict) -> str | None:
+    """The room's repo from its LEVEL_EVENT. Stored as a list (one repo per room today; several
+    later), with the older single "repo" field still understood."""
+    if not isinstance(content, dict):
+        return None
+    repos = content.get("repos")
+    repo = repos[0] if isinstance(repos, list) and repos else content.get("repo")
+    return github.allowed_repo(repo)     # also when someone wrote the state by hand: only allowed repos
+
+
 def level_of(content: dict) -> str:
-    """The loop level in a LEVEL_EVENT's content, for github.REPO; anything else is off."""
-    lvl = content.get("level") if isinstance(content, dict) and content.get("repo") == github.REPO else None
+    """The loop level in a LEVEL_EVENT's content; a room without a repo is off."""
+    lvl = content.get("level") if repo_in(content) else None
     return lvl if lvl in github.LEVELS else "off"
 
 
+def content(level: str, repo: str) -> dict:
+    return {"level": level, "repos": [repo], "repo": repo}
+
+
+async def repo_of(client: AsyncClient, room_id: str) -> str | None:
+    """The repo this room works on (one room, one repo), or None if nobody has set one."""
+    return repo_in(await read(client, room_id, github.LEVEL_EVENT))
+
+
 async def bound(client: AsyncClient, room_id: str) -> bool:
-    """A moderator has tied this room to github.REPO (by asking @pm for a plan or a mode). Only then
-    does @pm show the repo's issues, status and panel there: a room anyone can create must not
-    become a window into the repo."""
-    return (await read(client, room_id, github.LEVEL_EVENT)).get("repo") == github.REPO
+    """A moderator has given this room a repo. Only then does @pm show issues, status and the panel
+    there: a room anyone can create must not become a window into a repo."""
+    return await repo_of(client, room_id) is not None
 
 
 async def level(client: AsyncClient, room_id: str) -> str:

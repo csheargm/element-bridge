@@ -52,10 +52,12 @@ class Parse(unittest.TestCase):
 
 class Flow(unittest.TestCase):
     def setUp(self):
-        _bound = mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=True))   # a project room
-        _bound.start()
-        self.addCleanup(_bound.stop)
+        for name, value in (("bound", True), ("repo_of", "your-name/hagency-hello")):   # a project room
+            _p = mock.patch.object(room_state, name, mock.AsyncMock(return_value=value))
+            _p.start()
+            self.addCleanup(_p.stop)
         self.lp = Loop.__new__(Loop)
+        self.lp.room_repos = {}
         self.lp.user_id, self.lp.pending, self.lp.plans, self.lp.boards = "@pm:bridge.localhost", {}, {}, {}
         self.lp.last_plans = {}
         self.sent = []
