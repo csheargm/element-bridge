@@ -1,17 +1,32 @@
-"""A room's settings live in its own Matrix state, not in config files: the loop level
-(github.LEVEL_EVENT). Only moderators may
-change them — the server enforces that (state events need power 50) and @pm checks it (pm_chat.py).
+"""A room's settings live in its own Matrix state, not in config files: its repo and loop level
+(github.LEVEL_EVENT). @pm writes them after its own checks (pm_settings.py), and they count only
+if @pm wrote them (binding_in).
 """
-from nio import AsyncClient, MatrixRoom, RoomGetStateEventResponse, RoomGetStateResponse
+from nio import AsyncClient, MatrixRoom, RoomGetStateResponse
 
 import github
 
 MODERATOR_LEVEL = 50
 
 
-async def read(client: AsyncClient, room_id: str, event_type: str) -> dict:
-    r = await client.room_get_state_event(room_id, event_type, "")
-    return r.content if isinstance(r, RoomGetStateEventResponse) and isinstance(r.content, dict) else {}
+def pm_id(client: AsyncClient) -> str:
+    """@pm on this client's server (the bridge's agents read the binding too, as themselves)."""
+    return f"@{github.PM_BOT}:{client.user_id.split(':', 1)[1]}"
+
+
+def binding_in(events: list, pm: str) -> dict:
+    """The room's LEVEL_EVENT content, only if @pm wrote it: @pm writes it after its own checks
+    (moderator, allowed repo, the requester's agent can write there). A room's creator controls its
+    power levels, so the server's own check alone would let anyone they choose write it by hand."""
+    for ev in events:
+        if ev.get("type") == github.LEVEL_EVENT and ev.get("state_key") == "" and ev.get("sender") == pm:
+            return ev.get("content") if isinstance(ev.get("content"), dict) else {}
+    return {}
+
+
+async def read_binding(client: AsyncClient, room_id: str) -> dict:
+    r = await client.room_get_state(room_id)
+    return binding_in(r.events, pm_id(client)) if isinstance(r, RoomGetStateResponse) else {}
 
 
 def repo_in(content: dict) -> str | None:
@@ -19,8 +34,11 @@ def repo_in(content: dict) -> str | None:
     later), with the older single "repo" field still understood."""
     if not isinstance(content, dict):
         return None
-    repos = content.get("repos")
-    repo = repos[0] if isinstance(repos, list) and repos else content.get("repo")
+    if "repos" in content:               # the list wins; the single "repo" is only for older rooms
+        repos = content["repos"]
+        repo = repos[0] if isinstance(repos, list) and len(repos) == 1 else None
+    else:
+        repo = content.get("repo")
     return github.allowed_repo(repo)     # also when someone wrote the state by hand: only allowed repos
 
 
@@ -36,7 +54,7 @@ def content(level: str, repo: str) -> dict:
 
 async def repo_of(client: AsyncClient, room_id: str) -> str | None:
     """The repo this room works on (one room, one repo), or None if nobody has set one."""
-    return repo_in(await read(client, room_id, github.LEVEL_EVENT))
+    return repo_in(await read_binding(client, room_id))
 
 
 async def bound(client: AsyncClient, room_id: str) -> bool:
@@ -46,7 +64,7 @@ async def bound(client: AsyncClient, room_id: str) -> bool:
 
 
 async def level(client: AsyncClient, room_id: str) -> str:
-    return level_of(await read(client, room_id, github.LEVEL_EVENT))
+    return level_of(await read_binding(client, room_id))
 
 
 async def is_moderator(client: AsyncClient, room: MatrixRoom, sender: str) -> bool:

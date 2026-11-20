@@ -55,6 +55,7 @@ class Progress:
             repo = await room_state.repo_of(self.client, room_id)
             if repo is None:
                 self.room_repos.pop(room_id, None)
+                self.open_issues.pop(room_id, None)
                 continue                      # a room without a repo never sees any repo's issues
             self.room_repos[room_id] = repo
             if repo not in issues_of:
@@ -71,7 +72,8 @@ class Progress:
             lvl = await self.level(room_id)
             if lvl == "off":
                 continue
-            active = [(k, v) for k, v in self.state.items() if v["room"] == room_id and v["stage"] in ACTIVE]
+            active = [(k, v) for k, v in self.state.items()     # only the room's current repo's items
+                      if v["room"] == room_id and v.get("repo") == repo and v["stage"] in ACTIVE]
             for key, item in active:
                 if item.get("held"):          # a step decided while stopped: send it now
                     await self.dispatch(room_id, item, item["agent"], item["body"], item["task"])
@@ -92,15 +94,15 @@ class Progress:
         board = self.boards.setdefault(room_id, {})
         since = board.get("announced", 0)
         done = sorted((k for k, v in self.state.items() if v["room"] == room_id and v["stage"] == "done"
-                       and v.get("ended", 0) > since), key=int)
+                       and v.get("ended", 0) > since), key=num)
         if not done:
             return
         board["announced"] = time.time()
         self.save_boards()
         stopped = [k for k, v in self.state.items() if v["room"] == room_id and v["stage"] == "stopped"
                    and v.get("ended", 0) > since]
-        extra = f" ({', '.join('#' + k for k in stopped)} stopped and need a person.)" if stopped else ""
-        await self.say(room_id, f"🎉 All done: {', '.join('#' + k for k in done)} merged.{extra} Try it: "
+        extra = f" ({', '.join(f'#{num(k)}' for k in stopped)} stopped and need a person.)" if stopped else ""
+        await self.say(room_id, f"🎉 All done: {', '.join(f'#{num(k)}' for k in done)} merged.{extra} Try it: "
                                 f"{await self.where_to_try(self.room_repos.get(room_id, ''))}. Tell me what to change, "
                                 "then say \"let's build it\".")
 

@@ -13,6 +13,7 @@ import room_context  # noqa: E402
 
 ME, BOT = core.USER_ID, core.PM_ID
 _patches = [mock.patch.object(core, "owner_in", lambda room: True),   # owner present unless a test says not
+            mock.patch.object(core, "token", lambda: "t"),                 # never a real Matrix login (GPT review 10)
             mock.patch.object(room_context, "room_repo", lambda token, room: github.REPO)]   # the room's repo
 
 
@@ -114,13 +115,23 @@ class Trust(unittest.TestCase):
         async def material(agent, t):
             return 7, 9, {"title": "t"}, "abc", "diff"
 
-        async def submit(agent, n, pr, head, verdict, text):
+        async def submit(agent, n, pr, head, verdict, text, repo):
+            self.assertEqual(repo, github.REPO)       # GPT review 10: the call lost its repo argument
             return {"kind": "review", "issue": n, "pr": pr, "sha": head, "verdict": verdict.lower(), "line": "approved PR #9"}
         with mock.patch.object(core.tasks, "review_material", material), mock.patch.object(core.tasks, "submit_review", submit):
             asyncio.run(m.get_review("R"))
             out = asyncio.run(m.submit_review("R", True, "ok"))
         self.assertEqual(out["done"], "approved PR #9")
         self.assertEqual(self.posted[-1][1]["sha"], "abc")
+
+    def test_approved_issues_are_filed_in_the_rooms_repo(self):
+        """GPT review 10: open_issues called planning.file_issues without the repo (TypeError)."""
+        self.events([task_event("F", "file_issues", items=[{"title": "x"}], approved_by="anna")])
+        filed = mock.AsyncMock(return_value=[11])
+        with mock.patch.object(m.planning if hasattr(m, "planning") else __import__("planning"), "file_issues", filed):
+            out = asyncio.run(m.open_issues("F"))
+        self.assertEqual(out["done"], "opened #11")
+        self.assertEqual(filed.await_args.args[-1], github.REPO)
 
     def test_an_older_or_answered_task_is_never_acted_on(self):
         """GPT review: tools used to accept any task id still visible in the room."""

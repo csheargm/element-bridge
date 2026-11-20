@@ -13,7 +13,9 @@ from nio import MatrixRoom, RoomPreset
 
 import console
 import github
+import github_setup
 import panel
+import registry
 import room_state
 from loop_progress import ACTIVE
 
@@ -24,26 +26,46 @@ NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderator
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
 
+async def may_write(user: str, repo: str) -> bool:
+    """The person's own agent's GitHub account can write to `repo`: so binding a room to a repo needs
+    real access to it, not just a room of one's own (anyone can create a room). A read with that
+    agent's identity; nothing is changed."""
+    person = user.split(":")[0].lstrip("@")
+    agent = registry.agent_of(person)
+    if registry.owner_of(agent) != person:
+        return False
+    return bool((await github_setup.identity(agent, repo)).get("push"))
+
+
 class Settings:
-    async def set_repo(self, room: MatrixRoom, sender: str, repo: str) -> None:
-        """One room, one repo: the owner or a maintainer names it; never swapped under running work."""
-        rid, name = room.room_id, repo
-        repo = github.allowed_repo(name)
+    async def set_repo(self, room: MatrixRoom, sender: str, repo: str) -> str:
+        """One room, one repo: the owner or a maintainer names it; never swapped under running work.
+        Says the answer in the room and returns it (the console shows it too)."""
+        answer = await self.choose_repo(room, sender, repo)
+        await self.say(room.room_id, answer)
+        return answer
+
+    async def choose_repo(self, room: MatrixRoom, sender: str, name: str) -> str:
+        rid, repo = room.room_id, github.allowed_repo(name)
         if not await room_state.is_moderator(self.client, room, sender):
-            await self.say(rid, "Only the room owner or a maintainer can choose this room's repo.")
-        elif not github.REPO_RE.match(name):
-            await self.say(rid, "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\".")
-        elif repo is None:            # never list the allowed repos here: their names can be private
-            await self.say(rid, f"This server isn't set up to work on {name}; its operator can add it to HAGENCY_REPOS.")
-        elif any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
-            await self.say(rid, "Work is still running on the current repo; say \"stop\" and let it finish first.")
-        else:
-            failed = await self.write_level(rid, await self.level(rid) if self.room_repos.get(rid) == repo else "off", repo)
-            if not failed:
-                self.room_repos[rid] = repo
-            await self.say(rid, failed or f"This room now works on **{repo}**. Check that it is ready (the agents' write "
-                                          "access, the merge rule and the agent-ok label) with Check readiness "
-                                          "under Project repo in the Hagency console.")
+            return "Only the room owner or a maintainer can choose this room's repo."
+        if not github.REPO_RE.match(name):
+            return "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\"."
+        if repo is None or not await may_write(sender, repo):    # one answer for both: never confirms a name
+            return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
+                    "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+        if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
+            return "Work is still running on the current repo; say \"stop\" and let it finish first."
+        failed = await self.write_level(rid, await self.level(rid) if self.room_repos.get(rid) == repo else "off", repo)
+        if failed:
+            return failed
+        if self.room_repos.get(rid) != repo:      # a plan made for the old repo is never filed in the new one
+            self.pending.pop(rid, None)
+            self.plans.pop(rid, None)
+            self.last_plans.pop(rid, None)
+        self.room_repos[rid] = repo
+        return (f"This room now works on **{repo}**. Check that it is ready (the agents' write access, the merge "
+                "rule and the agent-ok label) with Check readiness under Project repo in the Hagency console.")
 
     async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
         """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""

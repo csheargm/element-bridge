@@ -13,6 +13,7 @@ See docs/GITHUB_SETUP.md for the full walkthrough.
 import asyncio
 import json
 import sys
+import urllib.parse
 
 import github
 from github import LABEL, REPO, GitHubError, run, run_json
@@ -22,12 +23,14 @@ RULESET_FILE = github.ROOT / "github-ruleset.json"
 RULESET_NAME = json.loads(RULESET_FILE.read_text())["name"]
 
 
-def evaluate(identities: dict[str, dict], main_rules: list[dict], repo: str = REPO) -> list[str]:
-    """identities: agent -> {"login", "push"} (or {"error"}); main_rules: GET rules/branches/main."""
+def evaluate(identities: dict[str, dict], main_rules: list[dict], repo: str = REPO, branch: str = "main",
+             detail: bool = True) -> list[str]:
+    """identities: agent -> {"login", "push"} (or {"error"}); main_rules: GET rules/branches/<branch>.
+    detail=False leaves out raw GitHub CLI errors (the console shows this to room moderators)."""
     problems = []
     for agent, ident in identities.items():
         if "error" in ident:
-            problems.append(f"{agent}: not signed in ({ident['error']})")
+            problems.append(f"{agent}: not signed in to GitHub" + (f" ({ident['error']})" if detail else ""))
         elif not ident.get("push"):
             problems.append(f"{agent} ({ident['login']}): no Write access to {repo} — add it as a collaborator")
     logins = [i["login"] for i in identities.values() if "login" in i]
@@ -35,7 +38,7 @@ def evaluate(identities: dict[str, dict], main_rules: list[dict], repo: str = RE
         problems.append(f"agents share a GitHub account ({logins}); each needs its own, or nobody can approve")
     pr_rules = [r for r in main_rules if r.get("type") == "pull_request"]
     if not any(r.get("parameters", {}).get("required_approving_review_count", 0) >= 1 for r in pr_rules):
-        problems.append(f"main on {repo} doesn't require an approving review — run `github_setup.py ruleset --repo {repo}`")
+        problems.append(f"{branch} on {repo} doesn't require an approving review — run `github_setup.py ruleset --repo {repo}`")
     return problems
 
 
@@ -48,15 +51,16 @@ async def identity(agent: str, repo: str = REPO) -> dict:
         return {"error": str(e)[:200]}   # reported as a problem by evaluate()
 
 
-async def readiness(repo: str, agents: list[str]) -> tuple[dict, list[str]]:
-    """(identities, problems) for the loop on `repo`: read-only, nothing is changed."""
+async def readiness(repo: str, agents: list[str], detail: bool = True) -> tuple[dict, list[str]]:
+    """(identities, problems) for the loop on `repo` (its default branch): read-only, nothing changes."""
     identities = {a: await identity(a, repo) for a in agents}
     try:
-        rules = await run_json(["api", f"repos/{repo}/rules/branches/main"])
+        branch = (await run_json(["api", f"repos/{repo}"])).get("default_branch") or "main"
+        rules = await run_json(["api", f"repos/{repo}/rules/branches/{urllib.parse.quote(branch, safe='')}"])
         labels = {lb["name"] for lb in await run_json(["label", "list", "-R", repo, "--json", "name", "--limit", "200"])}
     except GitHubError as e:
-        return identities, [f"can't read {repo}: {str(e)[:160]}"]
-    problems = evaluate(identities, rules if isinstance(rules, list) else [], repo)
+        return identities, [f"can't read {repo}" + (f": {str(e)[:160]}" if detail else "")]
+    problems = evaluate(identities, rules if isinstance(rules, list) else [], repo, branch, detail)
     if LABEL not in labels:
         problems.append(f"no '{LABEL}' label on {repo} — run `github_setup.py ruleset --repo {repo}`")
     return identities, problems

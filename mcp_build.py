@@ -170,7 +170,7 @@ async def get_review(task_id: str) -> dict:
         t["head"] = head
         if len(diff) > tasks.MAX_DIFF_CHARS:
             return {"done": report(task_id, await tasks.submit_review(AGENT, n, pr, head, "REQUEST_CHANGES",
-                                                                      "Diff too large to review in full.")),
+                                                                      "Diff too large to review in full.", t["repo"])),
                     "next": "Stop."}
         return {"instructions": tasks.review_prompt(n, pr, issue, diff),
                 "next": "Decide, then call submit_review(task_id, approve, reasons). approve=true only if "
@@ -190,7 +190,8 @@ async def submit_review(task_id: str, approve: bool, reasons: str) -> dict:
 
     async def step():
         verdict = "APPROVE" if approve else "REQUEST_CHANGES"
-        result = await tasks.submit_review(AGENT, int(t["issue"]), int(t["pr"]), t["head"], verdict, reasons[:3000])
+        result = await tasks.submit_review(AGENT, int(t["issue"]), int(t["pr"]), t["head"], verdict, reasons[:3000],
+                                             t["repo"])
         return {"done": report(task_id, result), "next": "Stop."}
     return await safely(task_id, "review", step)
 

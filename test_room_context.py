@@ -88,5 +88,20 @@ class ProjectFiles(unittest.TestCase):
         return stack
 
 
+class Prune(unittest.TestCase):
+    def test_only_the_current_repos_copy_stays(self):
+        """GPT review 10: after a switch the agent could still read the old repo's copy."""
+        import tempfile
+        from pathlib import Path
+        projects = Path(tempfile.mkdtemp()) / "projects"
+        for name in ("a__x", "b__y"):
+            (projects / name).mkdir(parents=True)
+            (projects / name / "README.md").write_text(name)
+        room_context.prune_projects(projects, "b__y")
+        self.assertEqual(sorted(p.name for p in projects.iterdir()), ["b__y"])
+        room_context.prune_projects(projects, None)                      # unbound: nothing stays
+        self.assertEqual(list(projects.iterdir()), [])
+
+
 if __name__ == "__main__":
     unittest.main()

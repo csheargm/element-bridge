@@ -28,7 +28,7 @@ B, R = "@b-agent:x", "@r-agent:x"
 class Rounds(unittest.TestCase):
     def setUp(self):
         self.lp = Loop.__new__(Loop)
-        self.lp.room_repos = {}
+        self.lp.room_repos = {"!r": "your-name/hagency-hello"}
         self.lp.state, self.lp.save = {}, lambda: None
         self.lp.say = mock.AsyncMock()
         self.lp.level = mock.AsyncMock(return_value="autonomous")

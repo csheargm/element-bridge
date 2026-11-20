@@ -19,7 +19,7 @@ class Watchdog(unittest.TestCase):
             _p.start()
             self.addCleanup(_p.stop)
         self.lp = Loop.__new__(Loop)
-        self.lp.room_repos = {}
+        self.lp.room_repos = {"!r": "your-name/hagency-hello"}
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {}
         self.lp.save = lambda: None
@@ -125,7 +125,8 @@ class AllDone(unittest.TestCase):
         self.lp.room_repos = {"!r": github.REPO}
         self.lp.boards, self.lp.save_boards, self.lp.open_issues = {}, lambda: None, {"!r": []}
         self.lp.say = mock.AsyncMock()
-        self.lp.state = {"1": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "done", "ended": 100}, "2": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "done", "ended": 200}}
+        self.lp.state = {f"{github.REPO}#{n}": {"room": "!r", "repo": github.REPO, "stage": "done", "ended": n * 100}
+                         for n in (1, 2)}                 # keys as migrate() writes them (GPT review 10: key=int)
         p = mock.patch.object(github, "run_json", mock.AsyncMock(side_effect=github.GitHubError("404")))
         p.start()
         self.addCleanup(p.stop)

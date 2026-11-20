@@ -47,7 +47,7 @@ class Planner:
         issues = await github.run_json(["issue", "list", "-R", repo, "--state", "open", "--label",
                                         github.LABEL, "--json", "title", "--limit", "100"])
         task_id = uuid.uuid4().hex
-        self.plans[rid] = {"task_id": task_id, "agent": agent, "by": sender}
+        self.plans[rid] = {"task_id": task_id, "agent": agent, "by": sender, "repo": repo}
         await self.say(rid, f"{agent}: plan the work from this room's discussion", agent,
                        {"kind": "plan", "task_id": task_id, "repo": repo, "discussion": discussion,
                         "existing": [i["title"] for i in issues]})
@@ -102,7 +102,7 @@ class Planner:
         if not items:
             await self.say(rid, "I don't see anything new agreed in the discussion yet.")
             return
-        self.last_plans[rid] = {"items": items, "agent": plan["agent"], "by": plan["by"]}
+        self.last_plans[rid] = {"items": items, "agent": plan["agent"], "by": plan["by"], "repo": plan.get("repo")}
         await self.show_plan(rid)
 
     async def show_plan(self, rid: str) -> None:
@@ -119,13 +119,17 @@ class Planner:
                                        f"React 👍 to open these {len(items)} issue(s), or tell me what to change "
                                        "and ask me to plan again.")
         self.pending[rid] = {"kind": "plan", "event_id": event_id, "until": time.time() + CONFIRM_S,
-                             "items": items, "agent": last["agent"], "by": last["by"]}
+                             "items": items, "agent": last["agent"], "by": last["by"], "repo": last.get("repo")}
 
     async def file_plan(self, room: MatrixRoom, pending: dict, approver: str) -> None:
+        repo = await room_state.repo_of(self.client, room.room_id)
+        if repo is None or pending.get("repo") != repo:   # planned from one repo's discussion, never filed in another
+            await self.say(room.room_id, "This room's repo changed since that plan; ask me to plan again.")
+            return
         task_id = uuid.uuid4().hex
         self.plans[room.room_id] = {"task_id": task_id, "agent": pending["agent"], "by": approver,
                                     "proposal": pending.get("event_id")}
         await self.say(room.room_id, f"{pending['agent']}: open the approved issues", pending["agent"],
                        {"kind": "file_issues", "task_id": task_id, "items": pending["items"],
-                        "repo": await room_state.repo_of(self.client, room.room_id),
+                        "repo": repo,
                         "approved_by": approver.split(":")[0].lstrip("@")})

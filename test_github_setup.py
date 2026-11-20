@@ -1,6 +1,9 @@
 """Unit tests for github_setup.evaluate. Run: .venv/bin/python -m unittest test_github_setup"""
+import asyncio
 import unittest
+from unittest import mock
 
+import github_setup
 from github_setup import evaluate
 
 GATED = [{"type": "pull_request", "parameters": {"required_approving_review_count": 1}}]
@@ -29,6 +32,28 @@ class Evaluate(unittest.TestCase):
     def test_shared_account(self):
         p = evaluate({"anna-agent": {"login": "a", "push": True}, "betty-agent": {"login": "a", "push": True}}, GATED)
         self.assertIn("share a GitHub account", p[0])
+
+
+class Readiness(unittest.TestCase):
+    """GPT review 10: the check read `main` even where the default branch differs, and the console
+    showed raw GitHub CLI errors to room moderators."""
+    def test_checks_the_default_branch(self):
+        calls = []
+
+        async def run_json(args, agent=None):
+            calls.append(args[1] if args[0] == "api" else args[0])
+            if args[1] == "repos/o/r":
+                return {"default_branch": "trunk"}
+            return [{"name": "agent-ok"}] if args[0] == "label" else GATED
+        with mock.patch.object(github_setup, "run_json", run_json), \
+                mock.patch.object(github_setup, "identity", mock.AsyncMock(return_value={"login": "a", "push": True})):
+            _, problems = asyncio.run(github_setup.readiness("o/r", ["anna-agent"]))
+        self.assertEqual(problems, [])
+        self.assertIn("repos/o/r/rules/branches/trunk", calls)
+
+    def test_no_raw_errors_without_detail(self):
+        p = evaluate({"betty-agent": {"error": "token at /secret/path expired"}}, GATED, detail=False)
+        self.assertEqual(p, ["betty-agent: not signed in to GitHub"])
 
 
 if __name__ == "__main__":

@@ -38,7 +38,8 @@ async def open_issues(task_id: str) -> dict:
         return problem
 
     async def step():
-        numbers = await planning.file_issues(AGENT, t["items"], str(t.get("approved_by", "the room owner")))
+        numbers = await planning.file_issues(AGENT, t["items"], str(t.get("approved_by", "the room owner")),
+                                             t["repo"])      # claim() checked it is the room's own repo
         line = "opened " + ", ".join(f"#{n}" for n in numbers) if numbers else "no issues to open"
         return {"done": report(task_id, {"kind": "file_issues", "numbers": numbers, "line": line}), "next": "Stop."}
     return await safely(task_id, "file_issues", step)

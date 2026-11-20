@@ -187,7 +187,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
             return
         key = self.key_for_result(room.room_id, result)
         item = self.state.get(key)
-        if not isinstance(kind, str) or not item or item["room"] != room.room_id:
+        if not isinstance(kind, str) or not item or item.get("repo") != self.room_repos.get(room.room_id):
             return
         if item["stage"] != EXPECTED_STAGE.get(kind) or result.get("task_id") not in item.get("task_ids", [item.get("task_id")]):
             return   # late/duplicate result for a step that's no longer current

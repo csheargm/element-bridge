@@ -123,7 +123,7 @@ class LoopResults(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
-        self.lp.room_repos = {}
+        self.lp.room_repos = {"!r": "your-name/hagency-hello"}
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {"7": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "reviewing", "builder": "@b-agent:x",
                                "reviewer": "@r-agent:x", "pr": 9, "task_id": "T"}}
@@ -172,7 +172,7 @@ class AlreadyDone(unittest.TestCase):
     def setUp(self):
         import loop
         self.lp = loop.Loop.__new__(loop.Loop)
-        self.lp.room_repos = {}
+        self.lp.room_repos = {"!r": "your-name/hagency-hello"}
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {"7": {"room": "!r", "repo": "your-name/hagency-hello", "stage": "building", "builder": "@b-agent:x", "task_id": "T"}}
         self.lp.save = lambda: None

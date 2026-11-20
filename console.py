@@ -124,8 +124,7 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
         await loop.set_grant(room, user, "web", value == "on")
         return "ok"
     if action == "repo":
-        await loop.set_repo(room, user, value.strip())       # moderators only; answered in the chat
-        return "ok"
+        return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
     if action == "check":
         return await check_repo(loop, room, user)
     if action == "approve":
@@ -146,7 +145,7 @@ async def check_repo(loop, room, user: str) -> str:
     agents = [a.split(":")[0].lstrip("@") for a in loop.agents_in(room)]
     if not agents:
         return "no agents in this room yet (each person's agent joins with them)"
-    _, problems = await github_setup.readiness(repo, agents)
+    _, problems = await github_setup.readiness(repo, agents, detail=False)
     if not problems:
         return f"✓ {repo} is ready: {', '.join(agents)} can write, merges need an approving review, agent-ok exists."
     return "\n".join([f"{repo} isn't ready yet:", *(f"✗ {p}" for p in problems),

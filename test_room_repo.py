@@ -36,7 +36,11 @@ class Parsing(unittest.TestCase):
                            ("set the repo to a/b.git", "a/b")):
             self.assertEqual(intents.classify(text), intents.SET_REPO, text)
             self.assertEqual(intents.repo_named(text), repo, text)   # (allowed or not is set_repo's call)
-        self.assertNotEqual(intents.classify("let's build it"), intents.SET_REPO)
+        for text in ("let's build it", "let's use docs/guide.md for that", "we use a/b", "use https://evil.com/a/b"):
+            self.assertNotEqual(intents.classify(text), intents.SET_REPO, text)
+        # GPT review 10: the repo is the command's own argument, not the first owner/name in the message
+        self.assertEqual(intents.repo_named("the room works on a/b, see x/y"), "a/b")
+        self.assertIsNone(intents.repo_named("see x/y"))
 
     def test_stored_as_a_list_older_single_field_still_read(self):
         self.assertEqual(room_state.repo_in({"level": "off", "repos": [HELLO]}), HELLO)
@@ -67,7 +71,12 @@ class SetRepo(unittest.TestCase):
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.boards, self.lp.state = PM, {}, {}, {}
         self.lp.generation, self.lp.busy, self.lp.room_repos = {}, set(), {}
+        self.lp.plans, self.lp.last_plans = {}, {}
         self.lp.kick = lambda: None
+        self.can_write = True                  # the requester's agent's GitHub access to the repo
+        q = mock.patch("pm_settings.may_write", lambda user, repo: asyncio.sleep(0, self.can_write))
+        q.start()
+        self.addCleanup(q.stop)
         self.lp.level = mock.AsyncMock(return_value="off")
         self.said, self.written = [], []
 
@@ -99,14 +108,31 @@ class SetRepo(unittest.TestCase):
     def test_a_repo_the_server_doesnt_allow_is_refused_without_listing_others(self):
         self.tell(ANNA, "this room works on someone/private")
         self.assertEqual(self.written, [])
-        self.assertIn("isn't set up to work on someone/private", self.said[-1])
+        self.assertIn("I can't use someone/private", self.said[-1])
         self.assertNotIn(HELLO, self.said[-1])
+
+    def test_an_allowed_repo_still_needs_the_requesters_own_access(self):
+        """GPT review 10: anyone can create (and own) a room, so the allowlist alone exposed every
+        allowed repo. Same answer as for a repo that isn't allowed: it never confirms a name."""
+        self.can_write = False
+        self.tell(ANNA, "this room works on octocat/other")
+        self.assertEqual(self.written, [])
+        self.assertIn("I can't use octocat/other", self.said[-1])
+
+    def test_a_plan_from_the_old_repo_is_never_filed_in_the_new_one(self):
+        self.repo = HELLO
+        pending = {"kind": "plan", "items": [{"title": "x"}], "agent": "@anna-agent:x", "by": ANNA, "repo": "octocat/other"}
+        asyncio.run(self.lp.file_plan(self.room, pending, ANNA))
+        self.assertIn("repo changed", self.said[-1])
 
     def test_the_owner_sets_it_and_the_room_starts_stopped(self):
         self.tell(ANNA, "this room works on your-name/hagency-hello")
         self.assertEqual(self.written, [room_state.content("off", HELLO)])
         self.assertEqual(self.lp.room_repos, {"!r": HELLO})
         self.assertIn("now works on **your-name/hagency-hello**", self.said[-1])
+        self.lp.last_plans["!r"] = {"items": [{"title": "for hello"}]}
+        self.tell(ANNA, "this room works on octocat/other")
+        self.assertNotIn("!r", self.lp.last_plans)              # a new repo starts without the old plan
 
     def test_a_contributor_cant(self):
         self.tell(BETTY, "this room works on evil/repo")
@@ -116,9 +142,11 @@ class SetRepo(unittest.TestCase):
     def test_never_swapped_under_running_work(self):
         self.repo = HELLO
         self.lp.state = {f"{HELLO}#7": {"room": "!r", "repo": HELLO, "stage": "building"}}
+        self.lp.last_plans = {"!r": {"items": []}}
         self.tell(ANNA, "this room works on octocat/other")
         self.assertEqual(self.written, [])
         self.assertIn("still running", self.said[-1])
+        self.assertIn("!r", self.lp.last_plans)                 # refused: nothing cleared either
 
     def test_no_repo_means_no_mode_and_no_plan(self):
         self.assertEqual(asyncio.run(self.lp.write_level("!r", "autonomous")), NO_REPO)
@@ -163,6 +191,32 @@ class Polling(unittest.TestCase):
         self.assertEqual(lp.open_issues, {"!b": [{"number": 3, "title": "t"}]})
 
 
+class OldRepoWork(unittest.TestCase):
+    """GPT review 10: after a switch, an old repo's items must never be advanced or answered."""
+    def test_a_result_for_the_old_repos_item_is_ignored(self):
+        lp = Loop.__new__(Loop)
+        lp.room_repos = {"!r": "b/y"}
+        lp.state = {"a/x#7": {"room": "!r", "repo": "a/x", "stage": "building", "builder": "@b:x", "task_ids": ["T"]}}
+        room = SimpleNamespace(room_id="!r")
+        asyncio.run(lp.on_result(room, "@b:x", {"kind": "build", "issue": 7, "task_id": "T", "pr": 1}))
+        self.assertEqual(lp.state["a/x#7"]["stage"], "building")
+
+    def test_a_task_in_a_room_without_a_repo_is_refused(self):
+        """None == None must not pass: the MCP claim needs a bound repo."""
+        import os
+        os.environ.setdefault("HAGENCY_AGENT", "anna-hermes-agent")
+        import mcp_core as core
+        import room_context
+        t = {"task_id": "T", "kind": "build", "issue": 7, "_room": "!r"}            # no repo in the task either
+        with mock.patch.object(core, "task", lambda task_id, kind: t), \
+                mock.patch.object(core, "owner_in", lambda room: True), \
+                mock.patch.object(core, "token", lambda: "t"), \
+                mock.patch.object(room_context, "room_repo", lambda token, room: None):
+            problem, task = core.claim("T", "build")
+        self.assertIsNone(task)
+        self.assertIn("wrong repo", problem["next"])
+
+
 class ConsoleRepo(unittest.TestCase):
     """The console's Project repo section goes through the same set_repo; its check is read-only."""
     def setUp(self):
@@ -171,6 +225,7 @@ class ConsoleRepo(unittest.TestCase):
 
         async def set_repo(room, user, value):
             self.calls.append((user, value))
+            return "This room now works on **octocat/hello**."
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": self.room}), set_repo=set_repo,
                                     is_person=lambda r, u: u in r.users, agents_in=lambda r: ["@anna-agent:x"])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
@@ -183,14 +238,14 @@ class ConsoleRepo(unittest.TestCase):
         return asyncio.run(console.act(self.loop, "!r", user, action, value))
 
     def test_setting_the_repo_uses_the_chat_path(self):
-        self.assertEqual(self.act(ANNA, "repo", " octocat/hello "), "ok")
+        self.assertIn("now works on", self.act(ANNA, "repo", " octocat/hello "))   # the console shows @pm's answer
         self.assertEqual(self.calls, [(ANNA, "octocat/hello")])      # set_repo itself checks the moderator
 
     def test_check_reports_problems_and_who_fixes_them(self):
         found = mock.AsyncMock(return_value=({}, ["no 'agent-ok' label on " + HELLO]))
         with mock.patch.object(github_setup, "readiness", found):
             text = self.act(ANNA, "check")
-        found.assert_awaited_once_with(HELLO, ["anna-agent"])
+        found.assert_awaited_once_with(HELLO, ["anna-agent"], detail=False)     # no raw CLI errors in the console
         self.assertIn("✗ no 'agent-ok' label", text)
         self.assertIn(f"github_setup.py ruleset --repo {HELLO}", text)
         with mock.patch.object(github_setup, "readiness", mock.AsyncMock(return_value=({}, []))):

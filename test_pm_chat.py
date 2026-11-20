@@ -1,4 +1,5 @@
 """Unit tests: talking to @pm in plain words. Run: .venv/bin/python -m unittest test_pm_chat"""
+# TODO(R4, 366 lines): split Brain + BrainParse (line 230 on) into test_pm_brain.py, importing Talk.
 import asyncio
 import time
 import unittest

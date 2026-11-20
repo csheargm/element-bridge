@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 import registry
-from github import LEVEL_EVENT, REPO
+from github import LEVEL_EVENT, PM_BOT, REPO
 from room_state import content
 
 ROOT = Path(__file__).parent
@@ -114,11 +114,12 @@ def ensure_room(env: dict, alias_name: str, name: str) -> str:
         print(f"created room {alias}")
     api("POST", f"/_matrix/client/v3/join/{urllib.request.quote(room_id)}", {}, token=betty)
     room = urllib.request.quote(room_id)
+    bots = {bot: login(bot, env["PW_" + bot.upper().replace("-", "_")]) for bot in BOTS}
     for bot, power in BOTS.items():
-        add_bot(anna, login(bot, env["PW_" + bot.upper().replace("-", "_")]), room, bot, power)
+        add_bot(anna, bots[bot], room, bot, power)
     level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", token=anna)
-    if "level" not in level:
-        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", content("off", REPO), token=anna)
+    if "level" not in level:              # written as @pm: the binding counts only if @pm wrote it
+        api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", content("off", REPO), token=bots[PM_BOT])
     return room_id
 
 

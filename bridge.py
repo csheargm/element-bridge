@@ -138,7 +138,7 @@ class Bridge:
             log.info("ignored loop task in %s: my owner isn't in the room", room.room_id)
             return
         self.seen_tasks.add(event.event_id)
-        step = step_key(task)
+        step = (room.room_id, *step_key(task))     # two rooms' repos can both have an issue #7
         if step in self.running_steps:     # a resend while the original is still working on it:
             log.info("already running %s; its result answers the resend too", step)
             return                         # the loop accepts the original's task_id for this step
@@ -158,7 +158,7 @@ class Bridge:
             async with self.turns:
                 kind = task.get("kind")
                 room_repo = await room_state.repo_of(self.client, room_id)
-                if task.get("repo") != room_repo:   # only ever the repo this room's moderators chose
+                if not room_repo or task.get("repo") != room_repo:   # only the room's bound repo (never None)
                     result = {"kind": kind, "issue": task.get("issue"), "task_id": task.get("task_id"),
                               "error": "wrong repo", "line": f"{kind} refused: the task isn't for this room's repo"}
                 elif kind in tasks.AUTONOMOUS_ONLY and await room_state.level(self.client, room_id) != "autonomous":
@@ -186,6 +186,7 @@ class Bridge:
             log.warning("no room context for %s: %s", room.room_id, e)
             snap = {"status": "", "conversation": ""}
         repo = snap.get("repo")
+        room_context.prune_projects(workdir / "projects", repo and room_context.repo_dir(repo))
         has_files = bool(repo) and await room_context.refresh_project(
             f"{self.owner}-agent", repo, workdir / "projects" / room_context.repo_dir(repo))
         try:
@@ -255,7 +256,7 @@ class Bridge:
 
 def step_key(task: dict) -> tuple:
     """A loop step's identity across resends (each resend has a new task_id)."""
-    return (task.get("kind"), str(task.get("issue")), str(task.get("pr")))
+    return (str(task.get("repo")), task.get("kind"), str(task.get("issue")), str(task.get("pr")))
 
 
 def is_stale(event, started_ms: int) -> bool:

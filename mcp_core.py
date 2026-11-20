@@ -140,7 +140,7 @@ def claim(task_id: str, kind: str | tuple[str, ...]) -> tuple[dict | None, dict 
     if not owner_in(t.get("_room") or ""):   # an agent never works in a room without its owner
         return {"error": "your owner isn't in that room any more", "next": "Stop."}, None
     room_repo = room_context.room_repo(token(), t["_room"])
-    if t.get("repo") != room_repo:       # only ever the repo this room's moderators chose
+    if not room_repo or t.get("repo") != room_repo:     # only ever the repo the room is bound to (never None)
         return {"error": f"this task is for {t.get('repo')!r}, but the room works on {room_repo!r}",
                 "next": "Call report_failure(task_id, 'wrong repo') and tell your owner."}, None
     return None, t
