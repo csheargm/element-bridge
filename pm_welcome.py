@@ -188,16 +188,15 @@ class Welcome:
         if not isinstance(joined, JoinResponse):
             log.warning("couldn't join %s from %s: %s", room.room_id, event.sender, joined)
             return
-        if not await self.only_us(room.room_id, event.sender):   # "is_direct" is only the sender's word
-            log.info("leaving %s from %s: not a private chat", room.room_id, event.sender)
-            await self.client.room_leave(room.room_id)
-            return
         try:
-            await self.offer_again(room, event.sender)
+            if await self.only_us(room.room_id, event.sender):   # "is_direct" is only the sender's word
+                await self.offer_again(room, event.sender)
         except RuntimeError as e:             # loop.SendError: they can open another chat with me
             log.error("couldn't answer %s in %s: %s", event.sender, room.room_id, e)
         finally:
-            await self.client.room_leave(room.room_id)
+            left = await self.client.room_leave(room.room_id)
+            if not hasattr(left, "room_id"):   # nothing more to do: I never answer there again
+                log.warning("couldn't leave %s from %s: %s", room.room_id, event.sender, left)
 
     async def only_us(self, room_id: str, person: str) -> bool:
         """Asked of the server now, not my cached view: nobody but the two of us joined or invited."""

@@ -146,8 +146,8 @@ class Following(unittest.TestCase):
 
     def test_no_agent_follows_into_my_private_chat(self):
         """GPT review 23: follow-me invited the owner's agent into @pm's chat, so it stopped being private."""
-        self.lp.dm_rooms = {ALICE: "!mine"}
-        asyncio.run(self.lp.bring_agent(SimpleNamespace(room_id="!mine", users={ALICE: None}, invited_users={}), ALICE))
+        asyncio.run(self.lp.bring_agent(SimpleNamespace(room_id="!old", users={ALICE: None, PM: None}, name="Hagency (private)",
+                                                        invited_users={}), ALICE))   # any chat I made with them
         self.lp.client.room_invite.assert_not_called()
 
     def test_settings_by_full_id(self):

@@ -546,3 +546,6 @@ Rejected or deferred:
 - A reservation that failed registration is exempt from later counts: it was counted once, and
   it can only ever make that one person's account.
 - Registry races with follow-setting writes; the 30-minute pre-upgrade code: as above.
+- Re-check: follow-me skipped only the current chat, so an old one replaced by a new chat could
+  still pull the agent in: any two-person chat named as @pm's chats (now or before) is skipped.
+  A failed leave is logged; a failing membership check still ends in leaving.

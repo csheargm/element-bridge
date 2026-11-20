@@ -26,6 +26,7 @@ log = logging.getLogger("loop")
 HISTORY = "invited"
 PRIVATE_HISTORY = {"type": "m.room.history_visibility", "state_key": "", "content": {"history_visibility": HISTORY}}
 PM_ONLY = 100
+CHAT_NAMES = (DISPLAY_NAMES["pm"], "Hagency (private)")   # my private chats' names, now and before
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
            "or set it in the Hagency console.")
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "

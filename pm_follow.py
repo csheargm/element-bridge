@@ -12,6 +12,7 @@ from nio import InviteMemberEvent, MatrixRoom, RoomGetStateEventResponse, RoomIn
 
 import capabilities
 import ownership
+import pm_settings
 import registry
 import room_state
 from bridge import SERVER_NAME, is_stale
@@ -62,8 +63,10 @@ class Follow:
             log.error("follow-me failed for %s in %s: %s", person, room.room_id, e)
 
     async def bring_agent(self, room: MatrixRoom, person: str) -> None:
-        if self.is_welcome_room(room) or room.room_id in getattr(self, "dm_rooms", {}).values():
-            return                            # Welcome (everyone's first room) and my private chats: no agents
+        mine = set(room.users) <= {self.user_id, person} and (room.room_id in getattr(self, "dm_rooms", {}).values()
+                                                               or getattr(room, "name", None) in pm_settings.CHAT_NAMES)
+        if self.is_welcome_room(room) or mine:
+            return                            # Welcome (everyone's first room) and my private chats, old or new: no agents
         agent = ownership.agent_id(person)
         local = person.split(":")[0].lstrip("@")
         if (not registry.owns(person, agent.split(":")[0][1:]) or agent in room.users
