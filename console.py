@@ -13,6 +13,7 @@ also announced in the room. Nothing here bypasses the chat's rules.
 """
 import asyncio
 import json
+import os
 import re
 import secrets
 import time
@@ -34,7 +35,24 @@ LINK_S = 600
 _sessions: dict[str, tuple[str, float, str | None]] = {}   # session → (user, expires, room scope or None)
 _links: dict[str, tuple[str, float, str]] = {}             # one-time code → (user, expires, room)
 USER_RE = re.compile(r"^@[a-z0-9._=/+-]+:" + re.escape(SERVER_NAME) + "$")
-ALLOWED_HOSTS = ("localhost", "127.0.0.1")
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+PORT = int(os.environ.get("PANEL_PORT", "8650"))
+# Also safe inside sh: it goes into the install line and connect.sh (GPT review 21).
+URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1))(:\d{1,5})?$")
+
+
+def public_url() -> str:
+    """Where people reach this console: HAGENCY_PUBLIC_CONSOLE (https on the public server, behind its
+    proxy), else this machine. Links, the widget, the install line and the allowed Host all use it."""
+    url = os.environ.get("HAGENCY_PUBLIC_CONSOLE", f"http://localhost:{PORT}").rstrip("/")
+    if not URL_RE.fullmatch(url):
+        raise RuntimeError("this server's HAGENCY_PUBLIC_CONSOLE must be https://host[:port] (http only for localhost)")
+    return url
+
+
+def allowed_hosts() -> tuple[str, ...]:
+    """Hosts a request may be addressed to (guards against DNS rebinding): this machine and the public name."""
+    return (*LOCAL_HOSTS, urllib.parse.urlsplit(public_url()).hostname)
 
 
 def new_session(user_id: str, room: str | None = None) -> str:
@@ -162,12 +180,13 @@ async def check_repo(loop, room, user: str) -> str:
 
 def allowed(request, post: bool) -> bool:
     """Only requests addressed to this machine; POSTs must be JSON from our own page."""
-    if request.host.split(":")[0] not in ALLOWED_HOSTS:
+    hosts = allowed_hosts()
+    if request.host.split(":")[0] not in hosts:
         return False
     if post:
         origin = request.headers.get("Origin")
         if request.content_type != "application/json" or (origin and urllib.parse.urlsplit(origin).hostname
-                                                             not in ALLOWED_HOSTS):
+                                                             not in hosts):
             return False
     return True
 

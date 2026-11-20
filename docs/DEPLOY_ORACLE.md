@@ -1,96 +1,110 @@
 # Hagency Rooms on Oracle Cloud
 
-The public server runs the shared parts. Each person's agent runs on that person's own computer
+The public server runs the shared side. Each person's agent runs on that person's own computer
 and connects to the server over Matrix, so model keys, GitHub accounts and tools never live on
-the server.
+the server. The site is not on the VM: www.hagencylabs.xyz is GitHub Pages
+(`.github/workflows/pages.yml` publishes `site/`).
 
 ```
-Oracle VM (public)                         Each person's computer
-──────────────────────────────────         ─────────────────────────────────────────
-www.hagencylabs.xyz    the site            their agent's connector:
-rooms.hagencylabs.xyz  Element Web           bridge (Claude Code / Codex) or Hermes
-matrix.hagencylabs.xyz Synapse               → logs in as @anna-agent on the server
-(later) @pm            the coordinator     their agent's GitHub sign-in
-                                           Element desktop / mobile (or the web)
+Oracle VM (public, Always Free)                Each person's computer
+───────────────────────────────────────        ─────────────────────────────────────────
+rooms.hagencylabs.xyz   Element Web            their agent's connector (connect.py):
+  /panel /console /auth/*  @pm's console         bridge running Codex or Claude Code
+  /connect /connect.sh     pairing + installer   → logs in as @anna-agent on the server
+matrix.hagencylabs.xyz  Synapse (443 + 8448)   Element desktop / mobile (or the web)
+@pm                     welcome, pairing, the console (no model: PM_BRAIN=off)
 ```
 
-The existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tunnel stay as
-they are.
+Not on the VM: people's agents, the house agent (not built yet), any GitHub sign-in. The
+existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tunnel stay as they are.
 
-## 1. You: create the VM (about 10 minutes)
+## What runs (deploy/docker-compose.yml)
 
-In the OCI console (Compute → Instances → Create):
-- **Image:** Canonical Ubuntu 24.04.
-- **Shape:** Ampere A1 Flex, 4 OCPU / 24 GB (Always Free).
-- **SSH key:** upload your own public key. Never paste a private key anywhere.
-- **Networking:** in the subnet's security list, add ingress rules for TCP 80, 443 and 8448 from
-  0.0.0.0/0. Port 22 is already open.
+| Service  | What | Reachable |
+|----------|------|-----------|
+| caddy    | HTTPS (Let's Encrypt), routes below | 80, 443, 8448 (the only published ports) |
+| element  | Element Web, pointed at this homeserver | via Caddy |
+| synapse  | the homeserver: invite-token sign-up only, no guests, no URL previews | via Caddy; `/_synapse/admin` is never routed |
+| postgres | Synapse's database | an internal network only Synapse is on |
+| pm       | @pm (`loop.py`): welcomes newcomers, the console, `/connect` and `/connect.sh` | via Caddy |
 
-Then add the VM to `~/.ssh/config` on this Mac, using the instance's public IP:
+Images are pinned in the compose file, so a commit always runs the same versions. @pm runs as
+uid 1000 from `~/hagency/pm` (that commit's files plus its own state: `.env` with its passwords,
+`agents.json`, `data/`). It reads Synapse's registration secret from a copy bootstrap makes
+(`data/registration_shared_secret`, mode 600), never Synapse's whole config.
 
-```
-Host hagency-vm
-  HostName <public IP>
-  User ubuntu
-  IdentityFile ~/.ssh/<your key>
-```
+## Free-tier guards
 
-Check it with `ssh hagency-vm true`. When that works, tell Claude.
+- Synapse: uploads up to 20 MB; local media kept 90 days, remote media 30 days (`media_retention`).
+- Docker logs rotate (json-file, 3 × 10 MB per service); the journal is capped at 200 MB.
+- `hagency-guard.timer` (daily, `deploy/guard.py`): @pm warns the operator (`OPERATOR` in
+  `deploy/.env`) when the disk is over 80% or this month's outbound traffic is over 1 TB (vnstat).
+  Over 5 TB, media downloads are paused for the rest of the month (`deploy/flags/media-paused`,
+  which Caddy checks) and come back by themselves next month. `journalctl -u hagency-guard` shows
+  every run.
+- Nothing creates Oracle resources; the boot disk stays as it is.
 
-## 2. You: DNS in Cloudflare
+## Once: the VM and DNS (the owner)
 
-Add three **A** records pointing at the VM's public IP, set to **DNS only** (grey cloud). Caddy
-gets its own certificates, and Matrix federation on port 8448 can't pass Cloudflare's proxy.
+1. **VM:** Ubuntu 24.04, Ampere A1 Flex 4 OCPU / 24 GB. Ingress rules for TCP 80, 443 and 8448.
+   `ssh hagency-vm` in `~/.ssh/config` on the Mac.
+2. **DNS** in Cloudflare, **DNS only** (grey cloud): Caddy gets its own certificates, and
+   federation on 8448 can't pass Cloudflare's proxy.
 
-| Name   | Type | Content       | Proxy    |
-|--------|------|---------------|----------|
-| www    | A    | `<public IP>` | DNS only |
-| rooms  | A    | `<public IP>` | DNS only |
-| matrix | A    | `<public IP>` | DNS only |
+   | Name   | Type | Content       | Proxy    |
+   |--------|------|---------------|----------|
+   | rooms  | A    | `<public IP>` | DNS only |
+   | matrix | A    | `<public IP>` | DNS only |
 
-Don't change `hagencylabs.xyz` or `app`.
+   `www` points at GitHub Pages (see the Pages settings), not at the VM.
 
-## 3. Claude: deploy
+Oracle's host iptables reject inbound ports other than 22, but Docker's published ports go through
+Docker's own FORWARD rules, so nothing on the host firewall is changed.
 
-Claude does these steps once `ssh hagency-vm` works:
-
-1. Copy the repo's `deploy/` to `~/hagency/deploy` and `site/` to `~/hagency/site`. Compose
-   mounts `../site`, and bootstrap refuses to start without `~/hagency/site/index.html`.
-2. Run `bootstrap.sh` once. It creates `~/hagency/deploy/.env`:
-   - mode 600, with a random Postgres password;
-   - plain `NAME=value` data that `envfile.py` validates and that no shell ever sources.
-3. Fill in your ACME e-mail and the image versions. Pin current releases, after checking the
-   tags exist for arm64; `latest` is refused.
-4. Run `bootstrap.sh` again. It:
-   - installs Docker and Compose from Ubuntu's archive;
-   - generates Synapse's config once and adjusts it with `configure_synapse.py`: Postgres,
-     invite-token sign-up only, no URL previews. The swap is atomic, and Synapse won't start
-     without the "configured" marker;
-   - starts Caddy, Synapse, Postgres and Element. Postgres sits on an internal network only
-     Synapse can reach;
-   - reports success only when the site, Element's config, Matrix's versions endpoint and both
-     `.well-known` answers come back over HTTPS, and sign-up without a token is refused.
-5. The firewall is OCI's security list (step 1). Docker publishes Caddy's ports through its own
-   rules, so host iptables are left alone.
-
-Then you, on the VM (each command asks for what it needs and stores nothing):
+## Deploy (from the Mac, from GitHub only)
 
 ```
-cd ~/hagency/deploy && ./invite.sh admin      # your admin account (Synapse's own tool)
-./invite.sh token 5                           # an invite token for 5 sign-ups, valid 7 days
+deploy/deploy.sh            # the tip of master
+deploy/deploy.sh <commit>   # any commit that is on master; anything else is refused
 ```
 
-Secrets stay on the VM, in `deploy/.env` and `deploy/synapse/homeserver.yaml` (mode 600). They
-are never printed, copied back or committed. Changing `POSTGRES_PASSWORD` after the first start
-also needs `ALTER ROLE` in Postgres. The admin API is reachable only inside the container.
+It checks the commit is on GitHub's master, then on the VM: fetches it from GitHub into
+`~/hagency/app` (refusing if code there was edited), stops @pm, copies the commit's files to
+`~/hagency/pm`, and runs `deploy/bootstrap.sh`, which:
+- installs Docker, Compose and vnstat from Ubuntu's archive, caps the journal;
+- creates `deploy/.env` once (mode 600, a random Postgres password; plain data, never sourced);
+- generates Synapse's config once and adjusts it (`configure_synapse.py`: Postgres, token-only
+  sign-up, the Welcome room @pm owns, media retention), atomically, refusing a changed server name;
+- starts everything, reloads Caddy, installs the daily guard;
+- checks inside Docker (`deploy/health.py --internal`): Element, Synapse, token-only sign-up,
+  @pm's account and @pm's console.
 
-## 4. Next (separate steps)
+Then `deploy.sh` checks over HTTPS from the Mac (`deploy/health.py`): Element, its config, the
+client API, token-only sign-up, @pm serving `/connect.sh`, `.well-known`, federation on 8448, and
+that the admin API isn't public. Certificates come on the first request once DNS points at the VM.
 
-- **@pm on the VM:** it reads GitHub with a read-only account of its own, never yours, and
-  `HAGENCY_REPOS` lists the repos rooms may use.
-- **The person's installer:** `curl -fsSL https://www.hagencylabs.xyz/install.sh | sh`. It installs
-  their agent's connector (bridge or Hermes), signs the agent in to GitHub through the browser,
-  registers `@<name>` and `@<name>-agent` with an invite token, and offers Element desktop.
-- **Backups:** a nightly Postgres dump and `synapse/` media to Object Storage.
+Secrets (`deploy/.env`, `deploy/synapse/homeserver.yaml`, `~/hagency/pm/.env`) are made on the VM,
+mode 600, and are never printed, copied back or committed. Nobody edits code on the server:
+change it here, push to master, deploy the commit.
+
+## Invites and the operator
+
+```
+ssh hagency-vm ~/hagency/app/deploy/invite.sh token 5   # a token for 5 sign-ups, valid 7 days
+ssh -t hagency-vm ~/hagency/app/deploy/invite.sh admin  # your own admin account (asks for a password)
+```
+
+`token` runs in @pm's container: it signs in as `admin-bot` (a server admin @pm made with the
+registration secret; its password stays in `~/hagency/pm/.env`) only for Synapse's
+registration-token API, and prints the token. People sign up at
+`https://rooms.hagencylabs.xyz/#/register` with it, land in Welcome, and @pm offers them
+🔌 Bring your own. To get the guard's warnings, put your account's name in `OPERATOR=` in
+`~/hagency/app/deploy/.env` and deploy again.
+
+## Next (separate steps)
+
+- **The house agent** (🏠): run by the server with its own model key and a daily budget.
+- **@pm's GitHub:** a read-only account of its own, and `HAGENCY_REPOS` for the repos rooms may use.
+- **Backups:** a nightly Postgres dump and `synapse/` media, within the free Object Storage.
 - **The apex:** once `hagencylabs.xyz` can serve `/.well-known/matrix/server`, new servers can use
   `hagencylabs.xyz` as their name. This one keeps its name for good.

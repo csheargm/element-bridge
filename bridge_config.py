@@ -14,6 +14,7 @@ ROOT = Path(__file__).parent
 DEFAULT_HOMESERVER = "http://127.0.0.1:8648"
 DEFAULT_SERVER_NAME = "bridge.localhost"
 CREDENTIAL_KEYS = ("homeserver", "user_id", "password", "owner")
+ELEMENT_ORIGIN = os.environ.get("ELEMENT_ORIGIN", "http://localhost:8649")   # where people open Element
 
 
 def load_credentials(path: str | None) -> dict:

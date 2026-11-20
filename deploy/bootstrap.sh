@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
-# Runs ON the Oracle VM (Ubuntu 24.04) as ~/hagency/deploy/bootstrap.sh, with the site in
-# ~/hagency/site. Safe to run again. .env is read as data by envfile.py (never sourced), and
-# secrets are never printed or put on a command line.
+# Runs ON the Oracle VM (Ubuntu 24.04) in ~/hagency/app/deploy, a checkout of one commit of master
+# (deploy.sh, from the operator's computer, puts it there; nobody edits code on the server). @pm runs
+# from ~/hagency/pm (that commit's files plus @pm's state). Safe to run again. .env is read as data
+# by envfile.py (never sourced), and secrets are never printed or put on a command line.
 set -euo pipefail
 cd "$(dirname "$0")"
 umask 077
-[ -f ../site/index.html ] || { echo "✗ ~/hagency/site/index.html missing (copy site/ next to deploy/)"; exit 1; }
+PM_DIR="$(cd ../.. && pwd)/pm"
+[ -f "$PM_DIR/loop.py" ] || { echo "✗ $PM_DIR has no @pm code: run deploy.sh from your computer"; exit 1; }
 get() { python3 envfile.py get "$1"; }
 
-# 1. Docker and Compose from Ubuntu's own archive (no third-party scripts); each checked on its own.
+# 1. Docker, Compose and vnstat (traffic counts for guard.py) from Ubuntu's own archive.
 pkgs=()
 command -v docker >/dev/null || pkgs+=(docker.io)
 docker compose version >/dev/null 2>&1 || sudo docker compose version >/dev/null 2>&1 || pkgs+=(docker-compose-v2)
+command -v vnstat >/dev/null || pkgs+=(vnstat)
 if [ ${#pkgs[@]} -gt 0 ]; then
-  sudo apt-get update -qq && sudo apt-get install -y -qq "${pkgs[@]}"
+  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
 fi
-# Firewall: OCI's security list opens 80/443/8448 (docs/DEPLOY_ORACLE.md). Docker publishes
-# Caddy's ports through its own FORWARD rules, so we don't edit or persist host iptables.
+# The journal stays small on the 45 GB disk (Docker's own logs rotate: docker-compose.yml).
+journal=$'[Journal]\nSystemMaxUse=200M\n'
+if [ "$(cat /etc/systemd/journald.conf.d/hagency.conf 2>/dev/null)" != "${journal%$'\n'}" ]; then
+  sudo mkdir -p /etc/systemd/journald.conf.d
+  printf '%s' "$journal" | sudo tee /etc/systemd/journald.conf.d/hagency.conf >/dev/null
+  sudo systemctl restart systemd-journald
+fi
+# Firewall: OCI's security list opens 80/443/8448. Oracle's host iptables reject other INPUT, but
+# Docker's published ports go through its own FORWARD rules (checked by health.py from outside).
 
 # 2. Settings: created mode 600, secrets filled, every value validated.
 python3 envfile.py check
@@ -25,17 +35,30 @@ dc config --quiet                                        # the compose file and 
 dc pull --quiet                                          # fails here on a wrong tag or architecture
 
 # 3. Synapse's config: generated once, then configured; Synapse never starts without the marker.
-SERVER_NAME=$(get SERVER_NAME)
-if [ ! -f synapse/homeserver.yaml ]; then
+if ! sudo test -f synapse/homeserver.yaml; then
   mkdir -p synapse
-  sudo docker run --rm -v "$PWD/synapse:/data" -e SYNAPSE_SERVER_NAME="$SERVER_NAME" \
-    -e SYNAPSE_REPORT_STATS=no "matrixdotorg/synapse:$(get SYNAPSE_VERSION)" generate
+  dc run --rm --no-deps -e SYNAPSE_SERVER_NAME="$(get SERVER_NAME)" -e SYNAPSE_REPORT_STATS=no synapse generate
 fi
 sudo python3 configure_synapse.py synapse/homeserver.yaml   # every run: idempotent, checks the name
 sudo test -f synapse/.hagency-configured || { echo "✗ Synapse isn't configured; not starting it"; exit 1; }
 
-# 4. Element points at our homeserver.
-MATRIX_DOMAIN=$(get MATRIX_DOMAIN) SERVER_NAME="$SERVER_NAME" python3 - <<'PY'
+# 4. @pm's copy of the registration secret (it creates its own account and people's agents);
+#    @pm can't read Synapse's config, which also holds the database password.
+mkdir -p "$PM_DIR/data" && chmod 700 "$PM_DIR" "$PM_DIR/data"
+sudo python3 - synapse/homeserver.yaml "$PM_DIR/data/registration_shared_secret" "$(id -u)" <<'PY'
+import os, re, sys
+found = re.search(r'(?m)^registration_shared_secret: "?([^"\n]+)"?', open(sys.argv[1]).read())
+if not found:
+    raise SystemExit("✗ homeserver.yaml has no registration_shared_secret")
+fd = os.open(sys.argv[2] + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    f.write(found.group(1))
+os.chown(sys.argv[2] + ".tmp", int(sys.argv[3]), int(sys.argv[3]))
+os.replace(sys.argv[2] + ".tmp", sys.argv[2])
+PY
+
+# 5. Element points at our homeserver.
+MATRIX_DOMAIN=$(get MATRIX_DOMAIN) SERVER_NAME=$(get SERVER_NAME) python3 - <<'PY'
 import json, os
 cfg = {"default_server_config": {"m.homeserver": {"base_url": f"https://{os.environ['MATRIX_DOMAIN']}",
                                                   "server_name": os.environ["SERVER_NAME"]}},
@@ -45,32 +68,35 @@ with os.fdopen(fd, "w") as f:
     json.dump(cfg, f, indent=2)
 PY
 
-# 5. Start or update, then load the current Caddyfile (a running Caddy keeps its old one otherwise).
+# 6. Start or update (@pm restarts on the new code), then load the current Caddyfile.
+mkdir -p flags && chmod 755 flags
+dc stop pm >/dev/null 2>&1 || true                       # its files changed under it (deploy.sh): a clean start
 dc up -d --remove-orphans
 dc exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
-# 6. Done only when the public endpoints answer (certificates can take a minute on first run).
-check() {   # url, text the body must contain
-  for _ in $(seq 1 30); do
-    if curl -fsS --max-time 5 "$1" 2>/dev/null | grep -q "$2"; then echo "✓ $1"; return 0; fi
-    sleep 4
-  done
-  echo "✗ $1 didn't answer with '$2' (see: sudo docker compose logs --tail 50)"; return 1
-}
-ok=0
-check "https://$(get SITE_DOMAIN)/" "Hagency" || ok=1
-check "https://$(get ROOMS_DOMAIN)/config.json" "$(get MATRIX_DOMAIN)" || ok=1
-check "https://$(get MATRIX_DOMAIN)/_matrix/client/versions" '"versions"' || ok=1
-check "https://$(get MATRIX_DOMAIN)/.well-known/matrix/server" '"m.server"' || ok=1
-check "https://$(get MATRIX_DOMAIN)/.well-known/matrix/client" '"m.homeserver"' || ok=1
-# Sign-up without an invite token must be refused: every registration flow needs a token.
-curl -sS --max-time 10 -X POST -H "Content-Type: application/json" -d '{}' \
-  "https://$(get MATRIX_DOMAIN)/_matrix/client/v3/register" -o /tmp/hagency-register.json 2>/dev/null || true   # a 401 with the flows
-if python3 -c 'import json,sys; f=json.load(open("/tmp/hagency-register.json")).get("flows") or [{}]
-sys.exit(0 if all("m.login.registration_token" in x.get("stages", []) for x in f) else 1)' 2>/dev/null; then
-  echo "✓ sign-up needs an invite token"
-else
-  echo "✗ sign-up may be open without a token: check homeserver.yaml"; ok=1
-fi
-[ $ok -eq 0 ] && echo "✓ Hagency Rooms is up" || { echo "✗ not everything is up yet"; exit 1; }
+# 7. The daily free-tier check (guard.py): a systemd timer, as root.
+unit="[Unit]
+Description=Hagency Rooms: disk and traffic within Oracle's free limits
+[Service]
+Type=oneshot
+WorkingDirectory=$PWD
+ExecStart=/usr/bin/python3 $PWD/guard.py"
+timer="[Unit]
+Description=Hagency Rooms: daily free-tier check
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+[Install]
+WantedBy=timers.target"
+printf '%s\n' "$unit" | sudo tee /etc/systemd/system/hagency-guard.service >/dev/null
+printf '%s\n' "$timer" | sudo tee /etc/systemd/system/hagency-guard.timer >/dev/null
+sudo systemctl daemon-reload && sudo systemctl enable --now hagency-guard.timer >/dev/null 2>&1
+
+# 8. Done only when everything answers inside (deploy.sh then checks HTTPS from outside).
+for _ in $(seq 1 100); do
+  dc exec -T pm .venv/bin/python deploy/health.py --internal "$(get MATRIX_DOMAIN)" "$(get SERVER_NAME)" >/dev/null 2>&1 && break
+  sleep 3                                                # @pm installs its packages on a first start
+done
+dc exec -T pm .venv/bin/python deploy/health.py --internal "$(get MATRIX_DOMAIN)" "$(get SERVER_NAME)"

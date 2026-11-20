@@ -82,7 +82,10 @@ class Widget(unittest.TestCase):
             return RoomPutStateResponse("$e", room_id)
         self.assertTrue(asyncio.run(panel.add_to_room(SimpleNamespace(room_put_state=put), "!r")))
         (kind, content, key), (layout_kind, layout, _) = calls
-        self.assertEqual((kind, key, content["url"]), ("im.vector.modular.widgets", "hagency", panel.URL))
+        self.assertEqual((kind, key, content["url"]), ("im.vector.modular.widgets", "hagency", panel.widget_url()))
+        self.assertEqual(panel.widget_url(), "http://localhost:8650/panel?room=$matrix_room_id")
+        with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": "https://rooms.example.org"}):
+            self.assertEqual(panel.widget_url(), "https://rooms.example.org/panel?room=$matrix_room_id")
         self.assertEqual(layout["widgets"]["hagency"]["container"], "top")
 
 

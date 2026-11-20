@@ -1,0 +1,87 @@
+"""Daily check against Oracle's Always Free limits (the hagency-guard systemd timer, from bootstrap.sh).
+
+  python3 guard.py        # in ~/hagency/app/deploy, as root
+
+Disk over 80%, or this month's outbound traffic over 1 TB: @pm warns the operator (OPERATOR in .env)
+in a private chat. Over 5 TB (half of the free 10 TB): media downloads are paused for the rest of the
+month (flags/media-paused, which Caddy checks on every request) and resume by themselves next month.
+Traffic comes from vnstat, which counts across reboots. Every finding also goes to the journal.
+"""
+import datetime
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+FLAG = HERE / "flags" / "media-paused"
+DISK_WARN = 0.80
+TB = 10 ** 12
+TRAFFIC_WARN = 1 * TB
+TRAFFIC_PAUSE = 5 * TB
+ALERT = ["docker", "compose", "--env-file", ".env", "exec", "-T", "pm", ".venv/bin/python", "deploy/pm_alert.py"]
+
+
+def default_iface(route_table: str) -> str | None:
+    """The interface of the default route, from /proc/net/route (destination 00000000)."""
+    for line in route_table.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) > 1 and fields[1] == "00000000":
+            return fields[0]
+    return None
+
+
+def month_tx(vnstat: dict, iface: str, today: datetime.date) -> int:
+    """Bytes sent on `iface` this calendar month, from `vnstat --json m`; 0 before vnstat has data."""
+    for entry in vnstat.get("interfaces", []):
+        if entry.get("name") != iface:
+            continue
+        for month in entry.get("traffic", {}).get("month", []):
+            if month.get("date", {}).get("year") == today.year and month["date"].get("month") == today.month:
+                return int(month.get("tx", 0))
+    return 0
+
+
+def decide(disk_used: float, tx: int) -> tuple[list[str], bool]:
+    """(warnings, pause media downloads?)"""
+    warnings = []
+    if disk_used > DISK_WARN:
+        warnings.append(f"⚠️ The server's disk is {disk_used:.0%} full (warning above {DISK_WARN:.0%}).")
+    pause = tx > TRAFFIC_PAUSE
+    if pause:
+        warnings.append(f"⚠️ {tx / TB:.2f} TB sent this month: media downloads are paused until next month "
+                        f"(Oracle's free allowance is 10 TB).")
+    elif tx > TRAFFIC_WARN:
+        warnings.append(f"⚠️ {tx / TB:.2f} TB sent this month (warning above 1 TB; media pauses above 5 TB).")
+    return warnings, pause
+
+
+def measure() -> tuple[float, int]:
+    usage = shutil.disk_usage("/")
+    iface = default_iface(Path("/proc/net/route").read_text())
+    out = subprocess.run(["vnstat", "--json", "m"], capture_output=True, text=True, timeout=60)
+    if out.returncode != 0 or not iface:
+        raise SystemExit(f"✗ can't read this month's traffic (vnstat: {out.stderr.strip()[:200]}, interface {iface})")
+    return usage.used / usage.total, month_tx(json.loads(out.stdout), iface, datetime.date.today())
+
+
+def main() -> int:
+    disk_used, tx = measure()
+    warnings, pause = decide(disk_used, tx)
+    FLAG.parent.mkdir(exist_ok=True)
+    if pause:
+        FLAG.touch()
+    else:
+        FLAG.unlink(missing_ok=True)
+    print(f"disk {disk_used:.0%}, sent this month {tx / TB:.3f} TB, media {'paused' if pause else 'on'}")
+    if not warnings:
+        return 0
+    text = "\n".join(warnings)
+    print(text)
+    sent = subprocess.run(ALERT, cwd=HERE, input=text, text=True, timeout=120)
+    return 0 if sent.returncode == 0 else 1          # a warning nobody got: the timer's run shows failed
+
+
+if __name__ == "__main__":
+    sys.exit(main())

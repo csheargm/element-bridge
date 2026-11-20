@@ -9,6 +9,7 @@ from unittest import mock
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
+import console
 import pairing
 import registry
 import remote_agent
@@ -176,7 +177,43 @@ class ConsoleUrl(unittest.TestCase):
                 if ok:
                     self.assertTrue(remote_agent.install_line("ABCDE-FGHJK").startswith(f"curl -fsSL {url}/connect.sh"))
                 else:
-                    self.assertRaises(RuntimeError, remote_agent.console_url)
+                    self.assertRaises(RuntimeError, console.public_url)
+
+
+class BehindTheProxy(unittest.TestCase):
+    """The public server's Caddy: wrong codes count per real client, not per proxy."""
+    def req(self, xff):
+        return mock.Mock(headers={"X-Forwarded-For": xff} if xff else {}, remote="172.18.0.5")
+
+    def test_forwarded_client_only_when_trusted(self):
+        with mock.patch.object(remote_agent, "TRUST_PROXY", True):
+            self.assertEqual(remote_agent.client_of(self.req("203.0.113.7")), "203.0.113.7")
+            self.assertEqual(remote_agent.client_of(self.req("1.1.1.1, 203.0.113.7")), "203.0.113.7")   # Caddy's own entry
+            self.assertEqual(remote_agent.client_of(self.req(None)), "172.18.0.5")
+        with mock.patch.object(remote_agent, "TRUST_PROXY", False):
+            self.assertEqual(remote_agent.client_of(self.req("203.0.113.7")), "172.18.0.5")   # spoofable locally
+
+
+class PublicServerAccounts(unittest.TestCase):
+    """The VM: @pm reads the registration secret from its own file and creates only itself."""
+    def test_the_secret_comes_from_the_file_bootstrap_wrote(self):
+        with tempfile.TemporaryDirectory() as d:
+            secret = Path(d) / "registration_shared_secret"
+            secret.write_text("s3cret\n")
+            with mock.patch.dict("os.environ", {"HAGENCY_SHARED_SECRET_FILE": str(secret)}):
+                self.assertEqual(setup_accounts.shared_secret(), "s3cret")
+
+    def test_pm_only_makes_pm_with_its_name_and_signs_out(self):
+        with mock.patch.object(setup_accounts, "load_env", return_value={}), \
+                mock.patch.object(setup_accounts, "shared_secret", return_value="s"), \
+                mock.patch.object(setup_accounts, "ensure_user", return_value=("pw", True)) as ensure, \
+                mock.patch.object(setup_accounts, "login", return_value="t"), \
+                mock.patch.object(setup_accounts, "api") as api, mock.patch("builtins.print"):
+            setup_accounts.ensure_pm()
+        self.assertEqual(ensure.call_args.args[1:3], ("pm", "s"))
+        self.assertTrue(ensure.call_args.kwargs["verify"])         # a fresh database gets @pm again
+        self.assertEqual(api.call_args_list[0].args[2], {"displayname": "Product Manager"})
+        self.assertEqual(api.call_args_list[-1].args[1], "/_matrix/client/v3/logout")
 
 
 class EnsureUser(unittest.TestCase):

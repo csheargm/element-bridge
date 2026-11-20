@@ -4,7 +4,8 @@ running it again changes nothing):
   - sign-up only with a registration token (an invite), no guests, no URL previews;
   - every new account joins the private Welcome room, created by @pm, where @pm greets them
     (pm_welcome.py; @pm must exist before the first sign-up, or Synapse can't create the room);
-  - the public URL; Synapse's own default rate limits (the local prototype relaxes them).
+  - the public URL; Synapse's own default rate limits (the local prototype relaxes them);
+  - Oracle's free limits: uploads up to 20 MB, local media kept 90 days and remote media 30 days.
 It refuses a config whose server_name differs from .env (a server's name can never change). The
 new file is written next to the old one and swapped in, so an interruption never leaves half a
 config; synapse/.hagency-configured marks success, and bootstrap won't start Synapse without it.
@@ -60,7 +61,8 @@ def configure(text: str, e: dict) -> str:
         "enable_registration": "true",
         "registration_requires_token": "true",       # an admin hands out tokens: invite-only
         "allow_guest_access": "false",
-        "max_upload_size": "20M",
+        "max_upload_size": "20M",                    # with media_retention: the disk and traffic stay free-tier
+        "media_retention": "{local_media_lifetime: 90d, remote_media_lifetime: 30d}",
         "url_preview_enabled": "false",              # previews would fetch arbitrary URLs from the server
         **welcome_settings(e["SERVER_NAME"]),
     }

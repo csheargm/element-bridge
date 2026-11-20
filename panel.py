@@ -2,7 +2,7 @@
 Element widget (and at /console for phones and other clients). It shows the live Project status,
 what's waiting, the plan and whose agent is whose, and — once it knows who you are (console.py) —
 lets you change the room's mode, your agent's follow-me and web grant, and approve what you asked
-for, through @pm's own checks. Refreshed every few seconds; listens on 127.0.0.1 only.
+for, through @pm's own checks. Refreshed every few seconds; listens on 127.0.0.1 only (PANEL_HOST: the public server's container).
 """
 import html
 import json
@@ -13,24 +13,29 @@ import markdown
 from aiohttp import web
 
 import console
+from bridge_config import ELEMENT_ORIGIN
 import remote_agent
 import github
 import ownership
 import registry
 
-PORT = int(os.environ.get("PANEL_PORT", "8650"))
-URL = f"http://localhost:{PORT}/panel?room=$matrix_room_id"
+PORT = console.PORT
+HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
 REFRESH_MS = 3000
-ELEMENT_ORIGIN = os.environ.get("ELEMENT_ORIGIN", "http://localhost:8649")
 HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
 
 
+def widget_url() -> str:
+    """The panel as Element loads it: this console's public URL ($matrix_room_id: Element fills it in)."""
+    return f"{console.public_url()}/panel?room=$matrix_room_id"
+
+
 def local_host(request) -> bool:
-    """Only requests addressed to this machine (guards against DNS-rebinding style access)."""
-    return request.host.split(":")[0] in ("localhost", "127.0.0.1")
+    """Only requests addressed to this machine or its public name (guards against DNS rebinding)."""
+    return request.host.split(":")[0] in console.allowed_hosts()
 log = logging.getLogger("loop")
 
 PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -209,7 +214,7 @@ async def start(loop) -> web.AppRunner | None:
     runner = web.AppRunner(app, access_log=None)        # the widget polls every 3 s: don't flood the log
     await runner.setup()
     try:
-        await web.TCPSite(runner, "127.0.0.1", PORT).start()
+        await web.TCPSite(runner, HOST, PORT).start()
     except OSError as e:
         log.warning("side panel not started (port %s): %s", PORT, e)
         return None
@@ -219,7 +224,7 @@ async def start(loop) -> web.AppRunner | None:
 async def add_to_room(client, room_id: str) -> bool:
     """Add the panel to the room as an Element widget, pinned at the top above the chat."""
     resp = await client.room_put_state(room_id, "im.vector.modular.widgets",
-                                       {"type": "m.custom", "url": URL, "name": "Hagency",
+                                       {"type": "m.custom", "url": widget_url(), "name": "Hagency",
                                         "id": WIDGET_ID, "data": {}}, state_key=WIDGET_ID)
     if not hasattr(resp, "event_id"):
         return False

@@ -14,7 +14,6 @@ from nio import MatrixRoom, RoomPreset
 import console
 import github
 import github_setup
-import panel
 import registry
 import room_state
 from loop_progress import ACTIVE
@@ -83,7 +82,7 @@ class Settings:
                                          "room's Hagency panel (room info → Extensions).")
             return
         code = console.new_link(sender, room.room_id)               # the session it gives is for this room only
-        url = f"http://localhost:{panel.PORT}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
+        url = f"{console.public_url()}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
         await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
         await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
 

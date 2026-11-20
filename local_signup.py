@@ -15,7 +15,7 @@ import time
 import urllib.request
 
 import setup_accounts
-from bridge_config import ROOT, SERVER_NAME
+from bridge_config import ELEMENT_ORIGIN, ROOT, SERVER_NAME
 from setup_accounts import HS, api, load_env
 
 sys.path.append(str(ROOT / "deploy"))           # the public server's settings, shared
@@ -78,7 +78,7 @@ def main() -> None:
     elif cmd == "token":
         uses = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 1
         print(json.dumps({"token": new_token(uses), "uses": uses, "days": TOKEN_DAYS,
-                          "sign_up": "http://localhost:8649/#/register"}))
+                          "sign_up": f"{ELEMENT_ORIGIN}/#/register"}))
     else:
         raise SystemExit(__doc__)
 

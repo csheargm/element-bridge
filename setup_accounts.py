@@ -9,10 +9,12 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 import urllib.error
 import urllib.request
 import urllib.parse
+from pathlib import Path
 
 import registry
 from bridge_config import HOMESERVER as HS, ROOT, SERVER_NAME, read_env
@@ -63,7 +65,11 @@ class AccountError(RuntimeError):
 
 
 def shared_secret() -> str:
-    """Synapse's registration secret, read from its config (never printed)."""
+    """Synapse's registration secret (never printed): from its config here, or on the public server
+    from the file bootstrap.sh copies it to (HAGENCY_SHARED_SECRET_FILE, mode 600; @pm can't read Synapse's config)."""
+    secret_file = os.environ.get("HAGENCY_SHARED_SECRET_FILE")
+    if secret_file:
+        return Path(secret_file).read_text().strip()
     yaml = (ROOT / "data" / "homeserver.yaml").read_text()
     return re.search(r'^registration_shared_secret: "?([^"\n]+)"?', yaml, re.M).group(1)
 
@@ -123,7 +129,26 @@ def mark_direct(token: str, user_id: str, other: str, room: str) -> None:
         api("PUT", path, direct, token=token)
 
 
+def ensure_pm() -> None:
+    """The public server: only @pm (people sign up themselves; their agents run on their computers).
+    Checked by signing in, so a fresh database gets @pm again; must run before the first sign-up."""
+    env = load_env()
+    try:
+        password, created = ensure_user(env, PM_BOT, shared_secret(), verify=True)
+    except AccountError as e:
+        raise SystemExit(str(e)) from e
+    token = login(PM_BOT, password)
+    try:
+        api("PUT", f"/_matrix/client/v3/profile/{urllib.parse.quote(f'@{PM_BOT}:{SERVER_NAME}')}/displayname",
+            {"displayname": DISPLAY_NAMES[PM_BOT]}, token=token)
+    finally:
+        api("POST", "/_matrix/client/v3/logout", {}, token=token)
+    print(f"{'created' if created else 'checked'} @{PM_BOT}:{SERVER_NAME}")
+
+
 def main():
+    if sys.argv[1:] == ["--pm-only"]:
+        return ensure_pm()
     secret, env = shared_secret(), load_env()
     for user in USERS:
         try:

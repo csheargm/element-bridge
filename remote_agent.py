@@ -7,11 +7,11 @@ computer fetch the agent's sign-in once, from POST /connect on the console serve
 serves the installer. The password is never logged; only the code's hash is stored.
 """
 import os
-import re
 import threading
 
 from aiohttp import web
 
+import console
 import pairing
 import registry
 import setup_accounts
@@ -24,20 +24,19 @@ LIMIT = pairing.Limiter()
 NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 INSTALLER = ROOT / "connect.sh"
 CONSOLE_MARK = "__HAGENCY_CONSOLE__"
-URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1))(:\d{1,5})?$")   # also safe inside sh
+# Behind the public server's Caddy every request comes from Caddy; it sets X-Forwarded-For to the
+# real client (Caddy trusts no incoming one), so the per-client limit sees people, not the proxy.
+TRUST_PROXY = os.environ.get("HAGENCY_TRUST_PROXY") == "1"
 
 
-def console_url() -> str:
-    """Where people's computers reach this console (the public server sets an https URL)."""
-    import panel                              # late: panel serves these routes
-    url = os.environ.get("HAGENCY_PUBLIC_CONSOLE", f"http://localhost:{panel.PORT}").rstrip("/")
-    if not URL_RE.fullmatch(url):                 # it goes into a shell line and the installer's source
-        raise RuntimeError("this server's HAGENCY_PUBLIC_CONSOLE must be https://host[:port] (http only for localhost)")
-    return url
+def client_of(request) -> str:
+    """Who is asking, for the wrong-code limiter: the proxy's X-Forwarded-For when we're behind one."""
+    forwarded = request.headers.get("X-Forwarded-For", "") if TRUST_PROXY else ""
+    return forwarded.split(",")[-1].strip()[:64] or request.remote or "?"
 
 
 def install_line(code: str) -> str:
-    return f"curl -fsSL {console_url()}/connect.sh | sh -s -- {code}"
+    return f"curl -fsSL {console.public_url()}/connect.sh | sh -s -- {code}"
 
 
 def open_dm(agent: str, password: str, person: str) -> str:
@@ -95,7 +94,7 @@ def credentials_for(person: str) -> dict | None:
 
 def routes() -> list:
     async def connect(request):
-        client = request.remote or "?"
+        client = client_of(request)
         if request.content_type != "application/json" or "Origin" in request.headers:
             return web.json_response({"error": "use connect.py"}, status=415, headers=NO_STORE)   # never a browser's
         if LIMIT.blocked(client):
@@ -113,6 +112,6 @@ def routes() -> list:
         return web.json_response(creds, headers=NO_STORE)
 
     async def installer(request):
-        text = INSTALLER.read_text().replace(CONSOLE_MARK, console_url())
+        text = INSTALLER.read_text().replace(CONSOLE_MARK, console.public_url())
         return web.Response(text=text, content_type="text/plain", headers=NO_STORE)
     return [web.post("/connect", connect), web.get("/connect.sh", installer)]

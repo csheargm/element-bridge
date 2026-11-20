@@ -1,22 +1,15 @@
-{
-	email {$ACME_EMAIL}
-}
+# The site (www.hagencylabs.xyz) is GitHub Pages (.github/workflows/pages.yml), not this server.
 
-# The product site (www.hagencylabs.xyz). Static files only.
-{$SITE_DOMAIN} {
-	root * /srv/site
-	file_server
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'"
-	}
-}
-
-# Element Web (rooms.hagencylabs.xyz).
+# Element Web (rooms.hagencylabs.xyz), plus @pm's console on the same name: the side panel, the
+# console page, its sign-in and actions, and bring-your-own pairing (/connect, /connect.sh).
 {$ROOMS_DOMAIN} {
-	reverse_proxy element:80
+	@pm path /panel /console /console/* /auth/* /connect /connect.sh
+	handle @pm {
+		reverse_proxy pm:8650
+	}
+	handle {
+		reverse_proxy element:80
+	}
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
@@ -39,6 +32,17 @@
 	}
 	handle /_synapse/admin* {
 		respond 404
+	}
+	# guard.py pauses media downloads (flags/media-paused) when this month's traffic nears the free 10 TB.
+	@media_paused {
+		path_regexp ^/_matrix/(media/[^/]+|client/v1/media|federation/v1/media)/(download|thumbnail)/
+		file {
+			root /flags
+			try_files /media-paused
+		}
+	}
+	handle @media_paused {
+		respond "Media downloads are paused on this server for the rest of the month." 503
 	}
 	handle /_matrix* {
 		reverse_proxy synapse:8008

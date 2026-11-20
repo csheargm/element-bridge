@@ -1,32 +1,36 @@
-# Hagency Rooms on the Oracle VM: Caddy (TLS) in front of Synapse, Element Web and the static site.
-# Only Caddy publishes ports (80/443, plus 8448 for federation). Postgres and Synapse stay internal.
-# Image versions come from .env (pinned and checked on deploy; see docs/DEPLOY_ORACLE.md).
+# Hagency Rooms on the Oracle VM: Caddy (TLS) in front of Element Web, Synapse and @pm's console.
+# Only Caddy publishes ports (80/443, plus 8448 for federation). Postgres, Synapse and @pm stay internal.
+# Images are pinned here, so a deploy of a commit always runs the same versions (docs/DEPLOY_ORACLE.md).
+# The site is GitHub Pages. People's own agents run on their computers (connect.py), never here.
 name: hagency
+x-logs: &logs                           # Docker's logs stay small on the 45 GB disk
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
 services:
   caddy:
-    image: caddy:${CADDY_VERSION}
+    image: caddy:2.11.9
     ports: ["80:80", "443:443", "8448:8448"]
     environment:
-      SITE_DOMAIN: ${SITE_DOMAIN}
       ROOMS_DOMAIN: ${ROOMS_DOMAIN}
       MATRIX_DOMAIN: ${MATRIX_DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ../site:/srv/site:ro          # ~/hagency/site, next to ~/hagency/deploy
+      - ./flags:/flags:ro               # guard.py's media-paused switch
       - caddy_data:/data
       - caddy_config:/config
-    depends_on: [synapse, element]
+    depends_on: [synapse, element, pm]
     networks: [edge]
+    logging: *logs
     restart: unless-stopped
   synapse:
-    image: matrixdotorg/synapse:${SYNAPSE_VERSION}
+    image: matrixdotorg/synapse:v1.165.0
     volumes: ["./synapse:/data"]
     depends_on: [postgres]
     networks: [edge, db]
+    logging: *logs
     restart: unless-stopped
   postgres:
-    image: postgres:${POSTGRES_VERSION}
+    image: postgres:16.16-alpine
     environment:
       POSTGRES_USER: synapse
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -34,11 +38,36 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"   # what Synapse requires
     volumes: ["postgres:/var/lib/postgresql/data"]
     networks: [db]                      # only Synapse reaches the database
+    logging: *logs
     restart: unless-stopped
   element:
-    image: vectorim/element-web:${ELEMENT_VERSION}
+    image: vectorim/element-web:v1.12.35
     volumes: ["./element-config.json:/app/config.json:ro"]
     networks: [edge]
+    logging: *logs
+    restart: unless-stopped
+  pm:                                   # @pm: welcome, pairing (/connect) and the console, as uid 1000
+    image: python:3.12.16-slim
+    user: "1000:1000"
+    working_dir: /app
+    command: ["sh", "deploy/pm_start.sh"]
+    environment:
+      HOME: /app
+      HAGENCY_HOMESERVER: http://synapse:8008
+      HAGENCY_SERVER_NAME: ${SERVER_NAME}
+      HAGENCY_PUBLIC_HOMESERVER: https://${MATRIX_DOMAIN}
+      HAGENCY_PUBLIC_CONSOLE: https://${ROOMS_DOMAIN}
+      ELEMENT_ORIGIN: https://${ROOMS_DOMAIN}
+      HAGENCY_SHARED_SECRET_FILE: /app/data/registration_shared_secret
+      HAGENCY_TRUST_PROXY: "1"            # Caddy sets X-Forwarded-For
+      HAGENCY_OPERATOR: ${OPERATOR:-}     # who guard.py's warnings go to
+      PANEL_HOST: 0.0.0.0                 # reachable by Caddy on the edge network only
+      PM_BRAIN: "off"                     # no model keys on this server: @pm uses its phrase rules
+    volumes: ["../../pm:/app"]          # ~/hagency/pm: this commit's files (deploy.sh) and @pm's state
+    depends_on: [synapse]
+    networks: [edge]
+    logging: *logs
+    stop_grace_period: 2m               # @pm finishes what it started (lifecycle.py)
     restart: unless-stopped
 networks:
   edge: {}

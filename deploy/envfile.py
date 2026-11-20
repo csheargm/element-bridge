@@ -15,13 +15,12 @@ HERE = Path(__file__).resolve().parent
 ENV, EXAMPLE = HERE / ".env", HERE / ".env.example"
 DOMAIN = r"(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
 RULES = {
-    "SITE_DOMAIN": DOMAIN, "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN,
-    "ACME_EMAIL": r"[A-Za-z0-9._%+-]+@" + DOMAIN,
-    "CADDY_VERSION": r"\d+\.\d+(\.\d+)?(-alpine)?", "SYNAPSE_VERSION": r"v\d+\.\d+\.\d+",
-    "POSTGRES_VERSION": r"\d+(\.\d+)?-alpine", "ELEMENT_VERSION": r"v\d+\.\d+\.\d+",
+    "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN,
     "POSTGRES_PASSWORD": r"[0-9a-f]{64}",
+    "OPERATOR": r"[a-z0-9._=-]{1,64}",       # the account guard.py warns (a localpart)
 }
 SECRETS = {"POSTGRES_PASSWORD"}
+OPTIONAL = {"OPERATOR"}                      # empty until the operator has an account
 
 
 def read() -> dict:
@@ -58,7 +57,7 @@ def ensure() -> dict:
 
 
 def validate(values: dict) -> list[str]:
-    problems = [f"{k} is missing" for k in RULES if not values.get(k)]
+    problems = [f"{k} is missing" for k in RULES if not values.get(k) and k not in OPTIONAL]
     problems += [f"{k} doesn't look right" for k, rx in RULES.items()
                  if values.get(k) and not re.fullmatch(rx, values[k])]
     return problems
@@ -74,7 +73,7 @@ if __name__ == "__main__":
         values = read()
         if validate(values):
             raise SystemExit("✗ run `python3 envfile.py check` first")
-        print(values[sys.argv[2]])
+        print(values.get(sys.argv[2], ""))
         sys.exit(0)
     print(__doc__)
     sys.exit(2)

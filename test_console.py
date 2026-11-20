@@ -39,6 +39,17 @@ class Auth(unittest.TestCase):
                     SimpleNamespace(host="localhost:8650", content_type="application/json", headers={"Origin": "https://evil.example"})):
             self.assertFalse(console.allowed(bad, True))
 
+    def test_the_public_name_is_allowed_only_when_it_is_this_servers(self):
+        """The public server: Caddy forwards Host rooms.example.org; other names stay refused."""
+        public = SimpleNamespace(host="rooms.example.org", content_type="application/json",
+                                 headers={"Origin": "https://rooms.example.org"})
+        self.assertFalse(console.allowed(public, True))
+        with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": "https://rooms.example.org"}):
+            self.assertTrue(console.allowed(public, True))
+            self.assertTrue(console.allowed(SimpleNamespace(host="localhost:8650", headers={}), False))
+            self.assertFalse(console.allowed(SimpleNamespace(host="rooms.example.org.evil.example", headers={}), False))
+            self.assertEqual(console.public_url(), "https://rooms.example.org")
+
     def test_openid_tokens_are_verified_with_the_homeserver_and_only_local_users_count(self):
         def opener(sub):
             class R:

@@ -40,6 +40,12 @@ class Configure(unittest.TestCase):
         self.assertIn("auto_join_rooms_for_guests: false", out)
         self.assertEqual(out.count("\nauto_join_rooms:"), 1)
 
+    def test_media_stays_within_the_free_disk(self):
+        out = configure(GENERATED, ENV)
+        self.assertIn("max_upload_size: 20M", out)
+        self.assertIn("media_retention: {local_media_lifetime: 90d, remote_media_lifetime: 30d}", out)
+        self.assertEqual(out.count("media_retention:"), 1)
+
     def test_set_keys_replaces_in_place_and_appends_once(self):
         text = "a: 1\nb: 2"                                   # no final newline: the new key gets its own line
         out = set_keys(text, {"a": "9", "c": "3"})
@@ -63,18 +69,20 @@ class Configure(unittest.TestCase):
 
 class EnvFile(unittest.TestCase):
     """GPT review 12: .env is data, validated, never sourced by a shell."""
-    GOOD = {"SITE_DOMAIN": "www.example.org", "ROOMS_DOMAIN": "rooms.example.org", "MATRIX_DOMAIN": "matrix.example.org",
-            "SERVER_NAME": "matrix.example.org", "ACME_EMAIL": "ops@example.org", "CADDY_VERSION": "2.8.4",
-            "SYNAPSE_VERSION": "v1.120.0", "POSTGRES_VERSION": "16-alpine", "ELEMENT_VERSION": "v1.11.90",
-            "POSTGRES_PASSWORD": "ab" * 32}
+    GOOD = {"ROOMS_DOMAIN": "rooms.example.org", "MATRIX_DOMAIN": "matrix.example.org",
+            "SERVER_NAME": "matrix.example.org", "POSTGRES_PASSWORD": "ab" * 32}
 
     def test_good_values_pass(self):
         self.assertEqual(envfile.validate(self.GOOD), [])
 
     def test_shell_and_latest_are_refused(self):
-        for key, bad in (("SITE_DOMAIN", "$(id).example.org"), ("SYNAPSE_VERSION", "latest"),
-                         ("POSTGRES_PASSWORD", 'x" ; drop'), ("ACME_EMAIL", "a@b`id`.org"), ("CADDY_VERSION", "")):
+        for key, bad in (("ROOMS_DOMAIN", "$(id).example.org"), ("POSTGRES_PASSWORD", 'x" ; drop'),
+                         ("OPERATOR", "anna;id"), ("OPERATOR", "@anna:x.org"), ("MATRIX_DOMAIN", "")):
             self.assertTrue(envfile.validate({**self.GOOD, key: bad}), (key, bad))
+
+    def test_the_operator_is_optional(self):
+        self.assertEqual(envfile.validate({**self.GOOD, "OPERATOR": ""}), [])
+        self.assertEqual(envfile.validate({**self.GOOD, "OPERATOR": "anna"}), [])
 
 
 if __name__ == "__main__":
