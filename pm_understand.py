@@ -15,6 +15,11 @@ import room_state
 from pm_chat import CONFIRM_S, LEVEL_WORDS, without_quote
 
 log = logging.getLogger("loop")
+SETTING_QUESTIONS = {"grant_web": "Let your agent search the web in this room?",
+                     "revoke_web": "Stop your agent searching the web in this room?",
+                     "follow_always": "Bring your agent along whenever you join a project room?",
+                     "follow_ask": "Ask you first before bringing your agent into a room?",
+                     "follow_never": "Never bring your agent along?"}
 BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": intents.AUTONOMOUS,
                  "plan": intents.PLAN, "show_plan": intents.SHOW_PLAN, "status": intents.STATUS,
                  "follow_always": intents.FOLLOW_ALWAYS, "follow_ask": intents.FOLLOW_ASK,
@@ -89,9 +94,8 @@ class Understanding:
             await self.ask_mode(room, sender, action)
             return
         if action.startswith(("follow_", "grant_", "revoke_")) and intents.classify(text) != BRAIN_ACTIONS[action]:
-            await self.say(rid, "Say it in so many words and I'll change it: e.g. \"let my agent search the web here\", "
-                                "\"don't bring my agent\", \"ask me first\".")
-            return                            # a setting or grant changes only on the person's own clear words
+            await self.ask_setting(room, sender, action)   # understood, but not in plain words: one 👍 to be sure
+            return
         waiting = self.pending.get(rid, {})
         if action == "approve" and waiting and not intents.is_approval(text):
             await self.say(rid, "To approve it, react 👍 to the message above (or reply \"ok\" to it).")
@@ -110,6 +114,13 @@ class Understanding:
             await self.act(room, sender, intents.PLAN)
         else:
             await self.act(room, sender, BRAIN_ACTIONS[action])
+
+    async def ask_setting(self, room: MatrixRoom, sender: str, action: str) -> None:
+        """The model read a change to the sender's OWN agent settings; they confirm it with one click."""
+        event_id = await self.say(room.room_id, f"{SETTING_QUESTIONS[action]} Click 👍 below to confirm.")
+        self.pending[room.room_id] = {"kind": "setting", "intent": BRAIN_ACTIONS[action], "event_id": event_id,
+                                      "until": time.time() + CONFIRM_S, "by": sender}
+        await self.offer_thumb(room.room_id, event_id)
 
     async def ask_mode(self, room: MatrixRoom, sender: str, action: str) -> None:
         """The model thinks they want a mode change their own words don't plainly say: ask first."""

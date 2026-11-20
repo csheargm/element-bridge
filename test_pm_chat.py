@@ -303,6 +303,18 @@ class Brain(Talk):
         self.assertIn("Running on my own now", self.said[-1])
         self.assertNotIn("merged everything", " ".join(self.said))
 
+    def test_a_setting_the_rules_miss_is_asked_with_one_click(self):
+        """the owner: "the agent should understand me" — not "say it in so many words"."""
+        self.decision = ("grant_web", "Sure")
+        granted = []
+        self.lp.set_grant = mock.AsyncMock(side_effect=lambda room, who, cap, on: granted.append((who, cap, on)))
+        self.lp.offer_thumb = mock.AsyncMock()
+        self.tell(BETTY, "@pm my agent should be able to look things up online")
+        self.assertIn("Let your agent search the web", self.said[-1])
+        self.assertEqual(granted, [])                       # not before the person's own 👍
+        self.react(BETTY, "👍", self.lp.pending["!r"]["event_id"])
+        self.assertEqual(granted, [(BETTY, "web", True)])
+
     def test_stop_never_waits_for_the_model(self):
         self.tell(BETTY, "@pm stop")
         self.assertEqual((self.levels, self.calls), (["off"], []))

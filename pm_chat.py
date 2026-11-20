@@ -197,7 +197,7 @@ class Chat:
             return False
         if p.get("kind") != "plan_request" and sender != p.get("by"):
             return False              # only the person who asked confirms (a stray "yes" from anyone else doesn't)
-        if p.get("kind") != "bring" and not await room_state.is_moderator(self.client, room, sender):
+        if p.get("kind") not in ("bring", "setting") and not await room_state.is_moderator(self.client, room, sender):
             return False              # authority re-checked now (bringing your OWN agent needs none)
 
         self.pending.pop(room.room_id)
@@ -206,6 +206,8 @@ class Chat:
             await self.start_plan(room, sender)                 # planned with the confirming owner's agent
         elif p.get("kind") == "plan":
             await self.file_plan(room, p, sender)               # pm_plan.py
+        elif p.get("kind") == "setting":                       # your own agent's setting, asked with 👍
+            await self.act(room, sender, p["intent"])
         elif p.get("kind") == "bring":                          # pm_follow.py: "bring your agent? ✅"
             await self.invite_agent(room.room_id, p["agent"], "Your agent is on its way in.")
         else:                                 # a mode switch asked about with ✅ (ask_mode)
