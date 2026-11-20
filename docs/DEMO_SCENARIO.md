@@ -44,3 +44,8 @@ Everything else in the table already works.
   off in room profiles: they leaked local file paths.
 - **DMs with your own agent** needed a small Hermes fix (`docs/hermes-matrix-dm.patch`). Hermes
   recognises a DM only through its own `m.direct` data and didn't record DM invites there.
+- **Only the owner (or @pm) can pull an agent into a room.** Hermes joined every invite, so anyone
+  could invite Anna's agent into their room and have it read along. With `MATRIX_ALLOWED_USERS`
+  set it now ignores other inviters, as our bridge does (`docs/hermes-matrix-invite-allowlist.patch`;
+  no list keeps upstream's join-all). Answers no longer quote the question either
+  (`docs/hermes-matrix-reply-mode.patch`).

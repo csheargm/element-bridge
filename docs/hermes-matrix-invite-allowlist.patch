@@ -1,0 +1,93 @@
+diff -ruN a/plugins/platforms/matrix/adapter.py b/plugins/platforms/matrix/adapter.py
+--- a/plugins/platforms/matrix/adapter.py
++++ b/plugins/platforms/matrix/adapter.py
+@@ -2877,6 +2877,19 @@
+ 
+         room_id = str(getattr(event, "room_id", ""))
+ 
++        # With MATRIX_ALLOWED_USERS set, only those users may pull the bot into a
++        # room; otherwise anyone could invite it and have it read their room.
++        # No list (or "*") keeps the open behaviour.
++        inviter = str(getattr(event, "sender", ""))
++        allowed = self._allowed_user_ids
++        if allowed and "*" not in allowed and inviter not in allowed:
++            logger.info(
++                "Matrix: ignoring invite to %s from %s (not in MATRIX_ALLOWED_USERS)",
++                room_id,
++                inviter,
++            )
++            return
++
+         logger.info(
+             "Matrix: invited to %s — joining",
+             room_id,
+diff -ruN a/tests/gateway/test_matrix_invite_allowlist.py b/tests/gateway/test_matrix_invite_allowlist.py
+--- a/tests/gateway/test_matrix_invite_allowlist.py
++++ b/tests/gateway/test_matrix_invite_allowlist.py
+@@ -0,0 +1,66 @@
++"""Matrix invites: with MATRIX_ALLOWED_USERS set, only allowed users can pull the bot into a room."""
++from types import SimpleNamespace
++
++import pytest
++
++from gateway.config import PlatformConfig
++
++
++def _make_adapter(monkeypatch, allowed=None):
++    from plugins.platforms.matrix.adapter import MatrixAdapter
++
++    if allowed is None:
++        monkeypatch.delenv("MATRIX_ALLOWED_USERS", raising=False)
++    else:
++        monkeypatch.setenv("MATRIX_ALLOWED_USERS", allowed)
++    config = PlatformConfig(enabled=True, token="syt_test_token",
++                            extra={"homeserver": "https://matrix.example.org",
++                                   "user_id": "@hermes:example.org"})
++    adapter = MatrixAdapter(config)
++    joined = []
++
++    async def fake_join(room_id):
++        joined.append(room_id)
++        return True
++
++    adapter._join_room_by_id = fake_join
++    return adapter, joined
++
++
++def _invite(sender, room_id="!room:example.org"):
++    return SimpleNamespace(room_id=room_id, sender=sender, content=None)
++
++
++@pytest.mark.asyncio
++async def test_no_allowlist_joins_any_invite(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch)
++    await adapter._on_invite(_invite("@stranger:example.org"))
++    assert joined == ["!room:example.org"]
++
++
++@pytest.mark.asyncio
++async def test_allowlisted_inviter_is_joined(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org, @pm:example.org")
++    await adapter._on_invite(_invite("@pm:example.org"))
++    assert joined == ["!room:example.org"]
++
++
++@pytest.mark.asyncio
++async def test_other_inviter_is_ignored(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org,@pm:example.org")
++    await adapter._on_invite(_invite("@stranger:example.org"))
++    assert joined == []
++
++
++@pytest.mark.asyncio
++async def test_missing_sender_is_ignored_when_allowlisted(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org")
++    await adapter._on_invite(SimpleNamespace(room_id="!room:example.org", content=None))
++    assert joined == []
++
++
++@pytest.mark.asyncio
++async def test_wildcard_allowlist_joins_any_invite(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch, "*")
++    await adapter._on_invite(_invite("@stranger:example.org"))
++    assert joined == ["!room:example.org"]
