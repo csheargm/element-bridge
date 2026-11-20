@@ -76,6 +76,9 @@ async def start_fix(task_id: str) -> dict:
 @mcp.tool()
 async def finish_fix(task_id: str, summary: str) -> dict:
     """Commit and push your revision to the same PR; the reviewer looks again."""
+    problem, _ = claim(task_id, "fix")                      # exactly a fix
+    if problem:
+        return problem
     problem, co = build_checkout(task_id)
     if problem:
         return problem
@@ -142,6 +145,9 @@ def write_files(task_id: str, files: dict[str, str]) -> dict:
 @mcp.tool()
 async def finish_build(task_id: str, summary: str) -> dict:
     """Commit your edits, push the branch and open the PR (as your GitHub identity)."""
+    problem, _ = claim(task_id, "build")                    # exactly a build: a fix never opens a new PR
+    if problem:
+        return problem
     problem, co = build_checkout(task_id)
     if problem:
         return problem

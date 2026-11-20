@@ -39,19 +39,22 @@ class Rounds(unittest.TestCase):
         asyncio.run(self.lp.on_result(SimpleNamespace(room_id="!r"), sender, {"issue": 7, "pr": 9, **r}))
 
     def last_task(self):
-        return self.lp.say.call_args.args[3]
+        return [c for c in self.lp.say.call_args_list if len(c.args) > 3][-1].args[3]
+
+    def last_to(self):
+        return [c for c in self.lp.say.call_args_list if len(c.args) > 3][-1].args[2]
 
     def test_changes_requested_go_to_the_builder_with_the_reasons(self):
         self.result(R, kind="review", verdict="request_changes", sha="s1", reasons="README lacks the live link")
         self.assertEqual((self.item["stage"], self.item["fix_rounds"]), ("fixing", 1))
-        self.assertEqual(self.lp.say.call_args.args[2], B)
+        self.assertEqual(self.last_to(), B)
         self.assertEqual((self.last_task()["kind"], self.last_task()["feedback"]), ("fix", "README lacks the live link"))
 
     def test_the_fix_goes_back_to_the_same_reviewer(self):
         self.result(R, kind="review", verdict="request_changes", sha="s1", reasons="x")
         self.result(B, kind="fix")
         self.assertEqual(self.item["stage"], "reviewing")
-        self.assertEqual((self.lp.say.call_args.args[2], self.last_task()["kind"]), (R, "review"))
+        self.assertEqual((self.last_to(), self.last_task()["kind"]), (R, "review"))
         self.result(R, kind="review", verdict="approve", sha="s2")
         self.assertEqual((self.item["stage"], self.item["sha"]), ("approved", "s2"))     # pinned to the new commit
 

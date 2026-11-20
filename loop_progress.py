@@ -2,6 +2,7 @@
 
 Mixed into loop.Loop (which supplies client, state, save, say, dispatch, level, agents_in).
 """
+import logging
 import os
 import time
 
@@ -9,6 +10,8 @@ from nio import MatrixRoom
 
 import agents
 import github
+
+log = logging.getLogger("loop")
 
 # Stages in which an item is still in flight (anything else is done/stopped).
 ACTIVE = ("building", "reviewing", "fixing", "approved", "ready", "merging", "merge_sent",
@@ -102,7 +105,7 @@ class Progress:
         """A review approves (→ GitHub's gate) or asks for changes (→ the builder fixes); a fix goes
         back to the same reviewer, whose new review is pinned to the new commit."""
         if result["kind"] == "fix":
-            item["stage"] = "reviewing"
+            item.update(stage="reviewing", fix_sha=result.get("sha"))
             await self.dispatch(room_id, item, item["reviewer"],
                                 f"{item['reviewer']}: review PR #{item['pr']} again (after fixes) against #{key}",
                                 {"kind": "review", "issue": int(key), "pr": item["pr"]})
@@ -121,10 +124,14 @@ class Progress:
                                                 f"{rounds} rounds of fixes")
             return
         item.update(stage="fixing", fix_rounds=rounds + 1)
-        await self.say(room_id, f"{item['reviewer'].split(':')[0][1:]} asked for changes on PR #{item['pr']}; "
-                                f"{item['builder'].split(':')[0][1:]} revises it (round {rounds + 1}/{MAX_FIX_ROUNDS}).")
+        # The task first (stage and dispatch are recorded together); the announcement can't block it.
         await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: fix PR #{item['pr']} for #{key} "
                             "after the review", {"kind": "fix", "issue": int(key), "pr": item["pr"], "feedback": reasons})
+        try:
+            await self.say(room_id, f"{item['reviewer'].split(':')[0][1:]} asked for changes on PR #{item['pr']}; "
+                                    f"{item['builder'].split(':')[0][1:]} revises it (round {rounds + 1}/{MAX_FIX_ROUNDS}).")
+        except RuntimeError as e:             # loop.SendError: just the announcement; the fix is already on its way
+            log.warning("couldn't announce the fix round in %s: %s", room_id, e)
 
     async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
         item.update(stage="stopped", why=why)
@@ -162,6 +169,11 @@ class Progress:
             pass                                     # merge requested; wait for GitHub to show MERGED
         elif item["stage"] == "approved" and info.get("mergeable") == "CONFLICTING":
             await self.stop(room_id, key, item, f"PR #{item['pr']} has merge conflicts")   # don't block the queue
+        elif ok and info.get("headRefOid") and info["headRefOid"] != item.get("sha"):
+            item["stage"] = "reviewing"       # the PR moved since it was approved: review what's there now
+            await self.dispatch(room_id, item, item["reviewer"],
+                                f"{item['reviewer']}: review PR #{item['pr']} again (it changed) against #{key}",
+                                {"kind": "review", "issue": int(key), "pr": item["pr"]})
         elif ok and lvl == "autonomous":
             item["stage"] = "merging"
             await self.dispatch(room_id, item, item["builder"], f"{item['builder']}: merge PR #{item['pr']}",

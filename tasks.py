@@ -187,11 +187,19 @@ async def close(agent: str, backend: str, base: Path, task: dict) -> dict:
     return {"kind": "close", "issue": n, "line": f"closed #{n} (already done)"}
 
 
+async def _own_open_pr(agent: str, pr: int, branch: str) -> None:
+    """The PR must be open, in this repo, and on this builder's own branch: a fix never touches anyone else's."""
+    info = await run_json(["pr", "view", str(pr), "-R", REPO, "--json", "headRefName,isCrossRepository,state"], agent)
+    if info.get("state") != "OPEN" or info.get("isCrossRepository") or info.get("headRefName") != branch:
+        raise TaskError(f"PR #{pr} isn't an open PR on {branch}; not fixing it")
+
+
 async def prepare_fix(agent: str, base: Path, task: dict) -> Checkout:
     """A fresh clone on the builder's OWN PR branch (never anyone else's), .git outside the tree."""
     _check_repo(task)
     n = int(task["issue"])
     co = Checkout(n, await _issue(n, agent), base / f"issue-{n}", f"agent/{agent}/issue-{n}")
+    await _own_open_pr(agent, int(task["pr"]), co.branch)
     shutil.rmtree(co.root, ignore_errors=True)
     await run(["repo", "clone", REPO, str(co.tree), "--", "--quiet"], agent)
     (co.tree / ".git").rename(co.root / "git")
@@ -215,8 +223,10 @@ async def finish_fix(agent: str, co: Checkout, summary: str, pr: int) -> dict:
     await git([*co.g, "add", "-A"], agent, co.root)
     await git([*co.g, *who, "commit", "--quiet", "--no-verify", "-m",
                f"Address review feedback\n\n{summary[:1000]}"], agent, co.root)
+    await _own_open_pr(agent, pr, co.branch)                 # re-checked right before the push
     await git([*co.g, "push", "--quiet", "--no-verify", "origin", co.branch], agent, co.root)
-    return {"kind": "fix", "issue": co.n, "pr": pr, "line": f"updated PR #{pr} after the review"}
+    sha = (await git([*co.g, "rev-parse", "HEAD"], agent, co.root)).strip()
+    return {"kind": "fix", "issue": co.n, "pr": pr, "sha": sha, "line": f"updated PR #{pr} after the review"}
 
 
 async def fix(agent: str, backend: str, base: Path, task: dict) -> dict:
