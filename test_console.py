@@ -110,7 +110,8 @@ class Actions(unittest.TestCase):
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}), change_level=change_level, say=say,
                                     is_person=lambda r, u: u in r.users and not u.split(":")[0].endswith("-agent"),
                                     set_follow=set_follow, set_grant=set_grant, confirm=confirm, pending={},
-                                    grants_cache={}, level=lambda rid: asyncio.sleep(0, "off"))
+                                    grants_cache={}, level=lambda rid: asyncio.sleep(0, "off"),
+                                    user_id="@pm:" + BETTY.partition(":")[2])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
                          ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello"))):
             p2 = mock.patch.object(room_state, name, fn)
@@ -125,6 +126,14 @@ class Actions(unittest.TestCase):
         with mock.patch.object(console.customize, "go_back", return_value=True) as back:
             self.assertEqual(self.act(BETTY, "goback", ""), "ok")
         back.assert_called_once_with("betty")
+
+    def test_someone_from_another_server_cant_send_anyone_back(self):
+        """GPT review 17: a remote @betty must never map to this server's betty."""
+        remote = "@betty:elsewhere.example"
+        self.loop.client.rooms["!r"].users[remote] = 0
+        with mock.patch.object(console.customize, "go_back") as back:
+            self.assertIn("only people on this server", self.act(remote, "goback", ""))
+        back.assert_not_called()
 
     def test_owner_changes_the_mode_contributor_cant(self):
         self.assertEqual(self.act(ANNA, "mode", "autonomous"), "ok")

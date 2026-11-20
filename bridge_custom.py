@@ -1,14 +1,14 @@
 """Change your agent's own code from your private room with it (customize.py does the work).
 
-  Betty (in her DM with betty-agent): "change your code so the transcript caption is shorter"
+  Betty (in her private room with betty-agent): "change your code so the transcript caption is shorter"
   betty-agent: works on Betty's private copy, then posts what changed with one-click buttons:
-    👍 Use it myself      tests it, then Betty's agent runs her version (↩️ goes back)
-    📤 Send as pull request   opens a PR to the official repo, tested by GitHub
+    👍 Use it myself         tests it, then Betty's agent runs her version (↩️ goes back)
+    📤 Send as pull request  opens a PR to the official repo, tested by GitHub
     🗑️ Discard
 
-Only the owner, only in a two-person room with their agent. Mixed into bridge.Bridge (client,
-owner, owner_id, user_id, backend, send, tasks,
-started_ms, sync_point).
+Only the owner, only in a private two-person room with their agent, and each button works once,
+in the room it was offered in. Mixed into bridge.Bridge (client, owner, owner_id, user_id, backend,
+send, tasks, started_ms, sync_point).
 """
 import asyncio
 import logging
@@ -28,7 +28,6 @@ CHANGE = re.compile(r"^\W*(please\s+|can you\s+|could you\s+)?(change|make|add|f
 ABOUT_CODE = re.compile(r"\b(your (own )?(code|bridge|program)|the bridge|hagency( rooms)?|yourself)\b", re.I)
 GO_BACK = customize.GO_BACK
 USE, SEND, DROP, BACK = "👍", "📤", "🗑️", "↩️"
-OFFER_KEYS = (USE, SEND, DROP)
 
 
 def edit_prompt(request: str) -> str:
@@ -37,32 +36,41 @@ def edit_prompt(request: str) -> str:
             f"Your owner asks: {request}\n\nRules: edit only files in this folder. Keep the change small and in the "
             "existing style. Add or update a unittest (test_*.py) for the new behaviour. Never weaken the owner-only "
             "check, the agent sandbox settings or secret handling unless the request explicitly asks for that, and "
-            "never touch .env or credentials. Reply with 2-4 short plain lines saying what you changed.")
+            "never touch .env or credentials. Don't create links, .gitattributes or .pth files. Reply with 2-4 short "
+            "plain lines saying what you changed.")
+
+
+def is_private(room: MatrixRoom) -> bool:
+    """Just the owner and me, and nobody can walk in."""
+    return (room.joined_count == 2 and room.invited_count == 0
+            and getattr(room, "join_rule", "invite") not in ("public", "knock", "knock_restricted"))
 
 
 class BridgeCustom:
     def wants_change(self, room: MatrixRoom, event) -> bool:
         """The owner, in our private room, asking to change this program (not a question about it)."""
-        private = room.joined_count == 2 and room.invited_count == 0
         text = event.body.strip()
-        return (private and event.sender == self.owner_id and "?" not in text[-1:]
+        return (is_private(room) and event.sender == self.owner_id and "?" not in text[-1:]
                 and (bool(GO_BACK.search(text)) or (bool(CHANGE.match(text)) and bool(ABOUT_CODE.search(text)))))
 
     def offers(self) -> SavedDict:
         """Offer message → what it offers; on disk, so a click after a restart still works."""
         return SavedDict(customize.ROOT / "data" / f"custom-offers-{self.owner}.json")
 
+    def custom_busy(self) -> asyncio.Lock:
+        if not hasattr(self, "custom_lock"):
+            self.custom_lock = asyncio.Lock()   # one change, test or PR at a time
+        return self.custom_lock
+
     async def change_code(self, room: MatrixRoom, event) -> None:
         rid, text = room.room_id, event.body.strip()
         if GO_BACK.search(text):
             await self.go_back(rid)
             return
-        if not hasattr(self, "custom_lock"):
-            self.custom_lock = asyncio.Lock()
-        if self.custom_lock.locked():
-            await self.send(rid, "I'm still working on your last change; ask again when it's done.", reply_to=event)
+        if self.custom_busy().locked():
+            await self.send(rid, "I'm still busy with your last change; ask again when it's done.", reply_to=event)
             return
-        async with self.custom_lock:
+        async with self.custom_busy():
             await self.send(rid, "🛠 Working on your private copy of my code. The version you use now isn't touched.")
             try:
                 work = await customize.prepare(self.owner)
@@ -80,15 +88,17 @@ class BridgeCustom:
 
     async def offer(self, rid: str, sha: str, request: str, summary: str, files: list[str]) -> None:
         shown = ", ".join(f"`{f}`" for f in files[:customize.MAX_DIFF_FILES]) + (" …" if len(files) > customize.MAX_DIFF_FILES else "")
-        risky = customize.sensitive(files)
+        risky, no_use = customize.sensitive(files), customize.why_not_use(self.owner)
+        keys = (SEND, DROP) if no_use else (USE, SEND, DROP)
         body = (f"✏️ **Your version is ready** ({sha[:7]})\n\n{summary}\n\nFiles changed since the official version: {shown}\n\n"
                 + (f"⚠️ **This touches the safety checks** ({', '.join(risky)}): the code that decides who I obey "
-                   "and what I may do. Read the change before using it.\n\n" if risky else "")
-                + f"{USE} **Use it myself**: I test it first, then switch to it.  "
-                  f"{SEND} **Send as pull request** to the official project.  {DROP} **Discard**.")
+                   "and what I may do.\n\n" if risky else "")
+                + ("" if no_use else f"{USE} **Use it myself**: I test it, then run it, with my access to this computer. ")
+                + f"{SEND} **Send as pull request** “{request.splitlines()[0][:100]}” to the official project. {DROP} **Discard**."
+                + (f"\n\n(Using it here isn't possible: {no_use}.)" if no_use else ""))
         event_id = await self.send(rid, body)
-        self.offers()[event_id] = {"sha": sha, "request": request, "summary": summary, "risky": risky}
-        for key in OFFER_KEYS:
+        self.offers()[event_id] = {"room": rid, "sha": sha, "request": request, "summary": summary, "risky": risky}
+        for key in keys:
             await self.react(rid, event_id, key)
 
     async def react(self, rid: str, event_id: str, key: str) -> None:
@@ -103,42 +113,61 @@ class BridgeCustom:
         if event.sender != self.owner_id or is_stale(event, self.started_ms) or not self.sync_point.first_time(event.event_id):
             return                            # my own buttons, anyone else's clicks, and replays do nothing
         offer = self.offers().get(event.reacts_to)
-        if not offer:
+        if not offer or offer.get("room") != room.room_id or offer.get("done") or not is_private(room):
+            return                            # only once, only where it was offered, only while private
+        if self.custom_busy().locked():
+            await self.send(room.room_id, "I'm still busy with your last change; click again when it's done.")
             return
-        job = asyncio.create_task(self.act_on(room.room_id, event.reacts_to, offer, event.key))
+        job = asyncio.create_task(self.act_on(room.room_id, event.reacts_to, event.key))
         self.tasks.add(job)
         job.add_done_callback(self.tasks.discard)
 
-    async def act_on(self, rid: str, offer_id: str, offer: dict, key: str) -> None:
-        try:
-            if key == BACK and offer.get("back"):
-                await self.go_back(rid)
-            elif key == USE and "sha" in offer:
-                await self.use(rid, offer)
-            elif key == SEND and "sha" in offer:
-                await self.send(rid, "📤 Opening a pull request…")
-                url = await customize.send_pr(self.owner, offer["sha"], offer["request"], pr_body(self.owner, offer))
-                await self.send(rid, f"📤 Pull request opened: {url}\nThe project's tests run on it automatically.")
-            elif key == DROP and "sha" in offer:
-                done = await customize.discard(self.owner, offer["sha"])
-                self.offers().pop(offer_id, None)
-                await self.send(rid, "🗑️ Discarded." if done else "That's not my newest change any more, so I left it.")
-        except (github.GitHubError, customize.CustomError, OSError) as e:
-            log.error("custom action %s failed: %s", key, e)
-            await self.send(rid, f"⚠️ That didn't work ({room_safe(e)}).")
+    async def act_on(self, rid: str, offer_id: str, key: str) -> None:
+        async with self.custom_busy():
+            offer = self.offers().get(offer_id) or {}
+            if offer.get("done"):
+                return
+            try:
+                done = await self.do(rid, offer, key)
+            except (github.GitHubError, customize.CustomError, OSError) as e:
+                log.error("custom action %s failed: %s", key, e)
+                await self.send(rid, f"⚠️ That didn't work ({room_safe(e)}).")
+                return
+            if done:
+                self.offers()[offer_id] = {**offer, "done": key}
 
-    async def use(self, rid: str, offer: dict) -> None:
+    async def do(self, rid: str, offer: dict, key: str) -> bool:
+        """One button; True when that offer is used up."""
+        if key == BACK and offer.get("back"):
+            changed = customize.go_back(self.owner, only_if=offer["back"])
+            await self.send(rid, "↩️ Going back to the official version: I'll be back in a moment." if changed
+                            else "That version isn't the one running any more, so nothing changed.")
+            return True
+        if key == USE and "sha" in offer:
+            return await self.use(rid, offer)
+        if key == SEND and "sha" in offer:
+            await self.send(rid, "📤 Opening a pull request…")
+            url = await customize.send_pr(self.owner, offer["sha"], offer["request"].splitlines()[0], pr_body(self.owner, offer))
+            await self.send(rid, f"📤 Pull request opened: {url}\nThe project's tests run on it automatically.")
+            return True
+        if key == DROP and "sha" in offer:
+            gone = await customize.discard(self.owner, offer["sha"])
+            await self.send(rid, "🗑️ Discarded." if gone else "That's not my newest change any more, so I left it.")
+            return True
+        return False
+
+    async def use(self, rid: str, offer: dict) -> bool:
         await self.send(rid, "🧪 Testing your version before switching (a minute or two)…")
         ok, result = await customize.use(self.owner, offer["sha"])
         if not ok:
-            await self.send(rid, f"❌ Its tests fail ({result}), so I'm staying on the version you use now. "
-                                 "Tell me what to fix.")
-            return
-        back = await self.send(rid, f"✅ Tests pass ({result}). Switching to your version {offer['sha'][:7]}: "
-                                    f"I'll be back in a moment.\n\n{BACK} **Go back** to the official version any time "
-                                    "(or tell @pm \"go back to the official bridge\").")
-        self.offers()[back] = {"back": True}
+            await self.send(rid, f"❌ Not switching: {result}. I'm staying on the version you use now. Tell me what to fix.")
+            return False
+        back = await self.send(rid, f"✅ {result.capitalize()}. Switching to your version {offer['sha'][:7]}: I'll be back "
+                                    f"in a moment.\n\n{BACK} **Go back** to the official version any time (or tell @pm "
+                                    "\"go back to the official bridge\", or use the console).")
+        self.offers()[back] = {"room": rid, "back": offer["sha"]}
         await self.react(rid, back, BACK)
+        return True
 
     async def go_back(self, rid: str) -> None:
         changed = customize.go_back(self.owner)

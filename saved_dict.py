@@ -14,7 +14,7 @@ class SavedDict(dict):
             super().__init__()                # nothing waiting (or a damaged file): start empty
 
     def _save(self) -> None:
-        tmp = self.path.with_suffix(".tmp")
+        tmp = self.path.with_suffix(f".{os.getpid()}.tmp")   # processes sharing a file never share a temp
         tmp.write_text(json.dumps(self))
         os.replace(tmp, self.path)
 

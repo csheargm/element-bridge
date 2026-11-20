@@ -100,7 +100,7 @@ async def view(loop, room_id: str, user: str) -> dict:
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "follow": registry.follow(local) if agent else None,
-            "version": customize.in_use().get(local, "")[:7] if agent else None,   # their own version, if any
+            "version": (customize.in_use().get(local) or "")[:7] if agent else None,   # their own version, if any
             "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
             "waiting": {"kind": waiting.get("kind") or "mode", "mine": waiting.get("by") == user,
                         "id": waiting.get("event_id"), "items": [i["title"] for i in waiting.get("items", [])]}
@@ -130,7 +130,10 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
     if action == "check":
         return await check_repo(loop, room, user)
     if action == "goback":                # customize.py: official code, so it works when theirs is broken
-        customize.go_back(user.split(":")[0].lstrip("@"))
+        local, _, server = user.lstrip("@").partition(":")
+        if server != loop.user_id.partition(":")[2]:   # a person from another server never maps to ours
+            return "only people on this server have an agent here"
+        customize.go_back(local)
         return "ok"
     if action == "approve":
         if loop.pending.get(room_id, {}).get("event_id") != value:

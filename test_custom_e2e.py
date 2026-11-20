@@ -2,7 +2,10 @@
 Needs ./start.sh running with betty on Codex or Claude Code. Takes a few minutes (a real agent edit).
 Run: .venv/bin/python test_custom_e2e.py"""
 import json
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
 import customize
 from setup_accounts import HS, SERVER_NAME, load_env, login
@@ -12,6 +15,13 @@ BETTY, AGENT = f"@betty:{SERVER_NAME}", f"@betty-agent:{SERVER_NAME}"
 REQUEST = ("change your code so the voice transcript caption starts with \"🎙 Heard:\" instead of "
            "\"📝 Transcript:\"")
 WAIT_S = 900
+
+
+def running_dir(owner: str) -> Path:
+    """The folder betty's bridge process really runs in (not just what the state file says)."""
+    pid = subprocess.run(["pgrep", "-f", f"bridge.py {owner} "], capture_output=True, text=True).stdout.split()[0]
+    out = subprocess.run(["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True).stdout
+    return Path(next(line[1:] for line in out.splitlines() if line.startswith("n"))).resolve()
 
 
 def private_room(token: str) -> str:
@@ -44,22 +54,32 @@ def click(token: str, room: str, event_id: str, key: str) -> None:
 
 
 def main() -> None:
+    shutil.rmtree(customize.COPIES / "betty", ignore_errors=True)   # start from a fresh private copy
+    subprocess.run(["git", "-C", str(customize.ROOT), "worktree", "prune"], check=True)
+    subprocess.run(["git", "-C", str(customize.ROOT), "branch", "-D", "custom/betty"], capture_output=True)
     token = login("betty", load_env()["PW_BETTY"])
     room = private_room(token)
     asked = send(token, room, REQUEST, AGENT)
     offer = wait_for(token, room, asked, "Your version is ready")
     check("the agent offers a changed version", True, offer["content"]["body"].splitlines()[0])
     check("the official files are untouched", "📝 Transcript" in (customize.ROOT / "pm_voice.py").read_text())
+    if customize.why_not_use("betty"):    # this computer runs other people's agents too: PR or discard only
+        check("no 'Use it myself' on a shared computer", "Using it here isn't possible" in offer["content"]["body"])
+        click(token, room, offer["event_id"], "🗑️")
+        wait_for(token, room, offer["event_id"], "Discarded", timeout=120)
+        check("discarded", True)
+        print(json.dumps({"room": room}))
+        return
     click(token, room, offer["event_id"], "👍")
-    done = wait_for(token, room, offer["event_id"], "Tests pass", timeout=600)
+    done = wait_for(token, room, offer["event_id"], "tests pass", timeout=600)
     check("its tests pass and it switches", "Switching" in done["content"]["body"])
-    time.sleep(8)
-    sha = customize.in_use().get("betty", "")
-    check("betty's bridge runs her version", bool(sha) and customize.code_dir("betty") == customize.live_dir("betty"), sha[:7])
+    time.sleep(10)
+    live, sha = customize.code_dir("betty")
+    check("betty's bridge runs her version", bool(sha) and running_dir("betty") == live.resolve(), (sha or "")[:7])
     asked = send(token, room, "go back to the official version", AGENT)
     wait_for(token, room, asked, "Going back", timeout=120)
-    time.sleep(5)
-    check("back on the official version", "betty" not in customize.in_use())
+    time.sleep(10)
+    check("back on the official version", "betty" not in customize.in_use() and running_dir("betty") == customize.ROOT.resolve())
     print(json.dumps({"room": room}))
 
 
