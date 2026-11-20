@@ -45,6 +45,27 @@ class Progress:
                     await self.github_timeout(room_id, key, item, before)   # ...then the timeout
             if not active:
                 await self.claim_next(room, lvl)
+            await self.announce_done(room_id)
+
+    async def announce_done(self, room_id: str) -> None:
+        """Once nothing is left (none active, none queued), say so once, with where to try it."""
+        if self.open_issues.get(room_id) or any(v["room"] == room_id and v["stage"] in ACTIVE
+                                                for v in self.state.values()):
+            return
+        board = self.boards.setdefault(room_id, {})
+        since = board.get("announced", 0)
+        done = sorted((k for k, v in self.state.items() if v["room"] == room_id and v["stage"] == "done"
+                       and v.get("ended", 0) > since), key=int)
+        if not done:
+            return
+        board["announced"] = time.time()
+        self.save_boards()
+        stopped = [k for k, v in self.state.items() if v["room"] == room_id and v["stage"] == "stopped"
+                   and v.get("ended", 0) > since]
+        extra = f" ({', '.join('#' + k for k in stopped)} stopped and need a person.)" if stopped else ""
+        await self.say(room_id, f"🎉 All done: {', '.join('#' + k for k in done)} merged.{extra} Try it: "
+                                f"https://github.com/{github.REPO} (see its README for how to run it). "
+                                "Tell me what to change, then say \"let's build it\".")
 
     async def watchdog(self, room_id: str, key: str, item: dict) -> bool:
         """Never wait forever: resend a step with no answer once, and stop items GitHub keeps blocked.

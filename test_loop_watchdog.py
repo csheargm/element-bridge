@@ -19,6 +19,7 @@ class Watchdog(unittest.TestCase):
         self.lp.save = lambda: None
         self.lp.say = mock.AsyncMock()
         self.lp.open_issues = {}
+        self.lp.boards, self.lp.save_boards = {}, lambda: None
 
     def item(self, stage, age_s, **kw):
         sent = time.time() - age_s
@@ -110,6 +111,40 @@ class Watchdog(unittest.TestCase):
             asyncio.run(self.lp.advance("!r", "7", item, "autonomous"))
         self.assertEqual(item["stage"], "stopped")
         self.assertIn("merge conflicts", self.lp.say.call_args.args[1])
+
+
+class AllDone(unittest.TestCase):
+    def setUp(self):
+        self.lp = Loop.__new__(Loop)
+        self.lp.boards, self.lp.save_boards, self.lp.open_issues = {}, lambda: None, {"!r": []}
+        self.lp.say = mock.AsyncMock()
+        self.lp.state = {"1": {"room": "!r", "stage": "done", "ended": 100}, "2": {"room": "!r", "stage": "done", "ended": 200}}
+
+    def announce(self):
+        asyncio.run(self.lp.announce_done("!r"))
+
+    def test_says_once_when_everything_is_merged_with_where_to_try_it(self):
+        """the owner: when all done, pm should tell the room, and where to test-drive it."""
+        self.announce()
+        text = self.lp.say.call_args.args[1]
+        self.assertIn("All done: #1, #2 merged", text)
+        self.assertIn(f"https://github.com/{github.REPO}", text)
+        self.announce()
+        self.assertEqual(self.lp.say.call_count, 1)           # not again for the same work
+
+    def test_not_while_work_remains(self):
+        self.lp.open_issues["!r"] = [{"number": 3, "title": "t"}]
+        self.announce()
+        self.lp.state["3"] = {"room": "!r", "stage": "reviewing"}
+        self.lp.open_issues["!r"] = []
+        self.announce()
+        self.lp.say.assert_not_called()
+
+    def test_the_next_round_is_announced_too(self):
+        self.announce()
+        self.lp.state["5"] = {"room": "!r", "stage": "done", "ended": time.time() + 1}
+        self.announce()
+        self.assertIn("All done: #5 merged", self.lp.say.call_args.args[1])
 
 
 class Kick(unittest.TestCase):
