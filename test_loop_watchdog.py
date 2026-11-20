@@ -155,12 +155,32 @@ class AllDone(unittest.TestCase):
         self.assertIn("All done: #5 merged", self.lp.say.call_args.args[1])
 
 
+class FastPoll(unittest.TestCase):
+    def test_waiting_on_github_checks_every_few_seconds(self):
+        """the owner: 30 seconds feels long once the automation runs."""
+        import loop
+        lp = Loop.__new__(Loop)
+        lp.busy, lp.state, ticks = set(), {"7": {"room": "!r", "stage": "approved"}}, []
+
+        async def locked_tick():
+            ticks.append(1)
+
+        async def scenario():
+            lp.locked_tick = locked_tick
+            with mock.patch.object(loop, "POLL_S", 60), mock.patch.object(loop, "FAST_POLL_S", 0.02):
+                runner = asyncio.create_task(lp.poll_forever())
+                await asyncio.sleep(0.15)
+                runner.cancel()
+        asyncio.run(scenario())
+        self.assertGreaterEqual(len(ticks), 3)
+
+
 class Kick(unittest.TestCase):
     def test_kick_runs_a_tick_now_instead_of_at_the_next_poll(self):
         """Seen live: after the owner's ✅ nothing visible happened for up to 30s."""
         import loop
         lp = Loop.__new__(Loop)
-        lp.busy, ticks = set(), []
+        lp.busy, lp.state, ticks = set(), {}, []
 
         async def locked_tick():
             ticks.append(time.monotonic())

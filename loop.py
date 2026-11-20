@@ -25,7 +25,7 @@ import github
 import lifecycle
 from redact import room_safe
 import room_state
-from loop_progress import Progress
+from loop_progress import GITHUB_STAGES, Progress
 from pm_chat import Chat
 from saved_dict import SavedDict
 from pm_plan import Planner
@@ -33,6 +33,8 @@ from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
 POLL_S = float(os.environ.get("LOOP_POLL_S", "30"))
+FAST_POLL_S = min(POLL_S, 5.0)        # while waiting on GitHub (mergeability, a merge, a close)
+GITHUB_WAITS = (*GITHUB_STAGES, "merging", "closing")
 STATE_FILE = Path(os.environ.get("LOOP_STATE", ROOT / "loop-state.json"))   # git-ignored; per-issue progress
 EXPECTED_STAGE = {"build": "building", "review": "reviewing", "merge": "merging",
                   "verify": "verifying", "close": "closing"}
@@ -169,6 +171,7 @@ class Loop(Progress, Boards, Chat, Planner):
                 # stays at its stage and a person can see the log line and take over.
                 log.error("bad result from %s: %s", sender, e)
             await self.refresh_boards()
+        self.kick()                           # its GitHub follow-up (merge, next issue) now, not at the poll
 
     async def guarded(self, coro) -> None:
         """Run a transition so a restart can't cut it in half: it finishes even if we are cancelled."""
@@ -259,8 +262,9 @@ class Loop(Progress, Boards, Chat, Planner):
         while True:
             await self.guarded(self.locked_tick())
             self.wake.clear()
+            waiting_on_github = any(v["stage"] in GITHUB_WAITS for v in self.state.values())
             try:
-                await asyncio.wait_for(self.wake.wait(), POLL_S)
+                await asyncio.wait_for(self.wake.wait(), FAST_POLL_S if waiting_on_github else POLL_S)
             except asyncio.TimeoutError:
                 pass                          # the regular poll
 
