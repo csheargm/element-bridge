@@ -121,6 +121,10 @@ class Buttons(Base):
         self.provision = mock.patch.object(remote_agent, "provision", return_value="newbie1-agent").start()
         self.addCleanup(mock.patch.stopall)
         remote_agent.CODES.codes = {}
+        self.members = [PM, NEW]
+        state = lambda room_id: SimpleNamespace(events=[{"type": "m.room.member", "state_key": u,
+                                                          "content": {"membership": "join"}} for u in self.members])
+        self.lp.client = mock.Mock(room_get_state=mock.AsyncMock(side_effect=state))
 
     def click(self, key, who=NEW, room=DM, to="$offer"):
         async def go():
@@ -180,6 +184,14 @@ class Buttons(Base):
         self.lp.private_room = mock.AsyncMock(return_value="!fresh")   # the old one gained a member
         self.click("🔌")
         self.assertEqual(self.said[0][0], "!fresh")
+
+    def test_no_code_if_someone_else_is_in_the_chat_right_now(self):
+        """GPT review 21 re-check: asked of the server at send time, not my cached view."""
+        self.members.append(f"@mallory:{S}")
+        self.click("🔌")
+        self.assertNotIn("connect.sh", self.said[0][1])
+        self.assertIn("couldn't set up your agent", self.said[0][1])
+        self.assertEqual(remote_agent.CODES.codes, {})
 
     def test_a_failure_is_said_plainly(self):
         self.provision.side_effect = remote_agent.AccountError("couldn't create @newbie1-agent: M_FORBIDDEN")

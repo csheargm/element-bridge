@@ -8,6 +8,7 @@ serves the installer. The password is never logged; only the code's hash is stor
 """
 import os
 import re
+import threading
 
 from aiohttp import web
 
@@ -30,7 +31,7 @@ def console_url() -> str:
     """Where people's computers reach this console (the public server sets an https URL)."""
     import panel                              # late: panel serves these routes
     url = os.environ.get("HAGENCY_PUBLIC_CONSOLE", f"http://localhost:{panel.PORT}").rstrip("/")
-    if not URL_RE.match(url):                 # it goes into a shell line and the installer's source
+    if not URL_RE.fullmatch(url):                 # it goes into a shell line and the installer's source
         raise RuntimeError("this server's HAGENCY_PUBLIC_CONSOLE must be https://host[:port] (http only for localhost)")
     return url
 
@@ -56,8 +57,16 @@ def open_dm(agent: str, password: str, person: str) -> str:
         api("POST", "/_matrix/client/v3/logout", {}, token=token)
 
 
+WRITING = threading.Lock()                    # .env and agents.json are read-modify-write: one set-up at a time
+
+
 def provision(person: str) -> str:
     """Create (or reuse) <person>-agent as a remote agent; returns its localpart. Blocking I/O."""
+    with WRITING:
+        return _provision(person)
+
+
+def _provision(person: str) -> str:
     if not registry.NAME_RE.match(person):
         raise AccountError("for now an agent needs an account name of lowercase letters and digits")
     people = registry.load()
@@ -87,7 +96,7 @@ def credentials_for(person: str) -> dict | None:
 def routes() -> list:
     async def connect(request):
         client = request.remote or "?"
-        if request.content_type != "application/json" or request.headers.get("Origin"):
+        if request.content_type != "application/json" or "Origin" in request.headers:
             return web.json_response({"error": "use connect.py"}, status=415, headers=NO_STORE)   # never a browser's
         if LIMIT.blocked(client):
             return web.json_response({"error": "too many wrong codes; wait 10 minutes"}, status=429, headers=NO_STORE)

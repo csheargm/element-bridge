@@ -122,8 +122,9 @@ class Server(unittest.IsolatedAsyncioTestCase):
         for _ in range(pairing.FAILS_PER_CLIENT + 1):
             r = await self.client.post("/connect", data="code=x", headers={"Content-Type": "application/x-www-form-urlencoded"})
             self.assertEqual(r.status, 415)
-            r = await self.client.post("/connect", json={"code": "x"}, headers={"Origin": "https://evil.example"})
-            self.assertEqual(r.status, 415)
+            for origin in ("https://evil.example", ""):
+                r = await self.client.post("/connect", json={"code": "x"}, headers={"Origin": origin})
+                self.assertEqual(r.status, 415)
         status, _, _ = await self.post(remote_agent.CODES.issue("newbie1"))
         self.assertEqual(status, 200)
 
@@ -169,7 +170,8 @@ class Provision(unittest.TestCase):
 class ConsoleUrl(unittest.TestCase):
     def test_only_safe_urls_go_into_the_shell_line(self):
         for url, ok in (("https://rooms.example.org", True), ("http://localhost:8650", True),
-                        ("http://rooms.example.org", False), ("https://x.org/$(id)", False), ("https://x.org;rm", False)):
+                        ("http://rooms.example.org", False), ("https://x.org/$(id)", False), ("https://x.org;rm", False),
+                        ("https://x.org\n", False)):
             with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": url}):
                 if ok:
                     self.assertTrue(remote_agent.install_line("ABCDE-FGHJK").startswith(f"curl -fsSL {url}/connect.sh"))

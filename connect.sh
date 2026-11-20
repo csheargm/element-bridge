@@ -17,6 +17,7 @@ for p in python3.13 python3.12 python3.11 python3; do      # macOS's own python3
 done
 [ -n "$PY" ] || { echo "✗ needs Python 3.11 or newer (e.g. brew install python@3.12)"; exit 1; }
 
+umask 077                                    # ~/.hagency and the sign-in: only you
 if [ -n "${HAGENCY_APP:-}" ]; then
   echo "Using $APP"
 elif [ -d "$APP/.git" ]; then
@@ -24,10 +25,12 @@ elif [ -d "$APP/.git" ]; then
 else
   echo "Installing Hagency Rooms in $APP"; mkdir -p "$(dirname "$APP")"; git clone -q --depth 1 "$REPO" "$APP"
 fi
+if [ -x "$APP/.venv/bin/python" ] && ! "$APP/.venv/bin/python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+  "$PY" -m venv --clear "$APP/.venv"           # an older Python's venv: rebuilt with this one
+fi
 [ -x "$APP/.venv/bin/python" ] || "$PY" -m venv "$APP/.venv"
 "$APP/.venv/bin/pip" install -q --disable-pip-version-check -r "$APP/requirements.txt"
 
-umask 077                                    # ~/.hagency and the sign-in: only you
 # Piped from curl, this script's stdin is the download: read questions from the terminal if there is one.
 if (: </dev/tty) 2>/dev/null; then
   exec "$APP/.venv/bin/python" "$APP/connect.py" --server "$CONSOLE" "$@" </dev/tty

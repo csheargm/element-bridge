@@ -65,11 +65,17 @@ class Connect(unittest.TestCase):
         connect.save(path, CREDS)
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
-        self.assertEqual(json.loads(path.read_text()), CREDS)
+        connect.save(path, {**CREDS, "agent": "codex"})          # again: replaced whole, still only mine
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["credentials.json"])
+        self.assertEqual(json.loads(path.read_text()), {**CREDS, "agent": "codex"})
 
     def test_which_cli(self):
-        self.assertEqual(connect.pick_backend("claude", "codex"), "claude")
-        self.assertEqual(connect.pick_backend(None, "codex"), "codex")
+        with mock.patch.object(connect.shutil, "which", lambda b: True):
+            self.assertEqual(connect.pick_backend("claude", "codex"), "claude")
+            self.assertEqual(connect.pick_backend(None, "codex"), "codex")
+        with mock.patch.object(connect.shutil, "which", lambda b: None), self.assertRaises(SystemExit):
+            connect.pick_backend("claude", None)                 # chosen, but not installed: before the code is used
         with mock.patch.object(connect.shutil, "which", lambda b: b == "claude"):
             self.assertEqual(connect.pick_backend(None, None), "claude")
         with mock.patch.object(connect.shutil, "which", lambda b: None), self.assertRaises(SystemExit):

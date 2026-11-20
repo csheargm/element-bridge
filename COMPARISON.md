@@ -442,3 +442,13 @@ Deferred, with reasons:
   only with the owner in the room. The supervisor reads agents.json at start; a person never moves
   from a server-run agent to remote (refused), so there's no transition to reconcile.
 - **Multiple console workers.** There is one process (@pm's); codes are atomic within it.
+
+Re-check of those fixes (GPT, HEAD~1..HEAD), fixed with tests:
+- The code's chat was approved from @pm's cached membership: `only_us()` now asks the server for the
+  room's members (joined or invited) right before the code is sent; anyone else there and no code.
+- Set-ups for different people raced on .env/agents.json: one set-up at a time in @pm (a lock).
+  (onboard.py run by hand at the same moment is still a separate process: deferred.)
+- `--agent` or a saved choice skipped the "is it installed" check; a damaged credentials file blocked
+  a fresh code; connect.py no longer chmods an existing folder (it warns), connect.sh sets umask 077
+  before creating anything and rebuilds a venv made with an older Python.
+- URL check uses fullmatch (no trailing newline); an empty Origin header counts as a browser.

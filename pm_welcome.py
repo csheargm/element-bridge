@@ -151,6 +151,13 @@ class Welcome:
         if dm and dm != room.room_id:
             await self.say(room.room_id, f"Sent you a private message, {local}.")
 
+    async def only_us(self, room_id: str, person: str) -> bool:
+        """Asked of the server now, not my cached view: nobody but the two of us joined or invited."""
+        resp = await self.client.room_get_state(room_id)
+        members = {e.get("state_key") for e in getattr(resp, "events", None) or []
+                   if e.get("type") == "m.room.member" and e.get("content", {}).get("membership") in ("join", "invite")}
+        return bool(getattr(resp, "events", None)) and members <= {self.user_id, person}
+
     async def choose(self, dm: str, person: str, key: str) -> None:
         if key == HOUSE:
             await self.say(dm, HOUSE_REPLY)
@@ -169,8 +176,8 @@ class Welcome:
         try:
             agent = await asyncio.to_thread(remote_agent.provision, local)
             chat = await self.private_room(person)        # re-checked: still just the two of us, or a new chat
-            if chat is None:
-                raise RuntimeError("I couldn't open a private chat with you")
+            if chat is None or not await self.only_us(chat, person):
+                raise RuntimeError("I couldn't open a private chat with just you")
             code = remote_agent.CODES.issue(local)
             await self.say(chat, BRING_REPLY.format(agent=agent, line=remote_agent.install_line(code)))
         except (AccountError, OSError, RuntimeError) as e:   # homeserver refused, .env unwritable, send failed, bad URL

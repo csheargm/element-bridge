@@ -57,7 +57,8 @@ def redeem(server: str, code: str) -> dict:
 def save(path: Path, data: dict) -> None:
     """Written as 0600 (in a 0700 folder, whatever the umask made it) and swapped in whole."""
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.parent.chmod(0o700)
+    if path.parent.stat().st_mode & 0o077:
+        print(f"note: {path.parent} can be read by others; the sign-in file itself is only yours", file=sys.stderr)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".credentials-")   # 0600, a new file: no symlink games
     with os.fdopen(fd, "w") as f:
         json.dump(data, f)
@@ -66,8 +67,11 @@ def save(path: Path, data: dict) -> None:
 
 def pick_backend(given: str | None, saved: str | None, ask=input) -> str:
     """--agent, else the last choice, else the one CLI installed here (or ask when both are)."""
-    if given or saved in BACKENDS:
-        return given or saved
+    for choice in (given, saved):
+        if choice in BACKENDS:
+            if not shutil.which(choice):
+                raise SystemExit(f"✗ {choice} isn't installed here (or not on PATH)")
+            return choice
     found = [b for b in BACKENDS if shutil.which(b)]
     if len(found) == 1:
         return found[0]
@@ -91,7 +95,11 @@ def main() -> None:
     ap.add_argument("--pair-only", action="store_true", help="save the sign-in, don't start the agent")
     args = ap.parse_args()
     path = args.home / "credentials.json"
-    saved = json.loads(path.read_text()) if path.exists() else {}
+    try:
+        saved = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError):
+        saved = {}                            # damaged: a new code replaces it
+    saved = saved if isinstance(saved, dict) else {}
     if not args.code and not saved:
         raise SystemExit("✗ not connected yet: run this with the code @pm sent you")
     backend = pick_backend(args.agent, saved.get("agent"))      # before the code is used up
