@@ -59,6 +59,12 @@ class HermesProfile(unittest.TestCase):
         self.assertIn('memory_notifications: "off"', cfg)
         self.assertIn("provider: ollama-cloud", cfg)
 
+    def test_a_model_chosen_for_the_profile_is_kept(self):
+        cfg = self.profile / "config.yaml"
+        cfg.write_text(cfg.read_text().replace("provider: ollama-cloud", "provider: openai-codex"))
+        hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)
+        self.assertIn("provider: openai-codex", cfg.read_text())
+
     def test_room_rules_are_written_once(self):
         hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)
         self.assertEqual((self.profile / "SOUL.md").read_text().count("In Hagency rooms:"), 1)

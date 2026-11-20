@@ -46,6 +46,19 @@ def default_model() -> tuple[dict, str | None]:
     return model, PROVIDER_KEYS.get(model.get("provider", ""))
 
 
+def profile_model(profile: Path) -> tuple[dict, str | None]:
+    """The model this profile already uses (e.g. chosen with `hermes -p <profile> model`), kept on
+    re-runs; a new profile starts with the default profile's model."""
+    existing = profile / "config.yaml"
+    if existing.exists():
+        block = re.search(r"^model:\n((?:  .*\n)+)", existing.read_text(), re.M)
+        if block:
+            model = dict(re.findall(r"^  (\w+): (.+)$", block.group(1), re.M))
+            if model.get("provider"):
+                return model, PROVIDER_KEYS.get(model["provider"])   # OAuth providers need no key copy
+    return default_model()
+
+
 def write_env(profile: Path, values: dict, key_name: str | None) -> None:
     path = profile / ".env"
     lines = path.read_text().splitlines() if path.exists() else []
@@ -61,7 +74,7 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
               mcp_env: dict | None = None) -> Path:
     """Write the profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md."""
     profile = ensure_profile(name, owner)
-    model, key_name = default_model()
+    model, key_name = profile_model(profile)
     env = {"HAGENCY_AGENT": agent, "PATH": os.environ["PATH"], "HOME": os.environ["HOME"], **(mcp_env or {})}
     env_lines = "\n".join(f"      {k}: '{v}'" for k, v in env.items())
     model_lines = "\n".join(f"  {k}: {v}" for k, v in model.items())
