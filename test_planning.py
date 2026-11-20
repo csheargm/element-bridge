@@ -61,7 +61,7 @@ class Flow(unittest.TestCase):
             return f"$m{len(self.sent)}"
         self.lp.say = say
         self.lp.level = mock.AsyncMock(return_value="off")
-        self.lp.discussion = lambda room_id: "anna: a hello page\nbetty: with a name box"
+        self.lp.discussion = lambda room_id, include_self=False: "anna: a hello page\nbetty: with a name box"
         create = RoomGetStateResponse([{"type": "m.room.create", "sender": ANNA, "content": {"room_version": "12"}}], "!r")
         self.lp.client = SimpleNamespace(room_get_state=mock.AsyncMock(return_value=create))
         self.room = SimpleNamespace(room_id="!r", users={ANNA: 0, BETTY: 0, ANNA_AGENT: 0, BETTY_AGENT: 0},

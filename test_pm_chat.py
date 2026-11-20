@@ -9,6 +9,7 @@ from nio import RoomGetStateResponse, RoomPutStateResponse
 
 import github
 import intents
+import pm_brain
 import room_state
 from loop import Loop
 
@@ -50,7 +51,11 @@ class Intents(unittest.TestCase):
 
 
 class Talk(unittest.TestCase):
+    """The phrase rules (the understanding step off; see Brain for the model path)."""
     def setUp(self):
+        p = mock.patch.object(pm_brain, "BRAIN", "off")
+        p.start()
+        self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.boards = PM, {}, {}
         self.said, self.levels = [], []
@@ -205,6 +210,79 @@ class Talk(unittest.TestCase):
     def test_agents_are_not_people(self):
         self.assertFalse(self.lp.is_person(self.room, "@anna-agent:bridge.localhost"))
         self.assertTrue(self.lp.is_person(self.room, ANNA))
+
+
+class Brain(Talk):
+    """The understanding step decides the action from context; code still checks permissions."""
+    def setUp(self):
+        super().setUp()
+        self.decision = None
+        self.calls = []
+
+        async def understand(ctx):
+            self.calls.append(ctx)
+            return self.decision
+        for target, name, value in ((pm_brain, "BRAIN", "codex"), (pm_brain, "understand", understand)):
+            p = mock.patch.object(target, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        self.lp.level = mock.AsyncMock(return_value="autonomous")
+        self.lp.discussion = lambda room_id, include_self=False: "anna: hello page\nbetty: in many languages"
+        self.lp.client.room_typing = mock.AsyncMock()
+        self.lp.client.room_get_event = mock.AsyncMock(return_value=None)
+        self.lp.client.rooms = {"!r": self.room}
+        self.lp.agents_in = lambda room: []
+
+    def test_a_question_gets_the_models_answer_with_the_conversation_as_context(self):
+        self.decision = ("none", "Yes — everything is merged; the site is live.")
+        self.tell(ANNA, "@pm is everything finished?")
+        self.assertEqual(self.said[-1], "Yes — everything is merged; the site is live.")
+        self.assertIn("in many languages", self.calls[0]["transcript"])
+        self.assertEqual(self.calls[0]["role"], "owner or maintainer")
+
+    def test_the_models_action_still_goes_through_permissions(self):
+        self.decision = ("autonomous", "On it!")
+        self.tell(BETTY, "@pm please just finish everything yourself")
+        self.assertEqual(self.levels, [])
+        self.assertIn("Only the room owner or a maintainer", self.said[-1])
+
+    def test_actions_are_confirmed_by_code_not_by_the_model(self):
+        self.decision = ("autonomous", "Done, merged everything!")      # the model can't claim results
+        self.tell(ANNA, "@pm you can take it from here")
+        self.assertEqual(self.levels, ["autonomous"])
+        self.assertIn("Running on my own now", self.said[-1])
+        self.assertNotIn("merged everything", " ".join(self.said))
+
+    def test_stop_never_waits_for_the_model(self):
+        self.tell(BETTY, "@pm stop")
+        self.assertEqual((self.levels, self.calls), (["off"], []))
+
+    def test_the_model_failing_falls_back_to_the_rules(self):
+        self.decision = None
+        self.tell(ANNA, "@pm where are we?")
+        self.assertIn("Mode:", self.said[-1])
+
+    def test_approve_from_someone_else_is_refused(self):
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
+        self.room.power_levels = SimpleNamespace(get_user_level=lambda u: 50)
+        self.decision = ("approve", "")
+        self.tell(BETTY, "@pm looks good to me, go")
+        self.assertIn("Only the person who asked", self.said[-1])
+        self.assertIn("!r", self.lp.pending)
+
+
+class BrainParse(unittest.TestCase):
+    def test_only_known_actions_are_accepted(self):
+        self.assertEqual(pm_brain.parse('sure: {"action": "status", "reply": "Here you go"}'), ("status", "Here you go"))
+        for bad in ("no json", '{"action": "delete_repo"}', '{"reply": "x"}', "{oops}"):
+            self.assertIsNone(pm_brain.parse(bad), bad)
+
+    def test_the_reply_is_room_safe_and_short(self):
+        from pathlib import Path
+        _, reply = pm_brain.parse('{"action": "none", "reply": "see ' + str(Path.home()) + '/x and ' + "y" * 900 + '"}')
+        self.assertNotIn(str(Path.home()), reply)
+        self.assertLessEqual(len(reply), pm_brain.MAX_REPLY)
 
 
 class Moderator(unittest.TestCase):

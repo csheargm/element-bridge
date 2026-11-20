@@ -45,15 +45,17 @@ class Planner:
                        {"kind": "plan", "task_id": task_id, "discussion": discussion,
                         "existing": [i["title"] for i in issues]})
 
-    def discussion(self, room_id: str) -> str:
-        """What people (and their agents' chat replies) said, oldest first; no bot or task traffic."""
+    def discussion(self, room_id: str, include_self: bool = False) -> str:
+        """What people (and their agents' chat replies) said, oldest first; no task traffic, board edits
+        or commands. include_self adds @pm's own messages (for understanding a reply to them)."""
         path = f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/messages?dir=b&limit={HISTORY}"
         events = api("GET", path, token=self.client.access_token).get("chunk", [])
         lines = []
         for ev in reversed(events):
             content = ev.get("content", {})
             body = content.get("body", "")
-            if (ev.get("type") != "m.room.message" or ev.get("sender") == self.user_id or not body
+            if (ev.get("type") != "m.room.message" or (ev.get("sender") == self.user_id and not include_self)
+                    or not body or body.lstrip("* ").startswith("📋")
                     or github.TASK_KEY in content or github.RESULT_KEY in content or "m.new_content" in content
                     or body.startswith("!")):
                 continue

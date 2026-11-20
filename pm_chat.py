@@ -8,17 +8,21 @@ decides what is allowed:
 `!help`, `!status`, `!level …` still work as shortcuts for people who like commands.
 Mixed into loop.Loop (client, user_id, say, level, boards, agents_in, start_plan, file_plan).
 """
+import asyncio
 import re
 import time
 
-from nio import MatrixRoom, ReactionEvent, RoomMessageText
+from nio import MatrixRoom, ReactionEvent, RoomGetEventResponse, RoomMessageText
 
 import github
 import intents
+import pm_brain
 from saved_dict import SavedDict
 import room_state
 
 CONFIRM_S = 300
+BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": intents.AUTONOMOUS,
+                 "plan": intents.PLAN, "show_plan": intents.SHOW_PLAN, "status": intents.STATUS}
 NOTE_WORDS = 6               # a longer message to @pm that isn't a command is a requirement, not noise
 LEVEL_WORDS = {"off": "stopped: no new work is handed out and nothing is merged",
                "assist": "assist: agents build and review; a person merges each change",
@@ -78,6 +82,11 @@ class Chat:
         if text is None:
             return
         intent = intents.classify(text)
+        if intent != intents.OFF:             # "stop" never waits for a model
+            decision = await self.think(room, sender, text, reply_to)
+            if decision is not None:
+                await self.apply(room, sender, *decision, reply_to)
+                return
         if intent == intents.UNKNOWN and await self.revise_plan(room, sender):
             return
         if intent == intents.UNKNOWN and len(text.split()) >= NOTE_WORDS:
@@ -85,6 +94,55 @@ class Chat:
                                          "discussion into work.")    # it is part of the discussion that gets planned
             return
         await self.act(room, sender, intent)
+
+    async def think(self, room: MatrixRoom, sender: str, text: str, reply_to: str | None) -> tuple | None:
+        """Ask the understanding step (pm_brain.py) with the room's context; None means use the rules."""
+        if pm_brain.BRAIN == "off":
+            return None
+        rid = room.room_id
+        waiting = self.pending.get(rid)
+        plan = self.last_plans.get(rid, {}).get("items", []) if hasattr(self, "last_plans") else []
+        ctx = {"repo": github.REPO, "mode": await self.level(rid), "sender": sender.split(":")[0].lstrip("@"),
+               "role": "owner or maintainer" if await room_state.is_moderator(self.client, room, sender) else "contributor",
+               "waiting": (f"{waiting.get('kind') or 'autonomous'} (asked by {str(waiting.get('by', '')).split(':')[0]})"
+                           if waiting else "nothing"),
+               "plan": "; ".join(i["title"] for i in plan) or "none",
+               "board": self.boards.get(rid, {}).get("text", "(none yet)"),
+               "transcript": await asyncio.to_thread(self.discussion, rid, True),
+               "replied": await self.replied_text(rid, reply_to), "text": text}
+        await self.client.room_typing(rid, True, timeout=30_000)
+        try:
+            return await pm_brain.understand(ctx)
+        finally:
+            await self.client.room_typing(rid, False)
+
+    async def replied_text(self, room_id: str, event_id: str | None) -> str:
+        if not event_id:
+            return ""
+        r = await self.client.room_get_event(room_id, event_id)
+        if not isinstance(r, RoomGetEventResponse):
+            return ""
+        what = self.outcomes().get(event_id)
+        body = without_quote(getattr(r.event, "body", "") or "")[:1500]
+        return f"{r.event.sender.split(':')[0].lstrip('@')}: {body}" + (f"\n(@pm's note: this was {what})" if what else "")
+
+    async def apply(self, room: MatrixRoom, sender: str, action: str, reply: str, reply_to: str | None) -> None:
+        """Code decides: the model's action goes through the same permission checks as the rules."""
+        rid = room.room_id
+        if action == "approve":
+            if not await self.confirm(room, sender):
+                waiting = self.pending.get(rid)
+                if waiting and waiting.get("by") not in (None, sender):
+                    await self.say(rid, "Only the person who asked for it can approve that one.")
+                else:
+                    await self.answer_stale_ok(rid, reply_to)
+        elif action == "none":
+            await self.say(rid, reply or "Noted.")
+        elif action == "plan" and reply and await room_state.is_moderator(self.client, room, sender):
+            await self.say(rid, reply)        # a promise ("I'll draft…"), not a claim; then do it
+            await self.act(room, sender, intents.PLAN)
+        else:
+            await self.act(room, sender, BRAIN_ACTIONS[action])
 
     async def revise_plan(self, room: MatrixRoom, sender: str) -> bool:
         """A plan waits for ✅ and the owner/maintainer says what to change: plan again with it."""

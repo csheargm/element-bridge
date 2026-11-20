@@ -115,8 +115,16 @@ Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain wor
 | "@pm stop" / "turn it all off" | no new work and no merges, at once | anyone |
 | "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |
 
-The phrases are matched by plain rules (`intents.py`), not AI, so "stop" works even when no model
-does.
+`@pm` understands from context. Every message addressed to it goes to an understanding step
+(`pm_brain.py`): the recent conversation, the message being replied to, what's waiting for
+approval, the plan and the board. The model picks one action from a fixed list and writes a
+short reply.
+- Code still checks who may do what, and code confirms every action, so the model can't claim
+  something happened.
+- "stop" is matched by plain rules (`intents.py`) and never waits for a model.
+- If the model fails or is slow, @pm uses the rules.
+- The model is the host's agent CLI (`PM_BRAIN=codex|claude|off`), run in the agents'
+  lockdown.
 
 ## Stop / reset
 
