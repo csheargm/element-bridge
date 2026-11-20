@@ -77,7 +77,7 @@ class EnvFile(unittest.TestCase):
 
     def test_shell_and_latest_are_refused(self):
         for key, bad in (("ROOMS_DOMAIN", "$(id).example.org"), ("POSTGRES_PASSWORD", 'x" ; drop'),
-                         ("OPERATOR", "anna;id"), ("OPERATOR", "@anna:x.org"), ("MATRIX_DOMAIN", "")):
+                         ("OPERATOR", "anna;id"), ("PM_UID", "0"), ("PM_UID", "1001;id"), ("OPERATOR", "@anna:x.org"), ("MATRIX_DOMAIN", "")):
             self.assertTrue(envfile.validate({**self.GOOD, key: bad}), (key, bad))
 
     def test_the_operator_is_optional(self):

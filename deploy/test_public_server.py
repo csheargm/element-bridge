@@ -186,6 +186,14 @@ class Deploy(unittest.TestCase):
         for net in ("173.245.48.0/20", "104.16.0.0/13", "2606:4700::/32", "2c0f:f248::/32"):
             self.assertIn(net, admin)
 
+    def test_pm_runs_as_the_recorded_deploy_user_never_root(self):
+        here = Path(__file__).parent
+        boot = (here / "bootstrap.sh").read_text()
+        self.assertIn('[ "$(get PM_UID)" = "$(id -u)" ]', boot)
+        self.assertIn("not root", boot)
+        self.assertIn("env -u PM_UID docker compose", boot)                       # the shell can't override .env
+        self.assertIn('user: "${PM_UID}:${PM_UID}"', (here / "docker-compose.yml").read_text())
+
     def test_the_site_is_not_served_here_any_more(self):
         here = Path(__file__).parent
         for name in ("Caddyfile", "docker-compose.yml", "bootstrap.sh"):

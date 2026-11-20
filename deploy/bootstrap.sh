@@ -30,10 +30,12 @@ fi
 # Docker's published ports go through its own FORWARD rules (deploy.sh checks them from outside).
 
 # 2. Settings: created mode 600, secrets filled, every value validated.
+[ "$(id -u)" != 0 ] || { echo "✗ run this as the deploy user, not root"; exit 1; }
 python3 envfile.py check
+[ "$(get PM_UID)" = "$(id -u)" ] || { echo "✗ PM_UID in .env isn't $(id -u), the user that owns ~/hagency/pm"; exit 1; }
 SERVER_NAME=$(get SERVER_NAME)
 MATRIX_DOMAIN=$(get MATRIX_DOMAIN)
-dc() { sudo docker compose --env-file .env "$@"; }
+dc() { sudo env -u PM_UID docker compose --env-file .env "$@"; }   # PM_UID from .env only
 dc config --quiet                                        # the compose file and .env agree
 dc pull --quiet                                          # fails here on a wrong tag or architecture
 # The Caddyfile is checked before anything is replaced (a running Caddy keeps its old one otherwise).

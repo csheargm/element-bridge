@@ -31,7 +31,8 @@ git -C "$app" merge-base --is-ancestor "$sha" FETCH_HEAD || { echo "✗ $sha is 
 edited=$(git -C "$app" status --porcelain --untracked-files=no)
 [ -z "$edited" ] || { echo "✗ code was edited on the server: refusing"; exit 2; }
 git -C "$app" checkout -q --detach "$sha"
-[ -f "$app/deploy/release.py" ] || { echo "✗ $sha predates deploy/release.py: deploy a newer commit"; exit 2; }
+grep -q 'PM_UID' "$app/deploy/docker-compose.yml" 2>/dev/null \
+  || { echo "✗ $sha predates this deploy layout (release.py, PM_UID): deploy a newer commit"; exit 2; }
 python3 "$app/deploy/envfile.py" check                 # this commit's settings, before anything stops
 if [ -f "$app/deploy/.env" ]; then                     # @pm stops before its files change
   (cd "$app/deploy" && sudo docker compose --env-file .env stop pm >/dev/null)

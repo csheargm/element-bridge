@@ -513,3 +513,12 @@ Re-check of those fixes (GPT, HEAD~1..HEAD), fixed with tests:
 Deferred: JWT signature checking (as above); the owner's password is set through @pm's container
 (a compromised @pm could see it; a separate admin tool is the next step); the admin host's media is
 not paused (it's behind Access, owner only).
+
+Live deploy and the whole-batch review (GPT, 707dd84..HEAD):
+- First live deploy: Oracle's `ubuntu` is uid 1001, so @pm (hardcoded 1000) couldn't read its
+  0700 folder. PM_UID is now recorded in .env (envfile.py) and used by compose.
+- GPT on that fix, adopted with tests: bootstrap refuses to run as root and refuses a PM_UID that
+  isn't the deploy user's; compose reads PM_UID only from .env (`env -u PM_UID`); PM_UID 0 is
+  invalid; deploy.sh refuses commits older than the PM_UID layout (a rollback that couldn't start @pm).
+- Live: certificates for rooms and matrix issued; the admin host's HTTP-01 is blocked by Cloudflare
+  Access until the owner bypasses /.well-known/acme-challenge/ (see DEPLOY_ORACLE.md).
