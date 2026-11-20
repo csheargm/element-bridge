@@ -306,4 +306,5 @@ Adopted:
   trailing spaces.
 
 Deferred: idempotency of a voice job across a crash mid-transcription (it is then lost, not
-repeated). Approval is now recorded only after success; see ROADMAP.
+repeated). A confirmed question is marked "approved" before its change runs, so a failed write
+leaves it used up: ask again.
