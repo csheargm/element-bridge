@@ -378,11 +378,17 @@ Fixed (each with a test):
   An empty request is refused instead of crashing the commit message.
 - The Hermes tool and profile modules (hagency_mcp.py, mcp_core.py, mcp_custom.py,
   hermes_profile.py) now get the sensitive-file red flag.
+- Re-check of those fixes: Hermes re-saves a profile's `args` as a block list, which
+  `set_code_dir` didn't match, so a withdrawn opt-in or "go back" could leave Hermes on the custom
+  tools. Both forms are matched now, and a profile with no hagency args line is reported by the
+  supervisor instead of passing silently. Reserved names are compared lower-cased (this Mac's disk
+  ignores case: `.GIT` is `.git`).
 
 Deferred: the MCP tools trust that the turn came from the owner (Hermes answers only
 MATRIX_ALLOWED_USERS, and nothing goes live without the owner's 👍 in the private room; a change
 ID bound to the owner's event would be stronger). Isolation for running a chosen version on a shared
 computer (as in 17). TOCTOU/hard-link races from another local process, cross-process locking of
 the offer and `_change` state, a commit stranded when publishing the offer fails, unchecked
-reaction sends, and private_room ignoring pending invites. `set_code_dir` still succeeds silently on
-a hand-edited profile whose args line doesn't match.
+reaction sends, and private_room ignoring pending invites. A DM race inside Hermes (from our DM
+patch, not the invite patch): its sync reconciler can join a DM invite before `_on_invite` records
+`m.direct`, so that DM needs an @mention until Hermes refreshes its DM cache.

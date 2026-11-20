@@ -93,6 +93,12 @@ class HermesTools(unittest.TestCase):
         self.assertIn("error", mcp_custom.write_my_code({"meta/config": "x"}))
         self.assertFalse((self.work / ".git" / "config").exists())
 
+    def test_reserved_names_in_any_case_are_refused(self):
+        """GPT review 20: this Mac's disk ignores case, so .GIT is .git."""
+        asyncio.run(mcp_custom.start_code_change("x"))
+        for bad in (".GIT/config", "Custom/x.py", ".GitAttributes", "a.PTH"):
+            self.assertIn("error", mcp_custom.write_my_code({bad: "x"}), bad)
+
     def test_an_empty_request_is_refused(self):
         """GPT review 20: an empty request crashed the commit message (splitlines()[0])."""
         self.assertIn("error", asyncio.run(mcp_custom.start_code_change("  ")))
@@ -172,6 +178,22 @@ class Supervisor(unittest.TestCase):
             hermes_profile.set_repos("p")
         self.assertNotIn("HAGENCY_CUSTOM_SHARED_OK", cfg.read_text())
         self.assertIn("HAGENCY_AGENT: 'anna-agent'", cfg.read_text())
+
+    def test_a_profile_hermes_re_saved_still_gets_pointed(self):
+        """GPT review 20: Hermes re-saves args as a block list, which the inline-only match missed."""
+        home = Path(tempfile.mkdtemp())
+        cfg = home / "profiles" / "p" / "config.yaml"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text("mcp_servers:\n  hagency:\n    command: /py\n    args:\n    - /old/hagency_mcp.py\n"
+                       "    timeout: 300\n    env:\n      HAGENCY_AGENT: anna-agent\n")
+        with mock.patch.object(hermes_profile, "HERMES_HOME", home):
+            self.assertTrue(hermes_profile.set_code_dir("p", Path("/new")))
+        text = cfg.read_text()
+        self.assertIn("    args: [/new/hagency_mcp.py]\n    timeout: 300", text)
+        self.assertNotIn("/old/", text)
+        cfg.write_text("mcp_servers:\n  other:\n    args: [x.py]\n")
+        with mock.patch.object(hermes_profile, "HERMES_HOME", home):
+            self.assertFalse(hermes_profile.set_code_dir("p", Path("/new")))   # nothing to point: said, not silent
 
     def test_profile_points_its_tools_at_a_version(self):
         home = Path(tempfile.mkdtemp())

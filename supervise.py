@@ -54,7 +54,9 @@ class Child:
         if self.owner:                   # re-read: "use" / "go back" change it
             self.cwd, launched = customize.code_dir(self.owner)
             if self.profile:             # Hermes itself stays put; its hagency tools run that version
-                hermes_profile.set_code_dir(self.profile, self.cwd)
+                if not hermes_profile.set_code_dir(self.profile, self.cwd):
+                    print(f"[supervise] {self.name}: no hagency args line in profile {self.profile}'s config.yaml; "
+                          f"its tools may not run {self.cwd}", flush=True)
                 self.cwd = ROOT
             if launched != self.launched:
                 self.crashes = 0             # a different version starts with a clean record

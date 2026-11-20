@@ -43,7 +43,6 @@ def private_room(person: str) -> str | None:
 
 def code_path(path: str) -> Path:
     """A file of the owner's private copy; nothing outside it, nothing git or Python acts on by itself."""
-    rel = Path(path)
     _check_name(Path(path), path)
     work = customize.work_dir(owner()).resolve()
     full = (work / path).resolve()
@@ -54,9 +53,10 @@ def code_path(path: str) -> Path:
 
 
 def _check_name(rel: Path, path: str) -> None:
-    if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.parts[0] in (".git", "custom"):
+    """Lower-cased: this Mac's disk ignores case, so .GIT is .git (GPT review 20)."""
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.parts[0].lower() in (".git", "custom"):
         raise ValueError(f"path {path!r} must be relative to the code, without '..', .git or custom/")
-    if rel.name == ".gitattributes" or rel.suffix == ".pth":
+    if rel.name.lower() == ".gitattributes" or rel.suffix.lower() == ".pth":
         raise ValueError(f"{rel.name} files aren't accepted")
 
 

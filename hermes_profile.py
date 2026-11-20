@@ -87,14 +87,22 @@ def set_repos(name: str) -> None:
         soul.write_text(soul.read_text().split("\n\nIn Hagency rooms:")[0] + ROOM_RULES)
 
 
-def set_code_dir(name: str, code: Path) -> None:
+# The hagency server's args, as onboarding writes them ([...]) or as Hermes re-saves them (a "- " list).
+MCP_ARGS = re.compile(r"^    args:(?: \[[^\]\n]*hagency_mcp\.py\]|\n *- [^\n]*hagency_mcp\.py)$", re.M)
+
+
+def set_code_dir(name: str, code: Path) -> bool:
     """Run the profile's hagency MCP server from `code`: the official folder, or its owner's own
-    version (customize.py). HAGENCY_HOME keeps it finding the official folder's state either way."""
+    version (customize.py). HAGENCY_HOME keeps it finding the official folder's state either way.
+    False: no hagency args line to point (a hand-edited profile), nothing changed."""
     cfg = profile_dir(name) / "config.yaml"
-    text = re.sub(r"^    args: \[.*hagency_mcp\.py\]$", f"    args: [{code / 'hagency_mcp.py'}]", cfg.read_text(), flags=re.M)
+    text, found = MCP_ARGS.subn(lambda m: f"    args: [{code / 'hagency_mcp.py'}]", cfg.read_text())
+    if not found:
+        return False
     if not re.search(r"^      HAGENCY_HOME: .*$", text, re.M):
         text = re.sub(r"^(      HAGENCY_AGENT: .*)$", rf"\1\n      HAGENCY_HOME: '{ROOT}'", text, count=1, flags=re.M)
     cfg.write_text(text)
+    return True
 
 
 def profile_model(profile: Path) -> tuple[dict, str | None]:
