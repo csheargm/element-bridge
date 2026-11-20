@@ -50,6 +50,15 @@ class Intents(unittest.TestCase):
             self.assertTrue(intents.is_yes(t), t)
         self.assertFalse(intents.is_yes("yes but only the readme"))
 
+    def test_an_approval_in_a_sentence(self):
+        """the owner: "ok and ok go ahead is the same meaning in this context"."""
+        for t in ("ok go ahead", "Okay, go ahead!", "sounds good, let's build it", "yes please", "LGTM 👍",
+                  "looks great, ship it", "that's fine, go", "ok let\u2019s do it", "approved"):
+            self.assertTrue(intents.is_approval(t), t)
+        for t in ("go ahead but skip #2", "not yet", "ok, wait", "no", "don't go ahead", "ok but only the readme",
+                  "go ahead with issue 2", "let's talk about it", "hold on", "ok 👎", ""):
+            self.assertFalse(intents.is_approval(t), t)
+
 
 class Talk(unittest.TestCase):
     """The phrase rules (the understanding step off; see Brain for the model path)."""
@@ -129,6 +138,31 @@ class Talk(unittest.TestCase):
                                  "items": [], "agent": "@anna-agent:x"}
         self.tell(ANNA, "Product Manager: ok")
         self.assertEqual(filed, [ANNA])
+
+    def test_ok_go_ahead_approves_the_plan(self):
+        """the owner: "ok go ahead" started a NEW plan ("go ahead" = plan this) instead of approving."""
+        filed, planned = [], []
+
+        async def file_plan(room, pending, approver):
+            filed.append(approver)
+        self.lp.file_plan, self.lp.start_plan = file_plan, mock.AsyncMock(side_effect=lambda *a: planned.append(a))
+        for words, kw in (("@pm ok go ahead", {}), ("sounds good, go ahead", {"mention": False, "reply_to": "$p"})):
+            self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                     "items": [], "agent": "@anna-agent:x"}
+            self.tell(ANNA, words, **kw)
+        self.assertEqual((filed, planned), ([ANNA, ANNA], []))
+
+    def test_go_ahead_but_change_something_is_not_an_approval(self):
+        filed = []
+
+        async def file_plan(room, pending, approver):
+            filed.append(approver)
+        self.lp.file_plan, self.lp.start_plan = file_plan, mock.AsyncMock()
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
+        self.tell(ANNA, "sounds good but drop the toggle", mention=False, reply_to="$p")
+        self.tell(BETTY, "sounds good", mention=False)          # people chatting: not addressed, not a bare ok
+        self.assertEqual(filed, [])
 
     def test_ok_in_a_reply_to_the_agents_message_approves(self):
         """Seen live: anna replied "@Product Manager: ok" to her agent's message; Element puts the

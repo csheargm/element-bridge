@@ -78,13 +78,14 @@ class Chat:
             return
         text = self.addressed_text(event)
         reply_to = replied_to(event)
-        if intents.is_yes(body) or (text is not None and intents.is_yes(text)):
-            waiting = self.pending.get(room.room_id, {}).get("event_id")
+        waiting = self.pending.get(room.room_id, {}).get("event_id")
+        said = text if text is not None else (body if reply_to and reply_to == waiting else None)
+        if intents.is_yes(body) or (said is not None and intents.is_approval(said)):
             if (reply_to in (None, waiting)) and await self.confirm(room, sender):
-                return                # "yes", "@pm ok", or ok in a reply to the question: confirms it
-            if text is not None:      # an OK meant for me, but nothing (or something else) is waiting
-                await self.answer_stale_ok(room.room_id, reply_to, sender)
-                return
+                return                # "yes", "@pm ok go ahead", or "sounds good" in a reply to the question
+            if text is not None and (waiting or intents.is_yes(text)):
+                await self.answer_stale_ok(room.room_id, reply_to, sender)   # an OK, but not one that counts
+                return                # (nothing waiting + "let's build it" goes on to start a plan)
         if text is None:
             return
         intent = intents.classify(text)

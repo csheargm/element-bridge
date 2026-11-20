@@ -21,6 +21,10 @@ from setup_accounts import api
 
 CONFIRM_S = 600
 HISTORY = 200                     # room events read for the discussion
+# What happens once the plan is approved, by the room's mode (so "autonomous" is never a surprise).
+AFTER_APPROVAL = {"autonomous": "Then the room runs on its own: build → review → merge, no more 👍 needed.",
+                  "assist": "Then agents build and review; a person merges each change.",
+                  "off": "The room is stopped, so nothing starts until someone says \"resume\"."}
 
 
 class Planner:
@@ -48,7 +52,7 @@ class Planner:
                                         github.LABEL, "--json", "title", "--limit", "100"])
         task_id = uuid.uuid4().hex
         self.plans[rid] = {"task_id": task_id, "agent": agent, "by": sender, "repo": repo}
-        await self.say(rid, f"{agent}: plan the work from this room's discussion", agent,
+        await self.say(rid, f"{agent}, please turn this room's discussion into a plan", agent,
                        {"kind": "plan", "task_id": task_id, "repo": repo, "discussion": discussion,
                         "existing": [i["title"] for i in issues]})
 
@@ -115,9 +119,10 @@ class Planner:
         older = self.pending.get(rid, {})
         if older.get("kind") == "plan":
             self.note_outcome(older.get("event_id"), "replaced by a newer plan, shown below it")
+        after = AFTER_APPROVAL.get(await self.level(rid), AFTER_APPROVAL["off"])
         event_id = await self.say(rid, f"Here's the plan from your discussion:\n\n{planning.show(items)}\n\n"
-                                       f"React 👍 to open these {len(items)} issue(s), or tell me what to change "
-                                       "and ask me to plan again.")
+                                       f"**Waiting for your 👍** (or reply \"ok\") to open these {len(items)} "
+                                       f"issue(s). {after} To change it, tell me what to change.")
         self.pending[rid] = {"kind": "plan", "event_id": event_id, "until": time.time() + CONFIRM_S,
                              "items": items, "agent": last["agent"], "by": last["by"], "repo": last.get("repo")}
 

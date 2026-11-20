@@ -75,4 +75,31 @@ def repo_named(text: str) -> str | None:
 
 
 def is_yes(text: str) -> bool:
+    """A bare OK ("yes", "ok", 👍): safe to read as consent even when it isn't addressed to @pm."""
     return YES_RE.match(text) is not None
+
+
+# An approval in a person's own words: "ok go ahead", "sounds good, let's build it", "yes please".
+# Every word must be one of these, so "go ahead but skip #2", "not yet" or "ok, wait" never count.
+_APPROVE_CORE = {"yes", "yep", "yeah", "yup", "ok", "okay", "okey", "oki", "k", "kk", "sure", "go", "approve",
+                 "approved", "confirm", "confirmed", "lgtm", "proceed", "agree", "agreed", "good", "great",
+                 "perfect", "fine", "absolutely", "definitely", "ship", "build", "👍", "✅", "👌"}
+_APPROVE_FILLER = {"ahead", "do", "it", "it's", "its", "please", "pls", "plz", "let's", "lets", "let", "us", "with",
+                   "the", "this", "that", "that's", "thats", "plan", "them", "all", "right", "alright", "cool",
+                   "nice", "now", "then", "and", "thanks", "thank", "you", "pm", "sounds", "looks", "seems", "me",
+                   "for", "to", "on", "start", "work", "works", "make", "makes", "sense", "i", "we", "so", "just",
+                   "really", "very", "totally", "move", "forward", "of", "course", "a", "open", "issue", "issues",
+                   "go", "is", "set", "both", "one", "these", "those", "yes", "ok"}
+_APPROVE_TOKEN = re.compile(r"[a-z']+|👍|✅|👌")
+_APPROVE_MAX_WORDS = 15
+
+
+def is_approval(text: str) -> bool:
+    """A yes said in a sentence. Only for messages addressed to @pm (or replies to its question)."""
+    t = text.lower().replace("’", "'")
+    words = _APPROVE_TOKEN.findall(t)
+    leftover = _APPROVE_TOKEN.sub("", t)
+    if not words or len(words) > _APPROVE_MAX_WORDS or re.search(r"[^\s.,!:;()\-–—️@]", leftover):
+        return False              # anything else (a number, a name, another emoji) means more than "yes"
+    return (all(w in _APPROVE_CORE or w in _APPROVE_FILLER for w in words)
+            and any(w in _APPROVE_CORE for w in words))

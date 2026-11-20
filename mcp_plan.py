@@ -27,7 +27,7 @@ def submit_plan(task_id: str, items: list[dict]) -> dict:
         return {"error": str(e), "next": "Fix the items and call submit_plan again."}
     report(task_id, {"kind": "plan", "issue": t.get("issue"), "items": checked,
                      "line": f"plan drafted: {len(checked)} item(s)"})
-    return {"done": f"{len(checked)} item(s) sent to @pm", "next": "Stop; @pm asks the room to confirm."}
+    return {"done": f"{len(checked)} item(s) sent to @pm", "next": "Say only \"Plan sent to @pm.\" and stop; @pm asks the room for a 👍."}
 
 
 @mcp.tool()
