@@ -73,7 +73,10 @@ def set_repos(name: str) -> None:
     env in its config, so LOOP_REPO / HAGENCY_REPOS set for start.sh never reach them otherwise)."""
     cfg = profile_dir(name) / "config.yaml"
     text = cfg.read_text()
-    for key, value in repo_env().items():
+    env = repo_env()
+    if "HAGENCY_CUSTOM_SHARED_OK" not in env:         # the operator took the opt-in back: drop it here too
+        text = re.sub(r"^      HAGENCY_CUSTOM_SHARED_OK: .*\n", "", text, flags=re.M)
+    for key, value in env.items():
         if re.search(rf"^      {key}: .*$", text, re.M):
             text = re.sub(rf"^      {key}: .*$", f"      {key}: '{value}'", text, flags=re.M)
         else:

@@ -85,6 +85,22 @@ class HermesTools(unittest.TestCase):
             self.assertIn("error", mcp_custom.write_my_code({bad: "x"}), bad)
             self.assertIn("error", mcp_custom.read_my_code(bad), bad)
 
+    def test_a_symlink_to_git_metadata_is_refused(self):
+        """GPT review 20: names were checked before resolving, so a link could reach .git."""
+        (self.work / ".git").mkdir()
+        (self.work / "meta").symlink_to(self.work / ".git")
+        asyncio.run(mcp_custom.start_code_change("x"))
+        self.assertIn("error", mcp_custom.write_my_code({"meta/config": "x"}))
+        self.assertFalse((self.work / ".git" / "config").exists())
+
+    def test_an_empty_request_is_refused(self):
+        """GPT review 20: an empty request crashed the commit message (splitlines()[0])."""
+        self.assertIn("error", asyncio.run(mcp_custom.start_code_change("  ")))
+
+    def test_reads_stop_at_the_limit(self):
+        (self.work / "big.py").write_text("x" * (mcp_custom.MAX_READ + 10))
+        self.assertEqual(len(mcp_custom.read_my_code("big.py")["content"]), mcp_custom.MAX_READ)
+
     def test_writing_needs_a_started_change(self):
         self.assertIn("error", mcp_custom.write_my_code({"pm_voice.py": "x"}))
 
@@ -104,7 +120,7 @@ class ButtonHelper(unittest.TestCase):
                 mock.patch.object(bridge, "read_env", return_value={"PW_ANNA_AGENT": "x"}), \
                 mock.patch.object(b.client, "login", mock.AsyncMock(return_value=bridge.LoginResponse("@anna-agent:x", "D", "t"))):
             asyncio.run(b.run())
-        self.assertEqual(callbacks, ["InviteMemberEvent", "ReactionEvent"])   # never answers messages: Hermes does
+        self.assertEqual(callbacks, ["ReactionEvent"])   # never answers messages or invites: Hermes does (GPT review 20)
 
 
 class Supervisor(unittest.TestCase):
@@ -144,6 +160,18 @@ class Supervisor(unittest.TestCase):
         self.assertTrue(soul.startswith("I am Hermes."))
         self.assertIn("start_code_change", soul)
         self.assertNotIn("old rules", soul)
+
+    def test_a_withdrawn_opt_in_leaves_the_profile(self):
+        """GPT review 20: unsetting HAGENCY_CUSTOM_SHARED_OK left the old value in the profile."""
+        home = Path(tempfile.mkdtemp())
+        cfg = home / "profiles" / "p" / "config.yaml"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text("    env:\n      HAGENCY_AGENT: 'anna-agent'\n      HAGENCY_CUSTOM_SHARED_OK: '1'\n")
+        with mock.patch.object(hermes_profile, "HERMES_HOME", home), mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("HAGENCY_CUSTOM_SHARED_OK", None)
+            hermes_profile.set_repos("p")
+        self.assertNotIn("HAGENCY_CUSTOM_SHARED_OK", cfg.read_text())
+        self.assertIn("HAGENCY_AGENT: 'anna-agent'", cfg.read_text())
 
     def test_profile_points_its_tools_at_a_version(self):
         home = Path(tempfile.mkdtemp())

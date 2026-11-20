@@ -44,20 +44,27 @@ def private_room(person: str) -> str | None:
 def code_path(path: str) -> Path:
     """A file of the owner's private copy; nothing outside it, nothing git or Python acts on by itself."""
     rel = Path(path)
+    _check_name(Path(path), path)
+    work = customize.work_dir(owner()).resolve()
+    full = (work / path).resolve()
+    if not full.is_relative_to(work):
+        raise ValueError(f"path {path!r} leaves the code")
+    _check_name(full.relative_to(work), path)     # again where a symlink in the copy really leads
+    return full
+
+
+def _check_name(rel: Path, path: str) -> None:
     if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.parts[0] in (".git", "custom"):
         raise ValueError(f"path {path!r} must be relative to the code, without '..', .git or custom/")
     if rel.name == ".gitattributes" or rel.suffix == ".pth":
         raise ValueError(f"{rel.name} files aren't accepted")
-    work = customize.work_dir(owner()).resolve()
-    full = (work / rel).resolve()
-    if not full.is_relative_to(work):
-        raise ValueError(f"path {path!r} leaves the code")
-    return full
 
 
 @mcp.tool()
 async def start_code_change(request: str) -> dict:
     """Your owner asked you to change your own code (Hagency Rooms): open their private copy."""
+    if not request.strip():
+        return {"error": "empty request", "next": "Ask your owner what they want changed."}
     try:
         person = owner()
         if not private_room(person):
@@ -78,7 +85,8 @@ async def start_code_change(request: str) -> dict:
 def read_my_code(path: str) -> dict:
     """Read one file of your owner's private copy of your code."""
     try:
-        return {"path": path, "content": code_path(path).read_text(errors="replace")[:MAX_READ]}
+        with code_path(path).open(errors="replace") as f:      # never more than MAX_READ into memory
+            return {"path": path, "content": f.read(MAX_READ)}
     except (OSError, ValueError, customize.CustomError) as e:
         return {"error": str(e)}
 

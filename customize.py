@@ -34,7 +34,8 @@ MAX_DIFF_FILES = 15
 SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "capabilities.py", "redact.py",
              "safe_fetch.py", "supervise.py", "customize.py", "lifecycle.py", "ownership.py", "github.py",
              "room_context.py", "room_state.py", "tasks.py", "registry.py", "saved_dict.py", "console.py",
-             "pm_chat.py", "onboard.py", "setup_accounts.py", "panel.py",
+             "pm_chat.py", "onboard.py", "setup_accounts.py", "panel.py", "hagency_mcp.py", "mcp_core.py",
+             "mcp_custom.py", "hermes_profile.py",
              "requirements.txt", ".gitignore", "start.sh"}
 # Git-ignored things a live version shares with the official folder (passwords, sessions, state).
 SHARED = (".env", ".venv", ".gh", "data", "rooms", "logs", "agents.json")
@@ -89,6 +90,8 @@ def in_use() -> dict[str, str]:
 def code_dir(owner: str) -> tuple[Path, str | None]:
     """Where the owner's bridge runs from, and which commit: their chosen version, or official (None)."""
     sha = in_use().get(owner)
+    if sha and why_not_use(owner):            # the operator took the opt-in back: official until it's given again
+        return ROOT, None
     if sha and (live_dir(owner, sha) / "bridge.py").exists():
         return live_dir(owner, sha), sha
     return ROOT, None

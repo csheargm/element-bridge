@@ -1,7 +1,10 @@
 """Changing your agent's own code from your private room (customize.py, bridge_custom.py).
-Run: .venv/bin/python -m unittest test_customize"""
+Run: .venv/bin/python -m unittest test_customize
+TODO(R4): over 300 lines; split on the seam between Sandbox/PrivateCopy (customize.py) and
+PullRequest/InChat/Supervisor (bridge_custom.py, supervise.py)."""
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -140,6 +143,18 @@ class PrivateCopy(Sandbox):
             asyncio.run(customize.use("betty", sha))
         with mock.patch.dict("os.environ", {"HAGENCY_CUSTOM_SHARED_OK": "1"}):    # the operator opts in
             self.assertIsNone(customize.why_not_use("betty"))
+
+    def test_a_chosen_version_stops_running_when_the_opt_in_is_withdrawn(self):
+        """GPT review 20: the shared-computer check ran only when choosing, not at each launch."""
+        self.assertIn("mcp_custom.py", customize.SENSITIVE)     # the Hermes tools get the red flag too
+        (self.root / "agents.json").write_text(json.dumps({"betty": {}, "anna": {}}))
+        sha = self.change("CAPTION = 'x'\n")
+        with mock.patch.dict("os.environ", {"HAGENCY_CUSTOM_SHARED_OK": "1"}):
+            self.assertTrue(asyncio.run(customize.use("betty", sha))[0])
+            self.assertEqual(customize.code_dir("betty")[1], sha)
+        with mock.patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("HAGENCY_CUSTOM_SHARED_OK", None)
+            self.assertEqual(customize.code_dir("betty"), (self.root, None))
 
     def test_go_back_only_from_the_version_meant(self):
         sha = self.change("CAPTION = 'x'\n")

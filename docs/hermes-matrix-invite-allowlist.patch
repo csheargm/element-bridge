@@ -1,30 +1,58 @@
 diff -ruN a/plugins/platforms/matrix/adapter.py b/plugins/platforms/matrix/adapter.py
 --- a/plugins/platforms/matrix/adapter.py
 +++ b/plugins/platforms/matrix/adapter.py
-@@ -2877,6 +2877,19 @@
+@@ -2872,10 +2872,38 @@
+ 
+         await self.handle_message(msg_event)
+ 
++    def _invite_allowed(self, room_id: str, inviter: str) -> bool:
++        """With MATRIX_ALLOWED_USERS set, only those users may pull the bot into a
++        room; otherwise anyone could invite it and have it read their room. No list
++        (or "*") keeps the open behaviour. An unknown inviter fails a restrictive list."""
++        allowed = self._allowed_user_ids
++        if not allowed or "*" in allowed or (inviter and inviter in allowed):
++            return True
++        logger.info(
++            "Matrix: ignoring invite to %s from %s (not in MATRIX_ALLOWED_USERS)",
++            room_id,
++            inviter or "an unknown sender",
++        )
++        return False
++
++    def _pending_inviter(self, room_data: Any) -> str:
++        """Sender of the m.room.member invite for us in a sync rooms.invite entry ("" if none)."""
++        state = room_data.get("invite_state", {}) if isinstance(room_data, dict) else {}
++        events = state.get("events", []) if isinstance(state, dict) else []
++        for ev in events if isinstance(events, list) else []:
++            if not isinstance(ev, dict) or ev.get("type") != "m.room.member":
++                continue
++            content = ev.get("content") if isinstance(ev.get("content"), dict) else {}
++            if ev.get("state_key") == self._user_id and content.get("membership") == "invite":
++                return str(ev.get("sender") or "")
++        return ""
++
+     async def _on_invite(self, event: Any) -> None:
+         """Auto-join rooms when invited."""
  
          room_id = str(getattr(event, "room_id", ""))
- 
-+        # With MATRIX_ALLOWED_USERS set, only those users may pull the bot into a
-+        # room; otherwise anyone could invite it and have it read their room.
-+        # No list (or "*") keeps the open behaviour.
-+        inviter = str(getattr(event, "sender", ""))
-+        allowed = self._allowed_user_ids
-+        if allowed and "*" not in allowed and inviter not in allowed:
-+            logger.info(
-+                "Matrix: ignoring invite to %s from %s (not in MATRIX_ALLOWED_USERS)",
-+                room_id,
-+                inviter,
-+            )
++        if not self._invite_allowed(room_id, str(getattr(event, "sender", "") or "")):
 +            return
-+
+ 
          logger.info(
              "Matrix: invited to %s — joining",
-             room_id,
+@@ -2909,6 +2937,8 @@
+             return
+         for room_id in invites:
+             if room_id in self._joined_rooms:
++                continue
++            if not self._invite_allowed(str(room_id), self._pending_inviter(invites[room_id])):
+                 continue
+             logger.info("Matrix: reconciling pending invite for %s", room_id)
+             await self._join_room_by_id(str(room_id))
 diff -ruN a/tests/gateway/test_matrix_invite_allowlist.py b/tests/gateway/test_matrix_invite_allowlist.py
 --- a/tests/gateway/test_matrix_invite_allowlist.py
 +++ b/tests/gateway/test_matrix_invite_allowlist.py
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,108 @@
 +"""Matrix invites: with MATRIX_ALLOWED_USERS set, only allowed users can pull the bot into a room."""
 +from types import SimpleNamespace
 +
@@ -91,3 +119,45 @@ diff -ruN a/tests/gateway/test_matrix_invite_allowlist.py b/tests/gateway/test_m
 +    adapter, joined = _make_adapter(monkeypatch, "*")
 +    await adapter._on_invite(_invite("@stranger:example.org"))
 +    assert joined == ["!room:example.org"]
++
++
++def _sync_with_invite(sender, room_id="!pending:example.org", target="@hermes:example.org"):
++    member = {"type": "m.room.member", "state_key": target, "sender": sender,
++              "content": {"membership": "invite"}}
++    noise = {"type": "m.room.name", "state_key": "", "sender": "@x:example.org",
++             "content": {"name": "Room"}}
++    return {"rooms": {"invite": {room_id: {"invite_state": {"events": [noise, member]}}}}}
++
++
++@pytest.mark.asyncio
++async def test_sync_reconcile_ignores_other_inviter(monkeypatch):
++    # The sync reconciliation path joins from rooms.invite without calling _on_invite.
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org")
++    await adapter._join_pending_invites(_sync_with_invite("@stranger:example.org"))
++    assert joined == []
++
++
++@pytest.mark.asyncio
++async def test_sync_reconcile_joins_allowlisted_inviter(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org")
++    await adapter._join_pending_invites(_sync_with_invite("@owner:example.org"))
++    assert joined == ["!pending:example.org"]
++
++
++@pytest.mark.asyncio
++async def test_sync_reconcile_ignores_invite_for_someone_else(monkeypatch):
++    # An allowed user's invite of a different user is not the invite of the bot.
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org")
++    await adapter._join_pending_invites(
++        _sync_with_invite("@owner:example.org", target="@other:example.org"))
++    assert joined == []
++
++
++@pytest.mark.asyncio
++async def test_sync_reconcile_without_invite_state(monkeypatch):
++    adapter, joined = _make_adapter(monkeypatch, "@owner:example.org")
++    await adapter._join_pending_invites({"rooms": {"invite": {"!bare:example.org": {}}}})
++    assert joined == []
++    open_adapter, open_joined = _make_adapter(monkeypatch)
++    await open_adapter._join_pending_invites({"rooms": {"invite": {"!bare:example.org": {}}}})
++    assert open_joined == ["!bare:example.org"]

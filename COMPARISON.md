@@ -357,3 +357,32 @@ editable tree; existing trial/live checkouts find metadata through their own .gi
 state has no cross-process lock. A failed confirmation message can leave a used button active.
 Pruning keeps the chosen and previous version; a third quick switch could remove one still draining.
 Test stderr is buffered in memory.
+
+### GPT review 20 (2026-11-20): Hermes changing its own code, and the Hermes invite patch
+
+Range origin/master..HEAD (eb7fa8c Hermes code-change tools, 0ceaec5 invite allowlist patch).
+
+Fixed (each with a test):
+- **The invite allowlist had a second way in (blocking).** Hermes also joins rooms left in
+  `rooms.invite` after each sync (`_join_pending_invites`), never through `_on_invite`. Both paths
+  now share one check, and the reconciler reads the inviter from our own `m.room.member` invite in
+  `invite_state`; an unknown inviter fails a restrictive list. The patch file was regenerated.
+- **A withdrawn opt-in kept working.** Unsetting HAGENCY_CUSTOM_SHARED_OK left the old value in the
+  Hermes profile, and a version chosen while it was set kept launching. `set_repos` now removes it,
+  and `code_dir` re-checks `why_not_use` at every launch (official code until it's given again).
+- **The button helper joined invites too.** Logged in as the Hermes agent, it could join a DM before
+  Hermes saw the invite, so Hermes never recorded the DM. In `--buttons-only` mode it no longer
+  handles invites.
+- **Paths:** reserved names (.git, custom/, .gitattributes, .pth) are checked again after resolving,
+  so a symlink in the copy can't reach .git. Reads stop at MAX_READ instead of loading the whole file.
+  An empty request is refused instead of crashing the commit message.
+- The Hermes tool and profile modules (hagency_mcp.py, mcp_core.py, mcp_custom.py,
+  hermes_profile.py) now get the sensitive-file red flag.
+
+Deferred: the MCP tools trust that the turn came from the owner (Hermes answers only
+MATRIX_ALLOWED_USERS, and nothing goes live without the owner's 👍 in the private room; a change
+ID bound to the owner's event would be stronger). Isolation for running a chosen version on a shared
+computer (as in 17). TOCTOU/hard-link races from another local process, cross-process locking of
+the offer and `_change` state, a commit stranded when publishing the offer fails, unchecked
+reaction sends, and private_room ignoring pending invites. `set_code_dir` still succeeds silently on
+a hand-edited profile whose args line doesn't match.

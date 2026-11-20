@@ -250,7 +250,8 @@ class Bridge(BridgeVoice, BridgeCustom):
             raise SystemExit(f"login failed for {self.user_id}: {resp}")
         # Pending invites go through the same check as live ones. Messages from before startup are
         # skipped, except those sent while a previous process was restarting (lifecycle hand-off).
-        self.client.add_event_callback(self.on_invite, InviteMemberEvent)
+        if not self.buttons_only:     # Hermes joins its own invites (and records DMs); a race here lost them
+            self.client.add_event_callback(self.on_invite, InviteMemberEvent)
 
         def register() -> None:
             if self.buttons_only:     # a Hermes agent answers itself: this only handles code-change buttons
