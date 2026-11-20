@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import agents
+import customize
 import lifecycle
 import hermes_profile
 import registry
@@ -25,6 +26,7 @@ ROOT = Path(__file__).parent
 PY = str(ROOT / ".venv" / "bin" / "python")
 WATCH_S = 1.0
 BACKOFF_S = (2, 5, 15, 60)       # restart delays after successive crashes
+CUSTOM_CRASHES = 2               # an owner's own version crashing this often goes back to official
 STABLE_S = 120                   # a process alive this long resets its crash count
 DRAIN_LIMIT_S = lifecycle.DRAIN_TIMEOUT_S + 60   # a child drains itself; this is the backstop
 
@@ -34,8 +36,10 @@ def code_files() -> dict[Path, float]:
 
 
 class Child:
-    def __init__(self, name: str, argv: list[str]) -> None:
+    def __init__(self, name: str, argv: list[str], owner: str | None = None) -> None:
         self.name, self.argv = name, argv
+        self.owner = owner               # a bridge: runs from its owner's own version when they chose one
+        self.cwd = customize.code_dir(owner) if owner else ROOT
         self.proc: asyncio.subprocess.Process | None = None
         self.started = 0.0
         self.crashes = 0
@@ -45,7 +49,9 @@ class Child:
     async def start(self) -> None:
         if self.closing:
             return
-        self.proc = await asyncio.create_subprocess_exec(*self.argv, cwd=ROOT, stdout=asyncio.subprocess.PIPE,
+        if self.owner:
+            self.cwd = customize.code_dir(self.owner)    # re-read: "use" / "go back" change it
+        self.proc = await asyncio.create_subprocess_exec(*self.argv, cwd=self.cwd, stdout=asyncio.subprocess.PIPE,
                                                          stderr=asyncio.subprocess.STDOUT)
         self.started = time.time()
         asyncio.create_task(self.pump(self.proc))
@@ -97,7 +103,7 @@ def children(agent: str, allow_members: bool) -> list[Child]:
             hermes_profile.set_repos(f"{person}room")    # its MCP server works on this run's repos
             kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"]))
         else:
-            kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra]))
+            kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra], owner=person))
     return [*kids, Child("pm", [PY, "loop.py"])]
 
 
@@ -116,6 +122,9 @@ async def revive(kid: Child) -> None:
     Caller must have claim()ed the child; the claim is held through the back-off and the spawn."""
     try:
         kid.crashes = 0 if time.time() - kid.started > STABLE_S else kid.crashes + 1
+        if kid.cwd != ROOT and kid.crashes >= CUSTOM_CRASHES and customize.go_back(kid.owner):
+            print(f"[supervise] {kid.name}: the owner's own version keeps crashing; back to the official one", flush=True)
+            kid.crashes = 0
         delay = BACKOFF_S[min(kid.crashes, len(BACKOFF_S) - 1)]
         print(f"[supervise] {kid.name} exited ({kid.proc.returncode}); restarting in {delay}s", flush=True)
         await asyncio.sleep(delay)
@@ -126,11 +135,18 @@ async def revive(kid: Child) -> None:
 
 async def supervise(kids: list[Child]) -> None:
     (ROOT / "logs").mkdir(exist_ok=True)
-    seen = code_files()
+    seen, using = code_files(), customize.in_use()
     for kid in kids:
         await kid.start()
     while True:
         await asyncio.sleep(WATCH_S)
+        now_using = customize.in_use()
+        if now_using != using:               # someone chose their own version, or went back
+            for kid in kids:
+                if kid.owner and using.get(kid.owner) != now_using.get(kid.owner) and kid.claim():
+                    print(f"[supervise] {kid.name}: switching version", flush=True)
+                    asyncio.create_task(kid.restart())
+            using = now_using
         now = code_files()
         changed = sorted(p for p in now if seen.get(p) != now[p])
         if changed and compiles(changed):

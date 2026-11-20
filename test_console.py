@@ -120,6 +120,12 @@ class Actions(unittest.TestCase):
     def act(self, user, action, value):
         return asyncio.run(console.act(self.loop, "!r", user, action, value))
 
+    def test_go_back_to_the_official_version(self):
+        """bridge_custom.py: works from the console even when someone's own version is broken."""
+        with mock.patch.object(console.customize, "go_back", return_value=True) as back:
+            self.assertEqual(self.act(BETTY, "goback", ""), "ok")
+        back.assert_called_once_with("betty")
+
     def test_owner_changes_the_mode_contributor_cant(self):
         self.assertEqual(self.act(ANNA, "mode", "autonomous"), "ok")
         self.assertIn("only the room owner", self.act(BETTY, "mode", "autonomous"))

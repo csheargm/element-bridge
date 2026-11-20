@@ -21,7 +21,7 @@ class Render(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         room = SimpleNamespace(users={f"@anna:{S}": 0, f"@anna-agent:{S}": 0, f"@betty-agent:{S}": 0}, invited_users={})
-        self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}),
+        self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}), room_repos={},
                                     boards={"!r": {"text": "📋 **Project status** — loop: **assist**\n\n**Now**\n\n- #7 building"}},
                                     pending={"!r": {"kind": "plan", "by": f"@anna:{S}", "until": time.time() + 60}},
                                     last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}},
@@ -40,6 +40,14 @@ class Render(unittest.TestCase):
     def test_everything_people_wrote_is_escaped(self):
         self.assertNotIn("<script>", panel.render(self.loop, "!r"))
         self.assertIn("&lt;script&gt;", panel.render(self.loop, "!r"))
+
+    def test_a_stored_board_cannot_carry_html_and_issues_link(self):
+        """GPT review 16: board markdown went to innerHTML with raw HTML allowed; #7 never linked."""
+        self.loop.boards["!r"]["text"] = "**Now**\n\n- #7 building · <img src=x onerror=alert(1)>"
+        self.loop.room_repos = {"!r": "your-name/hagency-hello"}
+        page = panel.render(self.loop, "!r")
+        self.assertNotIn("<img", page)
+        self.assertIn('href="https://github.com/your-name/hagency-hello/issues/7"', page)
 
     def test_unknown_room(self):
         self.assertIn("isn't in this room", panel.render(self.loop, "!other"))

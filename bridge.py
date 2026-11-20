@@ -13,10 +13,11 @@ from collections import defaultdict
 from pathlib import Path
 
 import markdown
-from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessage,
+from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, ReactionEvent, RoomMessage,
                  RoomMessageAudio, RoomMessageText)
 
 import agents
+from bridge_custom import BridgeCustom
 from bridge_voice import BridgeVoice
 import capabilities
 import github
@@ -47,7 +48,7 @@ def read_env() -> dict[str, str]:
     return env
 
 
-class Bridge(BridgeVoice):
+class Bridge(BridgeVoice, BridgeCustom):
     def __init__(self, owner: str, backend: str, allow_members: bool = False):
         self.owner, self.backend, self.allow_members = owner, backend, allow_members
         self.owner_id = f"@{owner}:{SERVER_NAME}"
@@ -118,7 +119,8 @@ class Bridge(BridgeVoice):
         if reason:
             await self.refuse(room, event, reason)   # bridge_voice.py: "I only take requests from Betty"
             return
-        task = asyncio.create_task(self.answer_locked(room, event, line))  # don't block sync
+        work = self.change_code(room, event) if self.wants_change(room, event) else self.answer_locked(room, event, line)
+        task = asyncio.create_task(work)      # don't block sync; change_code: bridge_custom.py
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
@@ -222,7 +224,7 @@ class Bridge(BridgeVoice):
         return ROOT / "rooms" / self.owner / f"{safe}-{digest}"
 
     async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None,
-                   extra: dict | None = None, source: str | None = None) -> None:
+                   extra: dict | None = None, source: str | None = None) -> str:
         """body is the plain text; source (default body) is the markdown rendered as HTML."""
         html = markdown.markdown(source or body, extensions=["fenced_code", "tables"])
         content = {"msgtype": "m.text", "body": body,
@@ -233,6 +235,7 @@ class Bridge(BridgeVoice):
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not hasattr(resp, "event_id"):
             raise RuntimeError(f"failed to send to {room_id}: {resp}")
+        return resp.event_id
 
     async def note_last(self, room: MatrixRoom, event: RoomMessage) -> None:
         rel = event.source.get("content", {}).get("m.relates_to")
@@ -254,6 +257,7 @@ class Bridge(BridgeVoice):
             self.client.add_event_callback(self.on_message, RoomMessageText)
             self.client.add_event_callback(self.on_voice, RoomMessageAudio)     # bridge_voice.py
             self.client.add_event_callback(self.on_encrypted, MegolmEvent)
+            self.client.add_event_callback(self.on_custom_reaction, ReactionEvent)  # bridge_custom.py
         await lifecycle.first_sync(self.client, f"{self.owner}-agent", self.sync_point, register,
                                    lambda ms: setattr(self, "started_ms", ms))
         log.info("%s online (backend=%s, allow_members=%s)", self.user_id, self.backend, self.allow_members)

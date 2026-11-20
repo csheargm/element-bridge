@@ -88,6 +88,13 @@ class Talk(unittest.TestCase):
         self.room = SimpleNamespace(room_id="!r", users={ANNA: None, BETTY: None}, invited_users={},
                                     power_levels=SimpleNamespace(get_user_level=lambda u: 0))
 
+    def test_go_back_to_the_official_bridge(self):
+        """Through @pm (official code), so it works even when Betty's own version is broken."""
+        with mock.patch("customize.go_back", return_value=True) as back:
+            self.tell(BETTY, "@pm go back to the official bridge")
+        back.assert_called_once_with("betty")
+        self.assertIn("going back to the official version", self.said[-1])
+
     def tell(self, sender, body, mention=True, reply_to=None):
         content = {"body": body, "m.mentions": {"user_ids": [PM]} if mention else {}}
         if reply_to:

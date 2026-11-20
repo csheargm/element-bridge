@@ -143,11 +143,17 @@ async function refresh() {
     ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
   if (s.agent) h += `<section class="card"><h2>My agent · ${esc(s.agent)}</h2>
     <div class="set"><div>Comes along when I join a project room</div>${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
-    <div class="set"><div>Web research in this room<div class="hint">Each search is listed under your question.</div></div>${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}</div></section>`;
+    <div class="set"><div>Web research in this room<div class="hint">Each search is listed under your question.</div></div>${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}</div>
+    <div class="set"><div>Code it runs<div class="hint">${s.version ? `Your own version (${esc(s.version)}), made in your private room.` : "The official version."}</div></div>${s.version ? '<button data-a="goback">Go back to official</button>' : ""}</div></section>`;
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }
 start(); setInterval(refresh, %d);
 </script>""" % REFRESH_MS
+
+
+def no_html(text: str) -> str:
+    """Board text is markdown only: any raw HTML in it (from a stored board) shows as text."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
 
 
 def render(loop, room_id: str) -> str:
@@ -159,7 +165,7 @@ def render(loop, room_id: str) -> str:
     if board.startswith("📋"):                # its title line repeats the page header (repo, mode)
         board = board.split("\n", 1)[1].strip() if "\n" in board else "No status yet."
     waiting = loop.pending.get(room_id)
-    parts = [f"<section class=card><h2>Project status</h2><div class=board>{markdown.markdown(github.linkify(board))}</div></section>"]
+    parts = [f"<section class=card><h2>Project status</h2><div class=board>{markdown.markdown(github.linkify(no_html(board), loop.room_repos.get(room_id)))}</div></section>"]
     if waiting:
         who = html.escape(str(waiting.get("by", "")).split(":")[0].lstrip("@"))
         what = {"plan": "a plan", "plan_request": "turning the discussion into work", "bring": "bringing an agent",

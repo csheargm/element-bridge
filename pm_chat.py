@@ -15,6 +15,7 @@ import time
 from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
 import github
+import customize
 import intents
 import logging
 
@@ -92,6 +93,12 @@ class Chat:
                 await self.answer_stale_ok(room.room_id, reply_to, sender)   # an OK, but not one that counts
                 return                # (nothing waiting + "let's build it" goes on to start a plan)
         if text is None:
+            return
+        if customize.GO_BACK.search(text) and not voice:   # works even when that person's own version is broken
+            local, _, server = sender.lstrip("@").partition(":")
+            changed = server == self.user_id.partition(":")[2] and customize.go_back(local)   # only this server's people
+            await self.say(room.room_id, "↩️ Your agent is going back to the official version." if changed
+                           else "Your agent already runs the official version.")
             return
         intent = intents.classify(text)
         if voice and intent in (intents.SET_REPO, intents.RETRY):
