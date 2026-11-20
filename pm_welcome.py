@@ -77,27 +77,32 @@ class Welcome:
         room = self.client.rooms.get(resp.room_id)
         joined = [u for u in getattr(room, "users", {}) if u not in getattr(room, "invited_users", {})]
         for person in joined:
-            if self.is_newcomer(person) and person not in self.welcomes():
+            if self.is_newcomer(person):
                 await self.greet_from_welcome(resp.room_id, person)
 
     async def on_welcome_member(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
         if (is_stale(event, self.started_ms) or not self.is_welcome_room(room) or event.membership != "join"
                 or event.prev_membership == "join"):
             return
-        person = event.state_key
-        if self.is_newcomer(person) and person not in self.welcomes():
-            await self.greet_from_welcome(room.room_id, person)
+        if self.is_newcomer(event.state_key):
+            await self.greet_from_welcome(room.room_id, event.state_key)
 
     async def greet_from_welcome(self, welcome_id: str, person: str) -> None:
         """The private offer, plus ONE line in Welcome naming them: Element lists my private chat as
         an invite to accept, which newcomers miss, so the buttons would go unseen."""
-        if await self.greet(person) is None or self.welcomes()[person].get("pointed"):
-            return
-        self.welcomes()[person] = {**self.welcomes()[person], "pointed": True}   # once, even if the send fails
+        if person not in self.welcomes() and await self.greet(person) is None:
+            return                            # greeted once; a failure is retried at the next join or start
+        entry, pointing = self.welcomes()[person], self.__dict__.setdefault("_pointing", set())
+        if entry.get("pointed") or entry.get("done") or person in pointing:
+            return                            # said already, or they found my chat (they clicked a button)
+        pointing.add(person)
         try:
             await self.say(welcome_id, POINTER.format(person=person), mention=person)
-        except RuntimeError as e:             # loop.SendError: the private offer is still there
+            self.welcomes()[person] = {**self.welcomes()[person], "pointed": True}
+        except RuntimeError as e:             # loop.SendError: retried at their next join or my next start
             log.error("couldn't point %s to my private message: %s", person, e)
+        finally:
+            pointing.discard(person)
 
     async def greet(self, person: str) -> str | None:
         """My private chat with them, with the two buttons; returns that chat's room id. Remembered only

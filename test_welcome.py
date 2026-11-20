@@ -84,6 +84,33 @@ class Greeting(Base):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
         self.assertEqual(len([b for r, b in self.said if r == "!welcome"]), 1)
 
+    def test_a_failed_pointer_is_retried_but_a_sent_one_never_repeats(self):
+        """GPT review 23: a send failure (or a restart in between) must not lose the pointer for good."""
+        async def failing(room_id, body, *a, **k):
+            if room_id == "!welcome":
+                raise RuntimeError("M_LIMIT_EXCEEDED")
+            self.said.append((room_id, body))
+            return "$offer"
+        ok, self.lp.say = self.lp.say, failing
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        self.assertNotIn("pointed", self.lp._welcomes[NEW])
+        self.lp.say = ok
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
+        self.assertEqual([r for r, _ in self.said], ["!dm", "!welcome"])    # one offer, one pointer
+
+    def test_no_pointer_for_someone_who_already_clicked_a_button(self):
+        self.lp._welcomes[NEW] = {"dm": "!dm", "offer": "$offer", "done": ["🏠"]}
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        self.assertEqual(self.said, [])
+
+    def test_an_old_chat_is_renamed_when_reused(self):
+        self.lp.dm_rooms = {NEW: "!old"}
+        old = SimpleNamespace(users={PM: None, NEW: None}, name="Hagency (private)")
+        self.lp.client = mock.Mock(rooms={"!old": old}, room_put_state=mock.AsyncMock())
+        self.assertEqual(self.run_(Loop.private_room(self.lp, NEW)), "!old")
+        self.lp.client.room_put_state.assert_awaited_once_with("!old", "m.room.name", {"name": "Product Manager"})
+
     def test_the_pointer_mentions_them(self):
         seen = []
 

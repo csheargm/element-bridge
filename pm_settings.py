@@ -90,6 +90,10 @@ class Settings:
         known = self.dm_rooms.get(user)
         room = self.client.rooms.get(known) if known else None
         if room is not None and set(room.users) <= {self.user_id, user}:
+            if room.name != DISPLAY_NAMES["pm"]:      # opened under an older name ("Hagency (private)")
+                renamed = await self.client.room_put_state(known, "m.room.name", {"name": DISPLAY_NAMES["pm"]})
+                if not hasattr(renamed, "event_id"):   # only the name: the chat itself still works
+                    log.warning("couldn't rename my chat with %s: %s", user, renamed)
             return known                      # still just the two of us (joined or invited)
         resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
                                              name=DISPLAY_NAMES["pm"])
