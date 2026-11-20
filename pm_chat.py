@@ -17,6 +17,7 @@ import intents
 import room_state
 
 CONFIRM_S = 300
+NOTE_WORDS = 6               # a longer message to @pm that isn't a command is a requirement, not noise
 LEVEL_WORDS = {"off": "stopped: no new work is handed out and nothing is merged",
                "assist": "assist: agents build and review; a person merges each change",
                "autonomous": "autonomous: agents build, review and merge on their own"}
@@ -50,8 +51,26 @@ class Chat:
         if intents.is_yes(body) and await self.confirm(room, sender):
             return
         text = self.addressed_text(event)
-        if text is not None:
-            await self.act(room, sender, intents.classify(text))
+        if text is None:
+            return
+        intent = intents.classify(text)
+        if intent == intents.UNKNOWN and await self.revise_plan(room, sender):
+            return
+        if intent == intents.UNKNOWN and len(text.split()) >= NOTE_WORDS:
+            await self.say(room.room_id, "Noted. When you're ready, say \"let's build it\" and I'll turn the "
+                                         "discussion into work.")    # it is part of the discussion that gets planned
+            return
+        await self.act(room, sender, intent)
+
+    async def revise_plan(self, room: MatrixRoom, sender: str) -> bool:
+        """A plan waits for ✅ and the owner/maintainer says what to change: plan again with it."""
+        p = self.pending.get(room.room_id)
+        if not p or p.get("kind") != "plan" or not await room_state.is_moderator(self.client, room, sender):
+            return False
+        self.pending.pop(room.room_id)
+        await self.say(room.room_id, "Updating the plan with that…")
+        await self.start_plan(room, sender)
+        return True
 
     async def on_reaction(self, room: MatrixRoom, event: ReactionEvent) -> None:
         wanted = self.pending.get(room.room_id, {}).get("event_id")

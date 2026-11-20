@@ -27,6 +27,7 @@ from redact import room_safe
 import room_state
 from loop_progress import Progress
 from pm_chat import Chat
+from saved_dict import SavedDict
 from pm_plan import Planner
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
@@ -58,7 +59,9 @@ class Loop(Progress, Boards, Chat, Planner):
         self.board_file = STATE_FILE.with_name(STATE_FILE.stem + "-boards.json")   # git-ignored
         self.boards: dict = self.load_boards()      # room → pinned status message (status_board.py)
         self.open_issues: dict[str, list] = {}      # room → queued issues, for the board
-        self.pending: dict = {}                     # room → autonomous switch or plan awaiting ✅ (pm_chat.py)
+        # room → autonomous switch or plan awaiting ✅ (pm_chat.py); kept on disk so a restart (e.g. a
+        # live code fix) doesn't drop a plan someone is about to approve
+        self.pending: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-pending.json"))
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
 
     def save(self) -> None:

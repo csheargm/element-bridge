@@ -152,6 +152,23 @@ class Talk(unittest.TestCase):
         self.tell(ANNA, "betty, should we stop for lunch?", mention=False)
         self.assertEqual((self.levels, self.said), ([], []))
 
+    def test_feedback_on_a_waiting_plan_revises_it(self):
+        """Seen live: anna told @pm what to change while the plan waited, and got "didn't catch that"."""
+        started = []
+
+        async def start_plan(room, sender):
+            started.append(sender)
+        self.lp.start_plan = start_plan
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA}
+        self.tell(ANNA, "@pm the languages should all be on one page, sized by population")
+        self.assertEqual(started, [ANNA])
+        self.assertIn("Updating the plan", self.said[-1])
+        self.assertNotIn("!r", self.lp.pending)
+
+    def test_a_longer_note_without_a_plan_is_acknowledged(self):
+        self.tell(BETTY, "@pm the greeting colours should match each country's flag")
+        self.assertIn("Noted", self.said[-1])
+
     def test_unknown_gets_a_hint(self):
         self.tell(ANNA, "@pm what's the weather")
         self.assertIn("help", self.said[-1])
