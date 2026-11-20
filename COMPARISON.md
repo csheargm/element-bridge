@@ -331,3 +331,29 @@ Deferred: web notices and grants still infer the room and question from the owne
 Hermes to tell the MCP server which message it is answering. Room history still enters the
 model prompt as context; that is a prompt-injection risk the prompt only labels. Event
 de-duplication lasts one sync batch.
+
+### GPT reviews 16–18 (2026-11-20): the public repo, and changing your agent's own code
+
+**16, the repository as published.** No secrets in the files or history, and the test workflow is
+safe for pull requests from forks. Fixed: CI actions pinned to commit SHAs, README commands relative
+to a clone, CONTRIBUTING's clone line, LICENSE name, agent names escaped on the status board, board
+text can't carry raw HTML into the console, and #N links to the room's repo there. Left for the
+owner to decide: the docs name the real GitHub accounts behind each agent and a demo run log.
+
+**17, the customize feature (blocked rollout).** "Use it myself" ran agent-written code as this
+computer's account, which on a shared computer holds every owner's passwords and GitHub logins.
+Fixed: it is offered only where the owner is the only person whose agent runs here (operator
+opt-in HAGENCY_CUSTOM_SHARED_OK=1); one folder per version; tests with no environment, killed as a
+process group, zero tests is a failure; git names its own metadata, links/.gitattributes/.pth are
+refused; buttons work once, in their own private room only; ↩️ and auto-revert undo only their
+own version; HAGENCY_HOME for custom bridges; remote users can't use the console's go-back.
+
+**18, re-check.** Confirmed fixed or partly fixed; also fixed: a PR must be the owner's own change
+(not an official commit), restricted rooms aren't private, old-layout copies are refused clearly.
+
+Deferred: real isolation (a separate OS user or container) is what would make "Use it myself"
+safe on a shared computer; until then it's off there. Rebase/discard still run git in the
+editable tree; existing trial/live checkouts find metadata through their own .git. Shared JSON
+state has no cross-process lock. A failed confirmation message can leave a used button active.
+Pruning keeps the chosen and previous version; a third quick switch could remove one still draining.
+Test stderr is buffered in memory.

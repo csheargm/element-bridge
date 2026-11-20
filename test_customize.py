@@ -168,7 +168,19 @@ class PrivateCopy(Sandbox):
             asyncio.run(customize.send_pr("betty", "--force", "t", "b"))
 
 
+    def test_a_pr_must_be_the_owners_own_change(self):
+        """GPT review 18: an official commit is on her branch too, but isn't hers to send."""
+        official = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True,
+                                  text=True).stdout.strip()
+        self.change("CAPTION = 'x'\n")
+        with self.assertRaisesRegex(customize.CustomError, "already part of the official"):
+            asyncio.run(customize.send_pr("betty", official, "t", "b"))
+        with self.assertRaisesRegex(customize.CustomError, "updated since"):
+            asyncio.run(customize.send_pr("betty", "e" * 40, "t", "b"))
+
+
 class PullRequest(unittest.TestCase):
+    @mock.patch.object(customize, "_git", mock.AsyncMock(side_effect=["", customize.github.GitHubError("no")]))
     def test_forks_pushes_from_the_official_repo_and_opens_a_pr_as_the_agent(self):
         calls = []
 
@@ -181,7 +193,6 @@ class PullRequest(unittest.TestCase):
                 mock.patch.object(customize.github, "git", mock.AsyncMock()) as git:
             url = asyncio.run(customize.send_pr("betty", "a" * 40, "shorter caption", "body"))
         self.assertEqual(url, "https://github.com/csheargm/hagency-rooms/pull/7")
-        self.assertTrue(any("--is-ancestor" in args for args, _ in calls))   # only a commit of betty's copy
         self.assertIn((["repo", "fork", "csheargm/hagency-rooms", "--clone=false"], "betty-agent"), calls)
         self.assertEqual(git.call_args.args[0][1], "https://github.com/second-account/hagency-rooms.git")
         self.assertEqual(git.call_args.args[2], customize.ROOT)               # pushed from the official repo

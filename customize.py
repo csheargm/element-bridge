@@ -33,7 +33,8 @@ MAX_DIFF_FILES = 15
 # Code that decides who the agent obeys and what it may do: changes here get an extra red flag.
 SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "capabilities.py", "redact.py",
              "safe_fetch.py", "supervise.py", "customize.py", "lifecycle.py", "ownership.py", "github.py",
-             "room_context.py", "room_state.py", "tasks.py", "registry.py", "saved_dict.py",
+             "room_context.py", "room_state.py", "tasks.py", "registry.py", "saved_dict.py", "console.py",
+             "pm_chat.py", "onboard.py", "setup_accounts.py", "panel.py",
              "requirements.txt", ".gitignore", "start.sh"}
 # Git-ignored things a live version shares with the official folder (passwords, sessions, state).
 SHARED = (".env", ".venv", ".gh", "data", "rooms", "logs", "agents.json")
@@ -117,6 +118,9 @@ async def _git(args: list[str], cwd: Path, work: Path | None = None) -> str:
 async def prepare(owner: str) -> Path:
     """The owner's private copy: created from the official version, then kept up to date with it."""
     work = work_dir(owner)
+    if work.exists() and not (work.parent / "gitdir").exists():
+        raise CustomError("your private copy is from an older version of this feature; ask me to start over "
+                          "after removing custom/" + owner)
     if not (work.parent / "gitdir").exists():
         work.parent.mkdir(parents=True, exist_ok=True)
         await _git(["worktree", "add", "--force", "-B", f"custom/{owner}", str(work), "HEAD"], ROOT)
@@ -229,7 +233,16 @@ async def prune(owner: str, keep: set) -> None:
 async def send_pr(owner: str, sha: str, title: str, body: str) -> str:
     """Open a pull request to the official repo from the owner's agent's GitHub identity."""
     _sha(sha)
-    await _git(["merge-base", "--is-ancestor", sha, f"refs/heads/custom/{_owner(owner)}"], ROOT)   # theirs
+    try:                                      # a commit of their own copy, and not already official
+        await _git(["merge-base", "--is-ancestor", sha, f"refs/heads/custom/{_owner(owner)}"], ROOT)
+    except github.GitHubError as e:
+        raise CustomError("that change was updated since; use my newest offer") from e
+    try:
+        await _git(["merge-base", "--is-ancestor", sha, "HEAD"], ROOT)
+    except github.GitHubError:
+        pass                                  # not in the official version: theirs to send
+    else:
+        raise CustomError("that's already part of the official version")
     agent = f"{owner}-agent"
     login = (await github.run(["api", "user", "-q", ".login"], agent)).strip()
     if not re.fullmatch(r"[A-Za-z0-9-]{1,39}", login):

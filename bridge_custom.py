@@ -43,7 +43,7 @@ def edit_prompt(request: str) -> str:
 def is_private(room: MatrixRoom) -> bool:
     """Just the owner and me, and nobody can walk in."""
     return (room.joined_count == 2 and room.invited_count == 0
-            and getattr(room, "join_rule", "invite") not in ("public", "knock", "knock_restricted"))
+            and getattr(room, "join_rule", "invite") not in ("public", "knock", "knock_restricted", "restricted"))
 
 
 class BridgeCustom:

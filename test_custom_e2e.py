@@ -1,5 +1,6 @@
 """Live: Betty changes her agent's code from her private room, uses it, then goes back.
 Needs ./start.sh running with betty on Codex or Claude Code. Takes a few minutes (a real agent edit).
+It starts by deleting Betty's private copy (custom/betty): a test install, not someone's real one.
 Run: .venv/bin/python test_custom_e2e.py"""
 import json
 import shutil
