@@ -64,8 +64,10 @@ def issue_body(item: dict, requested_by: str) -> str:
 
 
 def show(items: list[dict]) -> str:
-    return "\n".join(f"{i}. **{it['title']}**\n" + "\n".join(f"   - {c}" for c in it["criteria"])
-                     for i, it in enumerate(items, 1))
+    """Each issue as a bold heading with its criteria as bullets (no nested numbered list: Element's
+    markdown flattened that into one long list, so 3 issues looked like 13)."""
+    return "\n\n".join(f"**Issue {i}: {it['title']}**\n\n" + "\n".join(f"- {c}" for c in it["criteria"])
+                       for i, it in enumerate(items, 1))
 
 
 async def file_issues(agent: str, items: list[dict], approved_by: str) -> list[int]:

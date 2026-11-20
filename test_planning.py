@@ -35,6 +35,15 @@ class Parse(unittest.TestCase):
     def test_empty_plan_is_fine(self):
         self.assertEqual(planning.parse_items("[]"), [])
 
+    def test_plan_renders_as_separate_issues(self):
+        """Seen live: 3 issues with criteria rendered as one flat 13-item numbered list."""
+        import markdown
+        items = [{"title": "A", "criteria": ["a1", "a2"]}, {"title": "B", "criteria": ["b1"]}]
+        html = markdown.markdown(planning.show(items))
+        self.assertEqual(html.count("<strong>"), 2)
+        self.assertNotIn("<ol>", html)
+        self.assertEqual(html.count("<li>"), 3)
+
     def test_issue_body_is_what_the_loop_builds_from(self):
         body = planning.issue_body({"title": "t", "criteria": ["a", "b"]}, "anna")
         self.assertTrue(body.startswith("Acceptance criteria:\n- a\n- b"))
@@ -71,7 +80,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(task["existing"], ["already planned"])
         items = [{"title": "Add index.html", "criteria": ["exists"]}]
         self.run_(self.lp.on_plan_result(self.room, ANNA_AGENT, {"kind": "plan", "task_id": task["task_id"], "items": items}))
-        self.assertIn("1. **Add index.html**", self.sent[-1][0])
+        self.assertIn("**Issue 1: Add index.html**", self.sent[-1][0])
         self.assertIn("✅ to open these 1 issue(s)", self.sent[-1][0])
         self.assertTrue(self.run_(self.lp.confirm(self.room, ANNA)))
         _, to, filing = self.sent[-1]
