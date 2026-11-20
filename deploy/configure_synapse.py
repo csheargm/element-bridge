@@ -12,12 +12,12 @@ config; synapse/.hagency-configured marks success, and bootstrap won't start Syn
 Usage: python3 configure_synapse.py ../synapse/homeserver.yaml
 """
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
 import envfile
+import hostfiles
 
 MARKER = ".hagency-configured"
 WELCOME_LOCALPART = "welcome"                 # #welcome:<server>; pm_welcome.py looks for this room
@@ -69,21 +69,20 @@ def configure(text: str, e: dict) -> str:
     return set_keys(text, extra)
 
 
-def install(path: Path, e: dict) -> None:
-    new = configure(path.read_text(), e)
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(new)
-    st = path.stat()
-    os.chown(tmp, st.st_uid, st.st_gid)      # Synapse's container reads it as its own user (991)
-    os.replace(tmp, path)                    # atomic: the old file or the new one, never half of one
-    (path.parent / MARKER).write_text("ok\n")
+def install(path: Path, e: dict) -> bool:
+    """Configure in place (atomically, never through a link Synapse's container could plant);
+    True if the file changed, so bootstrap restarts Synapse to load it."""
+    old = path.read_text()
+    new = configure(old, e)
+    if new != old:
+        hostfiles.replace(path, new, 0o600, (path.stat().st_uid, path.stat().st_gid))   # Synapse's container reads it as its own user (991)
+    hostfiles.replace(path.parent / MARKER, "ok\n", 0o644)
+    return new != old
 
 
 if __name__ == "__main__":
     values = envfile.read()
     if envfile.validate(values):
         raise SystemExit("✗ run `python3 envfile.py check` first")
-    install(Path(sys.argv[1]), values)
-    print("✓ homeserver.yaml configured: Postgres, invite-only sign-up, Welcome room")
+    changed = install(Path(sys.argv[1]), values)
+    print(f"✓ homeserver.yaml {'configured' if changed else 'unchanged'}: Postgres, invite-only sign-up, Welcome room")

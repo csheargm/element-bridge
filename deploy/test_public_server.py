@@ -30,8 +30,9 @@ class Guard(unittest.TestCase):
         iface = guard.default_iface(ROUTE)
         self.assertEqual(iface, "enp0s6")
         self.assertEqual(guard.month_tx(VNSTAT, iface, NOV), 2 * guard.TB)        # not docker0, not October
-        self.assertEqual(guard.month_tx(VNSTAT, iface, datetime.date(2026, 12, 1)), 0)   # a new month starts at 0
-        self.assertEqual(guard.month_tx({}, iface, NOV), 0)                          # vnstat has no data yet
+        self.assertIsNone(guard.month_tx(VNSTAT, iface, datetime.date(2026, 12, 1)))   # no figure yet: not zero
+        with self.assertRaises(SystemExit):
+            guard.month_tx({}, iface, NOV)                                           # an interface vnstat doesn't watch
 
     def test_thresholds(self):
         self.assertEqual(guard.decide(0.5, 0), ([], False))
@@ -63,6 +64,23 @@ class Guard(unittest.TestCase):
                 self.assertEqual(guard.main(), 0)
                 self.assertFalse(flag.exists())
                 run.assert_not_called()                                              # nothing to say
+
+    def test_missing_figures_keep_this_months_pause_but_not_last_months(self):
+        with tempfile.TemporaryDirectory() as d:
+            flag = Path(d) / "media-paused"
+            with mock.patch.object(guard, "FLAG", flag), mock.patch.object(guard, "measure", return_value=(0.2, None)), \
+                    mock.patch.object(guard.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+                flag.write_text("2026-11")
+                guard.main(NOV)
+                self.assertTrue(flag.exists())                                       # vnstat reset mid-month: still paused
+                self.assertIn("no traffic figure", run.call_args.kwargs["input"])
+                flag.write_text("2026-10")
+                guard.main(NOV)
+                self.assertFalse(flag.exists())                                      # a new month: downloads resume
+            with mock.patch.object(guard, "FLAG", flag), mock.patch.object(guard, "measure", return_value=(0.2, 6 * guard.TB)), \
+                    mock.patch.object(guard.subprocess, "run", return_value=mock.Mock(returncode=0)):
+                guard.main(NOV)
+                self.assertEqual(flag.read_text(), "2026-11")
 
     def test_a_warning_nobody_got_fails_the_run(self):
         self.assertEqual(self.run_main(0.95, 0, alert_rc=1)[0], 1)
@@ -122,12 +140,46 @@ class Alert(unittest.TestCase):
 
 
 class Deploy(unittest.TestCase):
-    def test_refuses_a_commit_that_is_not_on_master_before_touching_the_vm(self):
+    def deploy(self, commit):
         script = Path(__file__).parent / "deploy.sh"
-        out = subprocess.run([str(script), "0" * 40], capture_output=True, text=True, timeout=120,
-                             env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HAGENCY_VM": "no-such-host.invalid"})
-        self.assertNotEqual(out.returncode, 0)
+        return subprocess.run([str(script), commit], capture_output=True, text=True, timeout=120,
+                              env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HAGENCY_VM": "no-such-host.invalid",
+                                   "HOME": tempfile.gettempdir()})
+
+    def test_refuses_a_real_commit_that_is_not_on_master_before_touching_the_vm(self):
+        """GPT review 22: an existing commit, not just an unknown id."""
+        repo = Path(__file__).resolve().parent.parent
+        git = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@example.org", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+        tree = subprocess.run(["git", "-C", str(repo), "write-tree"], capture_output=True, text=True, env=git)
+        if tree.returncode != 0:
+            self.skipTest("no git index here")
+        stray = subprocess.run(["git", "-C", str(repo), "commit-tree", tree.stdout.strip(), "-m", "not on master"],
+                               capture_output=True, text=True, env=git, check=True).stdout.strip()   # dangling: gc removes it
+        out = self.deploy(stray)
+        self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+        self.assertIn("not on GitHub's master", out.stdout)
         self.assertNotIn("Deploying", out.stdout)                                  # stopped before ssh
+
+    def test_refuses_an_unknown_commit(self):
+        out = self.deploy("0" * 40)
+        self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+        self.assertNotIn("Deploying", out.stdout)
+
+    def test_admin_only_on_the_admin_host_and_only_through_cloudflare(self):
+        caddy = (Path(__file__).parent / "Caddyfile").read_text()
+        rooms, matrix, admin = (caddy.split("{$ROOMS_DOMAIN} {")[1].split("\n}")[0],
+                                caddy.split("{$MATRIX_DOMAIN}, {$MATRIX_DOMAIN}:8448 {")[1].split("\n}")[0],
+                                caddy.split("{$ADMIN_DOMAIN} {")[1].split("\n}")[0])
+        for block in (rooms, matrix):
+            self.assertIn("handle /_synapse/admin* {\n\t\trespond 404", block)
+        route = admin.split("route {")[1]
+        order = [route.index(x) for x in ("respond @not_cloudflare 403", "respond @no_access_token 403",
+                                          "reverse_proxy /_synapse/admin*", "reverse_proxy synapse-admin:80")]
+        self.assertEqual(order, sorted(order))                                     # refusals first, as written
+        self.assertIn("not header Cf-Access-Jwt-Assertion *", admin)
+        for net in ("173.245.48.0/20", "104.16.0.0/13", "2606:4700::/32", "2c0f:f248::/32"):
+            self.assertIn(net, admin)
 
     def test_the_site_is_not_served_here_any_more(self):
         here = Path(__file__).parent

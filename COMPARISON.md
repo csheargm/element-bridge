@@ -452,3 +452,50 @@ Re-check of those fixes (GPT, HEAD~1..HEAD), fixed with tests:
   a fresh code; connect.py no longer chmods an existing folder (it warns), connect.sh sets umask 077
   before creating anything and rebuilds a venv made with an older Python.
 - URL check uses fullmatch (no trailing newline); an empty Origin header counts as a browser.
+
+### GPT review 22 (2026-11-20): the public VM runs the shared side (and Synapse Admin)
+
+Range origin/master..HEAD (0023615 deploy: @pm, console, /connect behind Caddy; pinned images;
+deploy.sh from GitHub only; guard.py). Findings, each checked in the code; fixed with tests:
+- **Root wrote through a path @pm controls (high).** bootstrap opened a predictable `.tmp` as root
+  inside @pm's writable tree. The secret now goes to a root-owned `deploy/pm-secret/` mounted
+  read-only, written by `hostfiles.replace` (mkstemp, O_EXCL, rename). configure_synapse.py's config
+  and marker in Synapse's writable folder go through the same function (a planted link is never
+  followed: test_host_tools).
+- **Element's config was 0600 under umask 077 (high).** Element reads it as nginx: configs are
+  chmod 0644 explicitly, and element/synapse-admin are recreated so the new file is mounted.
+- **A compromised @pm could persist across deploys (high).** `release.py` clears ~/hagency/pm to the
+  commit's files plus @pm's named state before unpacking: dropped files, planted modules (e.g. a
+  `json.py`), links at tracked paths and the virtualenv all go (rebuilt from requirements.txt).
+- **The VM checked `origin/master` (medium).** It now fetches the GitHub URL itself and checks
+  FETCH_HEAD; `git status` failing is a failure; a deploy lock (flock); `.deployed` only after
+  bootstrap succeeds; @pm's stop failing stops the deploy.
+- **Synapse kept its old config; Caddy validated after `up` (medium).** Synapse restarts when
+  homeserver.yaml's hash changed; the Caddyfile is validated in a throwaway container first.
+- **Any container on `edge` could spoof X-Forwarded-For (medium).** The header counts only on a
+  connection from Caddy's own address (HAGENCY_TRUST_PROXY=caddy, resolved).
+- **Missing traffic figures cleared an active pause (medium).** The flag records its month; no
+  figure keeps this month's pause (and warns); an interface vnstat doesn't watch is an error.
+- **Origin compared by hostname only (low).** Exact origins now (scheme, host, port).
+- **Shell:** `apt-get update && install` split (set -e), values read before use, `--end-of-options`,
+  `ssh --`. **Tests:** deploy.sh refuses a real commit that isn't on master (a dangling commit).
+- **Oracle's free A1 allowance (high, verified on Oracle's page):** now 1,500 OCPU-h / 9,000 GB-h a
+  month = 2 OCPU / 12 GB. The VM is 4 / 24: the owner's call (resize to 2 / 12); documented.
+
+Added at the owner's request: Synapse Admin at admin.<domain> behind Cloudflare Access. Caddy takes
+only Cloudflare's addresses with a Cf-Access-Jwt-Assertion header (403 otherwise); /_synapse/admin is
+404 on matrix.* and rooms.*. `@owner` is made with a random password kept nowhere; the owner sets
+one with `invite.sh owner-password` (typed in their own ssh terminal).
+
+Deferred, with reasons:
+- **Verifying the Access JWT's signature.** Not in stock Caddy; it needs a plugin build or a
+  forward_auth verifier, plus the Access team domain and AUD tag. Access checks it; the IP filter
+  stops bypasses. Next step once the owner shares the AUD tag.
+- **@pm holds the registration secret and admin-bot's password.** It creates people's agents and
+  invite tokens; moving those to a separate admin service is the next hardening step.
+- **The invite token and an agent's password leave the VM.** By design: the operator hands tokens
+  out, and /connect gives a person their own agent's sign-in (GPT review 21).
+- **Guard is daily and advisory;** media retention bounds age, not total size. Enough at today's
+  scale (42 GB free, nothing near 1 TB); a tighter loop comes with real traffic.
+- **The global wrong-code limit can block real redemptions under attack.** Unchanged from review 21.
+- **Migration from the old ~/hagency/deploy layout.** The VM was fresh; nothing to migrate.

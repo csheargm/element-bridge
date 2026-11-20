@@ -32,15 +32,25 @@ def default_iface(route_table: str) -> str | None:
     return None
 
 
-def month_tx(vnstat: dict, iface: str, today: datetime.date) -> int:
-    """Bytes sent on `iface` this calendar month, from `vnstat --json m`; 0 before vnstat has data."""
+def month_tx(vnstat: dict, iface: str, today: datetime.date) -> int | None:
+    """Bytes sent on `iface` this calendar month, from `vnstat --json m`; None when vnstat has no
+    figure for it (not yet, or its database was reset). An interface vnstat doesn't watch is an error."""
     for entry in vnstat.get("interfaces", []):
         if entry.get("name") != iface:
             continue
         for month in entry.get("traffic", {}).get("month", []):
             if month.get("date", {}).get("year") == today.year and month["date"].get("month") == today.month:
-                return int(month.get("tx", 0))
-    return 0
+                return int(month["tx"])
+        return None
+    raise SystemExit(f"✗ vnstat doesn't watch {iface}: sudo vnstat --add -i {iface}")
+
+
+def paused_this_month(today: datetime.date) -> bool:
+    """The flag names the month it was set in; a pause never outlives that month."""
+    try:
+        return FLAG.read_text().strip() == today.strftime("%Y-%m")
+    except OSError:
+        return False
 
 
 def decide(disk_used: float, tx: int) -> tuple[list[str], bool]:
@@ -57,7 +67,7 @@ def decide(disk_used: float, tx: int) -> tuple[list[str], bool]:
     return warnings, pause
 
 
-def measure() -> tuple[float, int]:
+def measure() -> tuple[float, int | None]:
     usage = shutil.disk_usage("/")
     iface = default_iface(Path("/proc/net/route").read_text())
     out = subprocess.run(["vnstat", "--json", "m"], capture_output=True, text=True, timeout=60)
@@ -66,12 +76,19 @@ def measure() -> tuple[float, int]:
     return usage.used / usage.total, month_tx(json.loads(out.stdout), iface, datetime.date.today())
 
 
-def main() -> int:
+def main(today: datetime.date | None = None) -> int:
+    today = today or datetime.date.today()
     disk_used, tx = measure()
-    warnings, pause = decide(disk_used, tx)
+    if tx is None:                            # no figure: keep a pause set this month, don't invent zero
+        warnings, pause = decide(disk_used, 0)
+        pause = paused_this_month(today)
+        warnings.append("⚠️ vnstat has no traffic figure for this month; check `vnstat -m` on the server.")
+        tx = 0
+    else:
+        warnings, pause = decide(disk_used, tx)
     FLAG.parent.mkdir(exist_ok=True)
     if pause:
-        FLAG.touch()
+        FLAG.write_text(today.strftime("%Y-%m"))
     else:
         FLAG.unlink(missing_ok=True)
     print(f"disk {disk_used:.0%}, sent this month {tx / TB:.3f} TB, media {'paused' if pause else 'on'}")

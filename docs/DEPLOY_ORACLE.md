@@ -12,6 +12,7 @@ rooms.hagencylabs.xyz   Element Web            their agent's connector (connect.
   /panel /console /auth/*  @pm's console         bridge running Codex or Claude Code
   /connect /connect.sh     pairing + installer   → logs in as @anna-agent on the server
 matrix.hagencylabs.xyz  Synapse (443 + 8448)   Element desktop / mobile (or the web)
+admin.hagencylabs.xyz   Synapse Admin, behind Cloudflare Access (the only way to /_synapse/admin)
 @pm                     welcome, pairing, the console (no model: PM_BRAIN=off)
 ```
 
@@ -24,14 +25,42 @@ existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tun
 |----------|------|-----------|
 | caddy    | HTTPS (Let's Encrypt), routes below | 80, 443, 8448 (the only published ports) |
 | element  | Element Web, pointed at this homeserver | via Caddy |
-| synapse  | the homeserver: invite-token sign-up only, no guests, no URL previews | via Caddy; `/_synapse/admin` is never routed |
+| synapse  | the homeserver: invite-token sign-up only, no guests, no URL previews | via Caddy; `/_synapse/admin` only on the admin host |
+| synapse-admin | the admin web UI (static), `restrictBaseUrl` = the admin host | via Caddy, admin host only |
 | postgres | Synapse's database | an internal network only Synapse is on |
 | pm       | @pm (`loop.py`): welcomes newcomers, the console, `/connect` and `/connect.sh` | via Caddy |
 
-Images are pinned in the compose file, so a commit always runs the same versions. @pm runs as
+Images are pinned in the compose file (Synapse Admin also by digest), so a commit always runs the same versions. @pm runs as
 uid 1000 from `~/hagency/pm` (that commit's files plus its own state: `.env` with its passwords,
-`agents.json`, `data/`). It reads Synapse's registration secret from a copy bootstrap makes
-(`data/registration_shared_secret`, mode 600), never Synapse's whole config.
+`agents.json`, `data/`); each deploy clears everything else there (`deploy/release.py`: dropped
+files, anything planted, the virtualenv). It reads Synapse's registration secret from a read-only
+copy in a root-owned folder (`deploy/pm-secret/`), never Synapse's whole config.
+
+## The admin host
+
+`admin.hagencylabs.xyz` is proxied by Cloudflare (orange cloud) and guarded by a Cloudflare Access
+policy (the owner's, in Cloudflare). Caddy serves Synapse Admin there and proxies `/_matrix` and
+`/_synapse/admin` to Synapse, but only for requests from Cloudflare's published addresses (vendored
+in the Caddyfile from cloudflare.com/ips-v4 and /ips-v6, 2026-11-20; update them when Cloudflare's
+list changes) that carry a `Cf-Access-Jwt-Assertion` header; anything else gets 403. Caddy does not
+verify the token's signature (that needs a plugin or a verifier service plus Access's team domain
+and AUD tag): Access itself checks it, and the address filter stops anyone bypassing Cloudflare.
+On `matrix.*` and `rooms.*`, `/_synapse/admin` is 404.
+
+The origin certificate (Cloudflare SSL mode Full (strict)) is Caddy's own Let's Encrypt one, by
+HTTP-01 through the proxy. Let's Encrypt must reach
+`http://admin.hagencylabs.xyz/.well-known/acme-challenge/` past Access: give that path a Bypass
+policy in Access (or issue the certificate before Access is switched on), and don't let
+"Always Use HTTPS" redirect it before the first certificate exists.
+
+**The owner's admin account:** bootstrap creates `@owner` as a server admin with a random password
+that is kept nowhere. Set yours (typed twice, never echoed or stored; other sessions are signed out):
+
+```
+ssh -t hagency-vm ~/hagency/app/deploy/invite.sh owner-password
+```
+
+Then sign in at https://admin.hagencylabs.xyz as `owner`. Run it again whenever you want a new password.
 
 ## Free-tier guards
 
@@ -46,7 +75,10 @@ uid 1000 from `~/hagency/pm` (that commit's files plus its own state: `.env` wit
 
 ## Once: the VM and DNS (the owner)
 
-1. **VM:** Ubuntu 24.04, Ampere A1 Flex 4 OCPU / 24 GB. Ingress rules for TCP 80, 443 and 8448.
+1. **VM:** Ubuntu 24.04, Ampere A1 Flex. Oracle's Always Free A1 allowance is now 1,500 OCPU-hours
+   and 9,000 GB-hours a month, i.e. **2 OCPU / 12 GB** (checked 2026-11-20 on Oracle's Always Free
+   page); a 4 OCPU / 24 GB instance running all month goes past it on a Pay-As-You-Go account.
+   Everything here fits in 2 OCPU / 12 GB. Ingress rules for TCP 80, 443 and 8448.
    `ssh hagency-vm` in `~/.ssh/config` on the Mac.
 2. **DNS** in Cloudflare, **DNS only** (grey cloud): Caddy gets its own certificates, and
    federation on 8448 can't pass Cloudflare's proxy.
@@ -55,6 +87,7 @@ uid 1000 from `~/hagency/pm` (that commit's files plus its own state: `.env` wit
    |--------|------|---------------|----------|
    | rooms  | A    | `<public IP>` | DNS only |
    | matrix | A    | `<public IP>` | DNS only |
+   | admin  | A    | `<public IP>` | Proxied, with a Cloudflare Access policy |
 
    `www` points at GitHub Pages (see the Pages settings), not at the VM.
 
@@ -81,7 +114,8 @@ It checks the commit is on GitHub's master, then on the VM: fetches it from GitH
 
 Then `deploy.sh` checks over HTTPS from the Mac (`deploy/health.py`): Element, its config, the
 client API, token-only sign-up, @pm serving `/connect.sh`, `.well-known`, federation on 8448, and
-that the admin API isn't public. Certificates come on the first request once DNS points at the VM.
+that the admin API isn't public there, and that the admin host refuses a request sent straight to
+the VM. Certificates come on the first request once DNS points at the VM.
 
 Secrets (`deploy/.env`, `deploy/synapse/homeserver.yaml`, `~/hagency/pm/.env`) are made on the VM,
 mode 600, and are never printed, copied back or committed. Nobody edits code on the server:
@@ -91,7 +125,7 @@ change it here, push to master, deploy the commit.
 
 ```
 ssh hagency-vm ~/hagency/app/deploy/invite.sh token 5   # a token for 5 sign-ups, valid 7 days
-ssh -t hagency-vm ~/hagency/app/deploy/invite.sh admin  # your own admin account (asks for a password)
+ssh -t hagency-vm ~/hagency/app/deploy/invite.sh admin  # another admin account (asks for a password)
 ```
 
 `token` runs in @pm's container: it signs in as `admin-bot` (a server admin @pm made with the

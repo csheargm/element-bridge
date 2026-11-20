@@ -52,8 +52,8 @@ def setup() -> bool:
     raise SystemExit("Synapse didn't come back within 60 s: docker compose logs synapse")
 
 
-def new_token(uses: int = 1, days: int = TOKEN_DAYS) -> str:
-    """A registration token from Synapse's admin API, signed in as admin-bot only for this call."""
+def admin_call(method: str, path: str, body: dict) -> dict:
+    """One call to Synapse's admin API, signed in as admin-bot only for this call."""
     env = load_env()
     try:
         password, _ = setup_accounts.ensure_user(env, ADMIN, setup_accounts.shared_secret(), admin=True)
@@ -61,10 +61,15 @@ def new_token(uses: int = 1, days: int = TOKEN_DAYS) -> str:
         raise SystemExit(str(e)) from e
     token = setup_accounts.login(ADMIN, password)
     try:
-        r = api("POST", "/_synapse/admin/v1/registration_tokens/new",
-                {"uses_allowed": uses, "expiry_time": int((time.time() + days * 86400) * 1000)}, token=token)
+        return api(method, path, body, token=token)
     finally:
         api("POST", "/_matrix/client/v3/logout", {}, token=token)     # the admin session ends here
+
+
+def new_token(uses: int = 1, days: int = TOKEN_DAYS) -> str:
+    """A registration token from Synapse's admin API."""
+    r = admin_call("POST", "/_synapse/admin/v1/registration_tokens/new",
+                   {"uses_allowed": uses, "expiry_time": int((time.time() + days * 86400) * 1000)})
     if "token" not in r:
         raise SystemExit(f"Synapse refused the token: {r.get('errcode')} {r.get('error')}")
     return r["token"]

@@ -16,63 +16,58 @@ command -v docker >/dev/null || pkgs+=(docker.io)
 docker compose version >/dev/null 2>&1 || sudo docker compose version >/dev/null 2>&1 || pkgs+=(docker-compose-v2)
 command -v vnstat >/dev/null || pkgs+=(vnstat)
 if [ ${#pkgs[@]} -gt 0 ]; then
-  sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
 fi
 # The journal stays small on the 45 GB disk (Docker's own logs rotate: docker-compose.yml).
-journal=$'[Journal]\nSystemMaxUse=200M\n'
-if [ "$(cat /etc/systemd/journald.conf.d/hagency.conf 2>/dev/null)" != "${journal%$'\n'}" ]; then
+journal=$'[Journal]\nSystemMaxUse=200M'
+if [ "$(cat /etc/systemd/journald.conf.d/hagency.conf 2>/dev/null)" != "$journal" ]; then
   sudo mkdir -p /etc/systemd/journald.conf.d
-  printf '%s' "$journal" | sudo tee /etc/systemd/journald.conf.d/hagency.conf >/dev/null
+  printf '%s\n' "$journal" | sudo tee /etc/systemd/journald.conf.d/hagency.conf >/dev/null
   sudo systemctl restart systemd-journald
 fi
 # Firewall: OCI's security list opens 80/443/8448. Oracle's host iptables reject other INPUT, but
-# Docker's published ports go through its own FORWARD rules (checked by health.py from outside).
+# Docker's published ports go through its own FORWARD rules (deploy.sh checks them from outside).
 
 # 2. Settings: created mode 600, secrets filled, every value validated.
 python3 envfile.py check
+SERVER_NAME=$(get SERVER_NAME)
+MATRIX_DOMAIN=$(get MATRIX_DOMAIN)
 dc() { sudo docker compose --env-file .env "$@"; }
 dc config --quiet                                        # the compose file and .env agree
 dc pull --quiet                                          # fails here on a wrong tag or architecture
+# The Caddyfile is checked before anything is replaced (a running Caddy keeps its old one otherwise).
+sudo docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" -e ROOMS_DOMAIN="$(get ROOMS_DOMAIN)" \
+  -e MATRIX_DOMAIN="$MATRIX_DOMAIN" -e ADMIN_DOMAIN="$(get ADMIN_DOMAIN)" caddy:2.11.9 \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
+  || { echo "✗ the Caddyfile doesn't validate; nothing was changed"; exit 1; }
 
 # 3. Synapse's config: generated once, then configured; Synapse never starts without the marker.
 if ! sudo test -f synapse/homeserver.yaml; then
   mkdir -p synapse
-  dc run --rm --no-deps -e SYNAPSE_SERVER_NAME="$(get SERVER_NAME)" -e SYNAPSE_REPORT_STATS=no synapse generate
+  dc run --rm --no-deps -e SYNAPSE_SERVER_NAME="$SERVER_NAME" -e SYNAPSE_REPORT_STATS=no synapse generate
 fi
+before=$(sudo sha256sum synapse/homeserver.yaml)
 sudo python3 configure_synapse.py synapse/homeserver.yaml   # every run: idempotent, checks the name
 sudo test -f synapse/.hagency-configured || { echo "✗ Synapse isn't configured; not starting it"; exit 1; }
+after=$(sudo sha256sum synapse/homeserver.yaml)
 
-# 4. @pm's copy of the registration secret (it creates its own account and people's agents);
-#    @pm can't read Synapse's config, which also holds the database password.
-mkdir -p "$PM_DIR/data" && chmod 700 "$PM_DIR" "$PM_DIR/data"
-sudo python3 - synapse/homeserver.yaml "$PM_DIR/data/registration_shared_secret" "$(id -u)" <<'PY'
-import os, re, sys
-found = re.search(r'(?m)^registration_shared_secret: "?([^"\n]+)"?', open(sys.argv[1]).read())
-if not found:
-    raise SystemExit("✗ homeserver.yaml has no registration_shared_secret")
-fd = os.open(sys.argv[2] + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, "w") as f:
-    f.write(found.group(1))
-os.chown(sys.argv[2] + ".tmp", int(sys.argv[3]), int(sys.argv[3]))
-os.replace(sys.argv[2] + ".tmp", sys.argv[2])
-PY
+# 4. @pm's copy of the registration secret, in a root-owned folder it gets read-only (it creates its
+#    own account and people's agents). @pm never sees Synapse's config or the database password.
+sudo python3 hostfiles.py secret synapse/homeserver.yaml pm-secret "$(id -u)"
+mkdir -p "$PM_DIR/data"
+chmod 700 "$PM_DIR" "$PM_DIR/data"
 
-# 5. Element points at our homeserver.
-MATRIX_DOMAIN=$(get MATRIX_DOMAIN) SERVER_NAME=$(get SERVER_NAME) python3 - <<'PY'
-import json, os
-cfg = {"default_server_config": {"m.homeserver": {"base_url": f"https://{os.environ['MATRIX_DOMAIN']}",
-                                                  "server_name": os.environ["SERVER_NAME"]}},
-       "disable_custom_urls": False, "disable_guests": True, "brand": "Hagency Rooms"}
-fd = os.open("element-config.json", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)   # public by design
-with os.fdopen(fd, "w") as f:
-    json.dump(cfg, f, indent=2)
-PY
+# 5. Element points at our homeserver; Synapse Admin may only use the admin host.
+python3 hostfiles.py public
 
-# 6. Start or update (@pm restarts on the new code), then load the current Caddyfile.
-mkdir -p flags && chmod 755 flags
+# 6. Start or update (@pm starts on the new code), then load the current Caddyfile.
+mkdir -p flags
+chmod 755 flags
 dc stop pm >/dev/null 2>&1 || true                       # its files changed under it (deploy.sh): a clean start
 dc up -d --remove-orphans
-dc exec -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+dc up -d --no-deps --force-recreate element synapse-admin >/dev/null 2>&1   # their configs are new files
+if [ "$before" != "$after" ]; then dc restart synapse; fi    # Synapse reads its config only at start
 dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 # 7. The daily free-tier check (guard.py): a systemd timer, as root.
@@ -92,11 +87,15 @@ Persistent=true
 WantedBy=timers.target"
 printf '%s\n' "$unit" | sudo tee /etc/systemd/system/hagency-guard.service >/dev/null
 printf '%s\n' "$timer" | sudo tee /etc/systemd/system/hagency-guard.timer >/dev/null
-sudo systemctl daemon-reload && sudo systemctl enable --now hagency-guard.timer >/dev/null 2>&1
+sudo systemctl daemon-reload
+sudo systemctl enable --now hagency-guard.timer >/dev/null 2>&1
 
 # 8. Done only when everything answers inside (deploy.sh then checks HTTPS from outside).
 for _ in $(seq 1 100); do
-  dc exec -T pm .venv/bin/python deploy/health.py --internal "$(get MATRIX_DOMAIN)" "$(get SERVER_NAME)" >/dev/null 2>&1 && break
+  dc exec -T pm .venv/bin/python deploy/health.py --internal "$MATRIX_DOMAIN" "$SERVER_NAME" >/dev/null 2>&1 && break
   sleep 3                                                # @pm installs its packages on a first start
 done
-dc exec -T pm .venv/bin/python deploy/health.py --internal "$(get MATRIX_DOMAIN)" "$(get SERVER_NAME)"
+dc exec -T pm .venv/bin/python deploy/health.py --internal "$MATRIX_DOMAIN" "$SERVER_NAME"
+# The owner's Synapse admin account (for Synapse Admin): its first password is random and kept
+# nowhere; the owner sets their own with `invite.sh owner-password` (docs/DEPLOY_ORACLE.md).
+dc exec -T pm .venv/bin/python deploy/admin_user.py ensure owner

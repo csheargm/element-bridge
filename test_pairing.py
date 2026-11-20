@@ -185,13 +185,17 @@ class BehindTheProxy(unittest.TestCase):
     def req(self, xff):
         return mock.Mock(headers={"X-Forwarded-For": xff} if xff else {}, remote="172.18.0.5")
 
-    def test_forwarded_client_only_when_trusted(self):
-        with mock.patch.object(remote_agent, "TRUST_PROXY", True):
+    def test_forwarded_client_only_from_the_proxy_itself(self):
+        with mock.patch.object(remote_agent, "proxy_addresses", return_value={"172.18.0.5"}):
             self.assertEqual(remote_agent.client_of(self.req("203.0.113.7")), "203.0.113.7")
             self.assertEqual(remote_agent.client_of(self.req("1.1.1.1, 203.0.113.7")), "203.0.113.7")   # Caddy's own entry
             self.assertEqual(remote_agent.client_of(self.req(None)), "172.18.0.5")
-        with mock.patch.object(remote_agent, "TRUST_PROXY", False):
-            self.assertEqual(remote_agent.client_of(self.req("203.0.113.7")), "172.18.0.5")   # spoofable locally
+        with mock.patch.object(remote_agent, "proxy_addresses", return_value={"172.18.0.9"}):   # another container
+            self.assertEqual(remote_agent.client_of(self.req("203.0.113.7")), "172.18.0.5")
+        with mock.patch.object(remote_agent, "TRUST_PROXY", ""):                # local dev: no proxy at all
+            self.assertEqual(remote_agent.proxy_addresses(), set())
+        with mock.patch.object(remote_agent, "TRUST_PROXY", "no-such-host.invalid"):
+            self.assertEqual(remote_agent.proxy_addresses(), set())
 
 
 class PublicServerAccounts(unittest.TestCase):

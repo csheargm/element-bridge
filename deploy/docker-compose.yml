@@ -13,12 +13,13 @@ services:
     environment:
       ROOMS_DOMAIN: ${ROOMS_DOMAIN}
       MATRIX_DOMAIN: ${MATRIX_DOMAIN}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./flags:/flags:ro               # guard.py's media-paused switch
       - caddy_data:/data
       - caddy_config:/config
-    depends_on: [synapse, element, pm]
+    depends_on: [synapse, element, pm, synapse-admin]
     networks: [edge]
     logging: *logs
     restart: unless-stopped
@@ -46,6 +47,12 @@ services:
     networks: [edge]
     logging: *logs
     restart: unless-stopped
+  synapse-admin:                        # the admin web UI (static), only at ADMIN_DOMAIN behind Cloudflare Access
+    image: ghcr.io/etkecc/synapse-admin:v0.11.4-etke54@sha256:668552a2b59df4dc99f9d7a798372b67733173158e50b3784611d1dbd0d5a905
+    volumes: ["./synapse-admin-config.json:/var/public/config.json:ro"]   # restrictBaseUrl: this server only
+    networks: [edge]
+    logging: *logs
+    restart: unless-stopped
   pm:                                   # @pm: welcome, pairing (/connect) and the console, as uid 1000
     image: python:3.12.16-slim
     user: "1000:1000"
@@ -58,12 +65,14 @@ services:
       HAGENCY_PUBLIC_HOMESERVER: https://${MATRIX_DOMAIN}
       HAGENCY_PUBLIC_CONSOLE: https://${ROOMS_DOMAIN}
       ELEMENT_ORIGIN: https://${ROOMS_DOMAIN}
-      HAGENCY_SHARED_SECRET_FILE: /app/data/registration_shared_secret
-      HAGENCY_TRUST_PROXY: "1"            # Caddy sets X-Forwarded-For
+      HAGENCY_SHARED_SECRET_FILE: /run/hagency/registration_shared_secret
+      HAGENCY_TRUST_PROXY: caddy          # X-Forwarded-For counts only from Caddy's address
       HAGENCY_OPERATOR: ${OPERATOR:-}     # who guard.py's warnings go to
       PANEL_HOST: 0.0.0.0                 # reachable by Caddy on the edge network only
       PM_BRAIN: "off"                     # no model keys on this server: @pm uses its phrase rules
-    volumes: ["../../pm:/app"]          # ~/hagency/pm: this commit's files (deploy.sh) and @pm's state
+    volumes:
+      - ../../pm:/app                   # ~/hagency/pm: this commit's files (deploy.sh) and @pm's state
+      - ./pm-secret:/run/hagency:ro     # root-owned on the host: @pm can read the secret, never replace it
     depends_on: [synapse]
     networks: [edge]
     logging: *logs

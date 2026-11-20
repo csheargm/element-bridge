@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 ENV, EXAMPLE = HERE / ".env", HERE / ".env.example"
 DOMAIN = r"(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
 RULES = {
-    "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN,
+    "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN, "ADMIN_DOMAIN": DOMAIN,
     "POSTGRES_PASSWORD": r"[0-9a-f]{64}",
     "OPERATOR": r"[a-z0-9._=-]{1,64}",       # the account guard.py warns (a localpart)
 }

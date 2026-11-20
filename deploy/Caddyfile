@@ -3,6 +3,9 @@
 # Element Web (rooms.hagencylabs.xyz), plus @pm's console on the same name: the side panel, the
 # console page, its sign-in and actions, and bring-your-own pairing (/connect, /connect.sh).
 {$ROOMS_DOMAIN} {
+	handle /_synapse/admin* {
+		respond 404
+	}
 	@pm path /panel /console /console/* /auth/* /connect /connect.sh
 	handle @pm {
 		reverse_proxy pm:8650
@@ -52,5 +55,28 @@
 	}
 	handle {
 		respond 404
+	}
+}
+
+# Synapse Admin (admin.hagencylabs.xyz): the only name that reaches /_synapse/admin. Its DNS record is
+# proxied by Cloudflare and the owner's Cloudflare Access policy guards it, so here: only Cloudflare's
+# addresses (vendored from https://www.cloudflare.com/ips-v4 and /ips-v6 on 2026-11-20; update them
+# when Cloudflare's list changes), and only requests carrying an Access token. Caddy can't verify the
+# token's signature without a plugin, so Access itself is what checks it (COMPARISON.md, review 22).
+{$ADMIN_DOMAIN} {
+	@not_cloudflare not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	@no_access_token not header Cf-Access-Jwt-Assertion *
+	route {                           # in this order, as written: the refusals come first
+		respond @not_cloudflare 403
+		respond @no_access_token 403
+		reverse_proxy /_matrix* synapse:8008
+		reverse_proxy /_synapse/admin* synapse:8008
+		reverse_proxy synapse-admin:80
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
 	}
 }

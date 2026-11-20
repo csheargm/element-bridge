@@ -7,6 +7,7 @@ computer fetch the agent's sign-in once, from POST /connect on the console serve
 serves the installer. The password is never logged; only the code's hash is stored.
 """
 import os
+import socket
 import threading
 
 from aiohttp import web
@@ -25,14 +26,25 @@ NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 INSTALLER = ROOT / "connect.sh"
 CONSOLE_MARK = "__HAGENCY_CONSOLE__"
 # Behind the public server's Caddy every request comes from Caddy; it sets X-Forwarded-For to the
-# real client (Caddy trusts no incoming one), so the per-client limit sees people, not the proxy.
-TRUST_PROXY = os.environ.get("HAGENCY_TRUST_PROXY") == "1"
+# real client (Caddy trusts no incoming one). HAGENCY_TRUST_PROXY names the proxy (its Docker host
+# name): the header counts only on a connection from that address, never from another container.
+TRUST_PROXY = os.environ.get("HAGENCY_TRUST_PROXY", "")
+
+
+def proxy_addresses() -> set[str]:
+    try:
+        return {info[4][0] for info in socket.getaddrinfo(TRUST_PROXY, None)} if TRUST_PROXY else set()
+    except OSError:
+        return set()                          # can't resolve the proxy: trust nobody's header
 
 
 def client_of(request) -> str:
-    """Who is asking, for the wrong-code limiter: the proxy's X-Forwarded-For when we're behind one."""
-    forwarded = request.headers.get("X-Forwarded-For", "") if TRUST_PROXY else ""
-    return forwarded.split(",")[-1].strip()[:64] or request.remote or "?"
+    """Who is asking, for the wrong-code limiter: the proxy's X-Forwarded-For when it came from the proxy."""
+    peer = request.remote or "?"
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded and peer in proxy_addresses():
+        return forwarded.split(",")[-1].strip()[:64] or peer
+    return peer
 
 
 def install_line(code: str) -> str:

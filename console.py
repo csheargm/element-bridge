@@ -55,6 +55,11 @@ def allowed_hosts() -> tuple[str, ...]:
     return (*LOCAL_HOSTS, urllib.parse.urlsplit(public_url()).hostname)
 
 
+def allowed_origins() -> set[str]:
+    """Exact origins (scheme, host, port) our own page is served from."""
+    return {public_url(), *(f"http://{h}:{PORT}" for h in LOCAL_HOSTS)}
+
+
 def new_session(user_id: str, room: str | None = None) -> str:
     token = secrets.token_urlsafe(32)
     _sessions[token] = (user_id, time.time() + SESSION_S, room)
@@ -185,8 +190,7 @@ def allowed(request, post: bool) -> bool:
         return False
     if post:
         origin = request.headers.get("Origin")
-        if request.content_type != "application/json" or (origin and urllib.parse.urlsplit(origin).hostname
-                                                             not in hosts):
+        if request.content_type != "application/json" or (origin and origin not in allowed_origins()):
             return False
     return True
 
