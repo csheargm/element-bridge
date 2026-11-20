@@ -30,7 +30,7 @@ class Render(unittest.TestCase):
     def test_shows_status_waiting_plan_and_whose_agent_is_whose(self):
         page = panel.render(self.loop, "!r")
         self.assertIn("<strong>Project status</strong>", page)
-        self.assertIn("a plan — anna reacts ✅", page)
+        self.assertIn("a plan — anna reacts 👍", page)
         self.assertIn("anna-agent — anna's agent, follows: always, may use: web", page)
         self.assertIn("betty-agent — betty's agent, follows: ask, may use: project only <span class=muted>(owner not here: idle)", page)
 
