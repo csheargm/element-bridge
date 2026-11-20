@@ -20,3 +20,33 @@ def save(data: dict) -> None:
     tmp = PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=1))
     os.replace(tmp, PATH)
+
+
+# --- ownership: the admin created both accounts at onboarding, so this mapping is authoritative on
+# this server. (Agents registered elsewhere, e.g. over federation, would need a two-sided claim:
+# the owner names the agent AND the agent names the owner. Future work.)
+FOLLOW = ("always", "ask", "never")
+
+
+def agent_of(person: str) -> str:
+    """The localpart of `person`'s agent (default <person>-agent)."""
+    return load().get(person, {}).get("agent_user") or f"{person}-agent"
+
+
+def owner_of(agent: str) -> str | None:
+    """The person whose agent `agent` (a localpart) is, or None if it isn't a registered agent."""
+    return next((p for p in load() if agent_of(p) == agent), None)
+
+
+def follow(person: str) -> str:
+    """Bring the person's agent along when they join a project room: always (default), ask, never."""
+    value = load().get(person, {}).get("follow", "always")
+    return value if value in FOLLOW else "always"
+
+
+def set_follow(person: str, value: str) -> None:
+    if value not in FOLLOW:
+        raise ValueError(f"follow must be one of {FOLLOW}")
+    data = load()
+    data.setdefault(person, {})["follow"] = value
+    save(data)

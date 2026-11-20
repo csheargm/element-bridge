@@ -7,8 +7,14 @@ import re
 
 OFF, ASSIST, AUTONOMOUS, STATUS, SHOW_PLAN, PLAN, ABOUT, HELP, UNKNOWN = (
     "off", "assist", "autonomous", "status", "show_plan", "plan", "about", "help", "unknown")
+FOLLOW_NEVER, FOLLOW_ASK, FOLLOW_ALWAYS = "follow_never", "follow_ask", "follow_always"
 
 _RULES = [   # checked in order; the first match wins, so the safest meanings come first
+    # The follow-me settings mention "my agent" explicitly, so they can go before "stop" without
+    # ever swallowing a real stop ("stop bringing my agent" is a setting, not a halt).
+    (FOLLOW_NEVER, r"\b(don'?t|do not|never|stop|no longer) (bring|invit|add)\w* my agent\b"),
+    (FOLLOW_ASK, r"\bask (me )?(first |before )?(\w+ )?(bring|invit|add)\w* my agent\b|\bask me (first|before)\b.*\bmy agent\b"),
+    (FOLLOW_ALWAYS, r"\b(always |please )?(bring|invite|add) my agent\b"),
     (OFF, r"\b(stop|pause|halt|kill|freeze|turn (\w+ ){0,3}off|switch (\w+ ){0,3}off|shut (\w+ )?down|"
           r"hold (on|off)|cancel)\b"),
     (ASSIST, r"\b(approv\w*|check with (us|me)|ask (us|me)|assist\w*|let (us|me) (review|check|decide)|"

@@ -24,6 +24,7 @@ import room_state
 
 log = logging.getLogger("loop")
 CONFIRM_S = 300
+FOLLOW_SETTINGS = {intents.FOLLOW_ALWAYS: "always", intents.FOLLOW_ASK: "ask", intents.FOLLOW_NEVER: "never"}
 NOTE_WORDS = 6               # a longer message to @pm that isn't a command is a requirement, not noise
 LEVEL_WORDS = {"off": "stopped: no new work is handed out and nothing is merged",
                "assist": "assist: agents build and review; a person merges each change",
@@ -136,6 +137,8 @@ class Chat:
             await self.say(rid, await self.change_level(rid, "autonomous") or
                            "Running on my own now: agents build, review and merge without asking. "
                            "Say \"stop\" anytime.")
+        elif intent in FOLLOW_SETTINGS:      # the sender's own setting only (pm_follow.py)
+            await self.set_follow(room, sender, FOLLOW_SETTINGS[intent])
         elif intent == intents.SHOW_PLAN:
             await self.show_plan(rid)
         elif intent == intents.STATUS:
@@ -165,8 +168,8 @@ class Chat:
             return False
         if p.get("kind") != "plan_request" and sender != p.get("by"):
             return False              # only the person who asked confirms (a stray "yes" from anyone else doesn't)
-        if not await room_state.is_moderator(self.client, room, sender):
-            return False              # authority re-checked now: they may have been demoted since
+        if p.get("kind") != "bring" and not await room_state.is_moderator(self.client, room, sender):
+            return False              # authority re-checked now (bringing your OWN agent needs none)
 
         self.pending.pop(room.room_id)
         self.note_outcome(p.get("event_id"), "approved")
@@ -174,6 +177,8 @@ class Chat:
             await self.start_plan(room, sender)                 # planned with the confirming owner's agent
         elif p.get("kind") == "plan":
             await self.file_plan(room, p, sender)               # pm_plan.py
+        elif p.get("kind") == "bring":                          # pm_follow.py: "bring your agent? ✅"
+            await self.invite_agent(room.room_id, p["agent"], "Your agent is on its way in.")
         else:                                 # a mode switch asked about with ✅ (ask_mode)
             level = p.get("level", "autonomous")
             await self.say(room.room_id, await self.change_level(room.room_id, level) or

@@ -13,6 +13,7 @@ import uuid
 from nio import MatrixRoom
 
 import github
+import ownership
 import planning
 from setup_accounts import api
 
@@ -25,16 +26,16 @@ class Planner:
     last_plans: dict              # room → the plan last shown (items, agent, by), kept on disk
 
     def own_agent(self, room: MatrixRoom, person: str) -> str | None:
-        """The requester's own agent in this room (<person>-agent): planning runs on their model."""
-        want = f"@{person.split(':')[0].lstrip('@')}-agent:{person.split(':', 1)[1]}"
+        """The requester's own registered agent in this room: planning runs on their model."""
+        want = ownership.agent_id(person)
         return want if want in self.agents_in(room) else None
 
     async def start_plan(self, room: MatrixRoom, sender: str) -> None:
         rid = room.room_id
         agent = self.own_agent(room, sender)
         if agent is None:
-            await self.say(rid, f"I plan with your own agent, and {sender.split(':')[0]}-agent isn't in this "
-                                "room. Invite it, then ask me again.")
+            await self.say(rid, f"I plan with your own agent, and {ownership.agent_id(sender).split(':')[0][1:]} "
+                                "isn't in this room. Invite it, then ask me again.")
             return
         discussion = await asyncio.to_thread(self.discussion, rid)
         issues = await github.run_json(["issue", "list", "-R", github.REPO, "--state", "open", "--label",

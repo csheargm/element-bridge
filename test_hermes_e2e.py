@@ -8,6 +8,7 @@ A. Hermes answers its owner in the room, and ignores betty (MATRIX_ALLOWED_USERS
 B. #210 → Hermes builds (via MCP) → betty-agent reviews → Hermes merges (Autonomous).
 C. #211 → betty-agent builds → Hermes reviews (via MCP) → betty-agent merges.
 """
+import json
 import os
 import secrets
 import shutil
@@ -80,7 +81,9 @@ def main():
     for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # each run starts with no
         path = PROFILE / stale                                                 # memory of earlier runs
         shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
-    run_env = {**os.environ, **gh_env}
+    agents_file = tmp / "agents.json"                    # anna's agent here is anna-hermes-agent
+    agents_file.write_text(json.dumps({"anna": {"agent_user": HERMES}, "betty": {}}))
+    run_env = {**os.environ, **gh_env, "HAGENCY_AGENTS": str(agents_file)}
     logs = open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([PY, *a], cwd=ROOT, env=run_env, stdout=logs, stderr=logs)
              for a in (["bridge.py", "betty"], ["loop.py"])]

@@ -33,6 +33,9 @@ ACTIONS = {
     "approve": "approve what is waiting for approval (see 'Waiting')",
     "show_plan": "show the current plan again",
     "status": "say what's happening (mode, progress, what's next)",
+    "follow_always": "the sender wants their own agent brought along whenever they join a project room",
+    "follow_ask": "the sender wants to be asked before their agent is brought into a room",
+    "follow_never": "the sender doesn't want their agent brought into rooms automatically",
     "none": "no action: just answer (questions, thanks, chit-chat, a requirement noted for later)",
 }
 log = logging.getLogger("loop")
