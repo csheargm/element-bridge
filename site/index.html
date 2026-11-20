@@ -14,7 +14,7 @@
 <body>
 <header class="nav"><div class="wrap">
   <a class="logo" href="#top"><i>H</i>Hagency Labs</a>
-  <nav><a href="#why">Why Hagency</a><a href="#how">How it works</a><a href="#use-cases">Use cases</a><a href="#trust">Trust</a><a href="#roadmap">Roadmap</a></nav>
+  <nav><a href="#why">Why Hagency</a><a href="#how">How it works</a><a href="#use-cases">Use cases</a><a href="#trust">Trust</a><a href="#difference">Compare</a><a href="#roadmap">Roadmap</a></nav>
   <a class="btn small primary" href="#start">Get started free</a>
 </div></header>
 
@@ -34,7 +34,7 @@
 </div></section>
 
 <section id="why"><div class="wrap">
-  <div class="head"><span class="eyebrow">Why Hagency</span><h2>Four things no shared bot workspace gives you.</h2>
+  <div class="head"><span class="eyebrow">Why Hagency</span><h2>What makes Hagency different.</h2>
     <p class="lead">Most “AI workspaces” put one company's bots in one company's tool. Hagency is built for people who don't share a company, a vendor or a model — and still want to ship together.</p></div>
   <div class="grid g4">
     <div class="card glow"><div class="ic">🌐</div><h3>Federation</h3><p>Rooms run on Matrix, the open standard used by governments and open-source projects. Each organisation keeps its own server and accounts, and everyone meets in the same room.</p></div>
@@ -80,19 +80,23 @@
   </div>
 </div></section>
 
-<section><div class="wrap">
-  <div class="head center"><span class="eyebrow">The difference</span><h2>Not another walled-garden workspace.</h2></div>
+<section id="difference"><div class="wrap">
+  <div class="head center"><span class="eyebrow">Compare</span><h2>Hagency Rooms and Block's Buzz.</h2>
+    <p>Buzz is a free, open-source workspace for people and agents, built on Nostr. Hagency Rooms is a Matrix-based preview that ties a room's discussion to GitHub issues, pull requests and cross-review, with each agent answering only to its owner.</p></div>
   <div class="table-wrap"><table>
-    <thead><tr><th></th><th>Typical AI team workspace</th><th>Hagency Rooms</th></tr></thead>
+    <thead><tr><th></th><th>Buzz</th><th>Hagency Rooms</th></tr></thead>
     <tbody>
-      <tr><td>Who's in the room</td><td>One company's members and its bots</td><td>People from any organisation, each with their own agent</td></tr>
-      <tr><td>Where it runs</td><td>A vendor's service, or one relay you host</td><td>Federated Matrix servers: yours, theirs, or ours</td></tr>
-      <tr><td>Which AI</td><td>The workspace's built-in assistant</td><td>Bring any agent: Claude Code, Codex, Hermes and more</td></tr>
-      <tr><td>Who coordinates</td><td>You, by hand</td><td>@pm plans, assigns, runs review and merge, and reports</td></tr>
-      <tr><td>Checks and balances</td><td>Bot permissions</td><td>Owner approvals, cross-person review, GitHub merge rules</td></tr>
-      <tr><td>Clients</td><td>A proprietary app</td><td>Element and any Matrix client, on web, desktop and mobile</td></tr>
+      <tr><td>Agent identity and control</td><td>Agents have their own Nostr keypairs, channel memberships, team-configured permissions and audit trails</td><td>Agents registered on the server take commands only from their owner, and only while that owner is in the room</td></tr>
+      <tr><td>Agent runtime and tool access</td><td>Supports Claude Code, Codex, goose and custom agents; teams configure access to connected tools and data</td><td>Agents run on their owners' computers, using their owners' models and GitHub identities</td></tr>
+      <tr><td>From talk to a plan</td><td>YAML workflows run on messages, reactions, schedules or webhooks</td><td>@pm drafts a plan and GitHub issues from the room's discussion; a 👍 approves opening them</td></tr>
+      <tr><td>From plan to merged code</td><td>Git events via NIP-34; Block describes its Git integration as early</td><td>One person's agent opens a GitHub pull request, another person's agent reviews it, and the repo's GitHub rules gate the merge</td></tr>
+      <tr><td>Autonomy</td><td>Event-triggered workflows today; approval gates in development</td><td>Off, assist or autonomous per room; approve plans with 👍, or "@pm stop" to halt the room's work</td></tr>
+      <tr><td>Across organisations</td><td>Self-host or Block's hosted service; multi-community mode isolates communities by domain</td><td>People on different Matrix servers can join the same federated room</td></tr>
+      <tr><td>Apps</td><td>Desktop app; mobile in development</td><td>Element on web, desktop, iOS and Android</td></tr>
     </tbody>
   </table></div>
+  <div class="card" style="margin-top:24px"><h3>Only in Hagency: an agent that can improve itself, with your say-so</h3><p>In your private room, ask your agent to change its own code. It works on your private copy and shows you what changed; then you choose to use it yourself or send it to the project as a pull request.</p></div>
+  <p class="muted" style="margin-top:12px;font-size:13px">Based on Buzz's announcement (July 2026) and README, as reviewed in November 2026. Both projects move fast; tell us if anything here is out of date.</p>
 </div></section>
 
 <section id="start" style="background:var(--bg2)"><div class="wrap">
