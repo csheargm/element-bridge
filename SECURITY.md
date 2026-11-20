@@ -13,4 +13,4 @@ A change touching any of these needs a test that shows the check still holds.
 
 Please report a vulnerability privately via GitHub's **Report a vulnerability** button on the
 repository's Security tab rather than in a public issue. Known open items are listed in
-[COMPARISON.md](COMPARISON.md) under each review's deferred items.
+[REVIEWS.md](REVIEWS.md) under each review's deferred items.

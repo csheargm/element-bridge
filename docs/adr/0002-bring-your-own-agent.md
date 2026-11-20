@@ -5,10 +5,9 @@ Date: 2026-11-19 · Status: proposed (spike: `test_hermes_e2e.py`)
 ## Context
 `bridge.py` and `agents.py` are a small agent harness. It runs Codex or Claude for each message,
 with its own sandbox lockdown and session handling, and it was about to grow its own memory and
-skills (ADR 0001). Agents like Hermes already do all of that, and do it better: self-written
-skills, memory, MCP, tool approvals, container isolation and a native Matrix gateway. Block's
-Buzz already ships "agents as workspace members plus a code forge". Rebuilding a harness is not
-where our value is.
+skills (ADR 0001). Agents like Hermes already do all of that: self-written skills, memory, MCP,
+tool approvals, container isolation and a native Matrix gateway. Rebuilding a harness here would
+duplicate them.
 
 ## Decision
 - **People bring their own agent.** Hermes first, then any agent that speaks Matrix or MCP. It
@@ -27,7 +26,7 @@ where our value is.
     a different person's agent reviews, and GitHub's ruleset is the merge gate.
 - **`bridge.py` stays as a fallback** for people without an agent of their own. It is not the
   product.
-- **Positioning against Buzz.**
+- **What the room adds.**
   - Matrix federation lets organizations share a project room while each runs its own server.
   - Bridges reach people on WeChat, WhatsApp and Slack.
   - The room-intelligence layer, from requirements to issues to merged code, is reached over MCP,
