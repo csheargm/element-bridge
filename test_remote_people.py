@@ -174,6 +174,16 @@ class Provision(unittest.TestCase):
         with mock.patch.dict("os.environ", {"HAGENCY_REMOTE_PER_HOUR": "lots"}):
             self.assertEqual(remote_people.per_hour(), 10)
 
+    def test_a_doubly_claimed_or_overridden_name_is_refused(self):
+        """GPT review 23 re-check: never set up an agent /connect would refuse, or one that is two people's."""
+        agent = identity.agent_localpart(ALICE, S)
+        for data in ({"anna": {"agent_user": agent}, "carl": {"agent_user": agent}},
+                     {ALICE: {"agent": "remote", "agent_user": "alice-x-agent"}}):
+            use_registry(self, data)
+            with self.assertRaisesRegex(setup_accounts.AccountError, "taken"):
+                remote_agent.provision(ALICE)
+        self.ensure.assert_not_called()
+
     def test_a_taken_agent_name_is_refused_not_shared(self):
         agent = identity.agent_localpart(ALICE, S)
         use_registry(self, {"anna": {"agent_user": agent}})                         # an operator's odd record
@@ -192,7 +202,7 @@ class Provision(unittest.TestCase):
     def test_codes_issued_before_full_ids_still_work(self):
         remote_agent.provision("newbie1")
         self.env = {"PW_NEWBIE1_AGENT": "s3cret"}
-        self.assertEqual(remote_agent.credentials_for("newbie1")["owner"], f"@newbie1:{S}")
+        self.assertEqual(remote_agent.credentials_for(f"@newbie1:{S}")["owner"], "newbie1")   # older connect.py too
 
 
 class OwnComputer(unittest.TestCase):

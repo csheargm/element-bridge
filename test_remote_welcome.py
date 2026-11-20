@@ -55,6 +55,7 @@ class Joining(unittest.TestCase):
         self.assertIn("Invites", self.said[1][1])
         self.assertEqual(self.said[1][2], ALICE)                                   # a mention of them
         self.assertEqual(self.lp._welcomes[ALICE]["dm"], "!mine")
+        self.lp.client.room_leave.assert_awaited_once_with("!theirs")             # GPT review 23: theirs can grow
 
     def test_only_private_chats_only_to_me_only_people(self):
         self.invite(direct=False)                                                  # a group room from elsewhere
@@ -142,6 +143,12 @@ class Following(unittest.TestCase):
         self.assertIsNone(self.lp.own_agent(room, ALICE))
         asyncio.run(self.lp.remove_agent(room, ALICE))
         self.lp.client.room_kick.assert_not_called()
+
+    def test_no_agent_follows_into_my_private_chat(self):
+        """GPT review 23: follow-me invited the owner's agent into @pm's chat, so it stopped being private."""
+        self.lp.dm_rooms = {ALICE: "!mine"}
+        asyncio.run(self.lp.bring_agent(SimpleNamespace(room_id="!mine", users={ALICE: None}, invited_users={}), ALICE))
+        self.lp.client.room_invite.assert_not_called()
 
     def test_settings_by_full_id(self):
         room = SimpleNamespace(room_id="!r")

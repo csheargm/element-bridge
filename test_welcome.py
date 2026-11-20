@@ -75,7 +75,7 @@ class Greeting(Base):
         self.assertEqual((kw["name"], kw["is_direct"], kw["invite"]), ("Product Manager", True, [NEW]))
         # GPT review 23: codes and console links go here: only I invite, and newcomers can't read back
         self.assertEqual(kw["power_level_override"], {"invite": 100})
-        self.assertEqual(kw["initial_state"][0]["content"], {"history_visibility": "joined"})
+        self.assertEqual(kw["initial_state"][0]["content"], {"history_visibility": "invited"})   # they read my offer
 
     def test_one_line_in_welcome_points_them_to_the_invite(self):
         """Seen live: Element lists my private chat as an invite, so a newcomer never saw the buttons."""
@@ -117,12 +117,17 @@ class Greeting(Base):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
         self.assertEqual(self.said, [])
 
-    def test_an_old_chat_is_renamed_when_reused(self):
+    def test_an_old_chat_without_the_safeguards_is_replaced_a_safe_one_reused(self):
+        """GPT review 23: a "Hagency (private)" chat lets the person invite others, who'd read codes back."""
+        levels = lambda invite: SimpleNamespace(defaults=SimpleNamespace(invite=invite))
+        old = SimpleNamespace(users={PM: None, NEW: None}, history_visibility="shared", power_levels=levels(0))
+        safe = SimpleNamespace(users={PM: None, NEW: None}, history_visibility="invited", power_levels=levels(100))
         self.lp.dm_rooms = {NEW: "!old"}
-        old = SimpleNamespace(users={PM: None, NEW: None}, name="Hagency (private)")
-        self.lp.client = mock.Mock(rooms={"!old": old}, room_put_state=mock.AsyncMock())
-        self.assertEqual(self.run_(Loop.private_room(self.lp, NEW)), "!old")
-        self.lp.client.room_put_state.assert_awaited_once_with("!old", "m.room.name", {"name": "Product Manager"})
+        self.lp.client = mock.Mock(rooms={"!old": old, "!safe": safe},
+                                   room_create=mock.AsyncMock(return_value=SimpleNamespace(room_id="!safe")))
+        self.assertEqual(self.run_(Loop.private_room(self.lp, NEW)), "!safe")
+        self.assertEqual(self.run_(Loop.private_room(self.lp, NEW)), "!safe")
+        self.lp.client.room_create.assert_awaited_once()
 
     def test_the_pointer_mentions_them(self):
         seen = []

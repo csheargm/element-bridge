@@ -101,7 +101,7 @@ class Server(unittest.IsolatedAsyncioTestCase):
         status, body, headers = await self.post(code)
         self.assertEqual(status, 200)
         self.assertEqual(body, {"homeserver": "http://localhost:8648", "user_id": "@newbie1-agent:bridge.localhost",
-                                "password": "s3cret", "owner": "@newbie1:bridge.localhost"})
+                                "password": "s3cret", "owner": "newbie1"})
         self.assertEqual(headers["Cache-Control"], "no-store")
         status, body, _ = await self.post(code)
         self.assertEqual(status, 400)

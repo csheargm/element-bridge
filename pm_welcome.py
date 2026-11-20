@@ -176,8 +176,8 @@ class Welcome:
 
     async def on_remote_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
         """Someone from another server opened a private chat with me: their way in (no Welcome for
-        them). I join it and answer as to "I want an agent"; the offer itself goes to a chat I make
-        (theirs may be encrypted, which I can't read), and their chat says where to find it."""
+        them). I join it, answer as to "I want an agent" and leave: the offer goes to a chat I make
+        (theirs may be encrypted, which I can't read, and they could add people to it later)."""
         if (event.state_key != self.user_id or event.membership != "invite" or not event.content.get("is_direct")
                 or not self.may_have_agent(event.sender) or identity.split(event.sender)[1] == SERVER_NAME):
             return
@@ -194,8 +194,10 @@ class Welcome:
             return
         try:
             await self.offer_again(room, event.sender)
-        except RuntimeError as e:             # loop.SendError: they can still say "@pm I want an agent"
+        except RuntimeError as e:             # loop.SendError: they can open another chat with me
             log.error("couldn't answer %s in %s: %s", event.sender, room.room_id, e)
+        finally:
+            await self.client.room_leave(room.room_id)
 
     async def only_us(self, room_id: str, person: str) -> bool:
         """Asked of the server now, not my cached view: nobody but the two of us joined or invited."""

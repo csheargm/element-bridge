@@ -90,7 +90,7 @@ def _provision(person: str) -> str:
     if person in people and info.get("agent") != registry.REMOTE:    # no "agent": a server-run default one
         raise AccountError("you already have an agent here, run by this server")
     agent = registry.agent_of(person)
-    if registry.owner_of(agent) not in (None, person):
+    if agent != identity.agent_localpart(person, SERVER_NAME) or registry.claimants(agent) not in ([], [person]):
         raise AccountError("your agent's account name is taken here; ask this server's operator")
     if local is None:
         remote_people.check_new(people, person)   # other servers' people: allowed, and not too many at once
@@ -118,7 +118,8 @@ def credentials_for(person: str) -> dict | None:
     password = load_env().get(setup_accounts.password_key(agent))
     if not password:
         return None
-    return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": person}
+    owner = registry.local_name(person) or person   # a bare name here: what an older connect.py accepts
+    return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner}
 
 
 def routes() -> list:

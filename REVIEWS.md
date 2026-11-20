@@ -534,3 +534,15 @@ Rejected or deferred:
   collides with another's (needs a 40-bit hash collision; refused at set-up anyway).
 - Console sign-in inside Element for other servers' people (their server's OpenID token): it means
   fetching a URL their server names; they use "@pm send me my console link" (ADR 0003).
+
+Whole batch (GPT, origin/master..HEAD), adopted with tests:
+- History "joined" hid @pm's own offer from a newcomer (sent while they were invited): "invited".
+- Older @pm chats (no safeguards) are no longer reused for codes and links: a new chat is made.
+- @pm leaves a chat someone from another server opened, after answering: it could grow later.
+- Follow-me invited an owner's agent into @pm's private chat: @pm's chats are skipped.
+- /connect returns a bare name for people here, as an older connect.py expects.
+- Set-up refuses an agent name claimed twice or overridden (one /connect would then refuse).
+Rejected or deferred:
+- A reservation that failed registration is exempt from later counts: it was counted once, and
+  it can only ever make that one person's account.
+- Registry races with follow-setting writes; the 30-minute pre-upgrade code: as above.

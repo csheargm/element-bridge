@@ -69,11 +69,16 @@ def agent_of(person: str) -> str:
 def owner_of(agent: str) -> str | None:
     """The full ID of the person whose agent `agent` (a localpart here) is, or None if it isn't a
     registered agent. Compare it with a full ID: never a bare name taken from another server."""
-    found = [p for p, v in load().items() if (v.get("agent_user") or identity.agent_localpart(p, SERVER_NAME)) == agent]
+    found = claimants(agent)
     mine = bridge_config.CREDENTIALS          # a person's own computer: no agents.json, just connect.py's file
     if not found and mine and mine["user_id"] == f"@{agent}:{SERVER_NAME}":
         return person_id(mine["owner"])
     return found[0] if len(found) == 1 else None   # claimed twice (a bad record): nobody's, never the first
+
+
+def claimants(agent: str) -> list[str]:
+    """Everyone whose record names agent localpart `agent` (more than one: a bad record)."""
+    return [p for p, v in load().items() if (v.get("agent_user") or identity.agent_localpart(p, SERVER_NAME)) == agent]
 
 
 def owns(person: str, agent: str) -> bool:

@@ -21,8 +21,10 @@ from setup_accounts import DISPLAY_NAMES
 
 log = logging.getLogger("loop")
 # Codes and console links go to my private chats: only I can invite anyone there, and someone
-# added later can't read what was said before they joined (GPT review 23).
-PRIVATE_HISTORY = {"type": "m.room.history_visibility", "state_key": "", "content": {"history_visibility": "joined"}}
+# invited later can't read what was said before their invite (GPT review 23). "invited", not
+# "joined": the person reads my offer, sent while they were still invited.
+HISTORY = "invited"
+PRIVATE_HISTORY = {"type": "m.room.history_visibility", "state_key": "", "content": {"history_visibility": HISTORY}}
 PM_ONLY = 100
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
            "or set it in the Hagency console.")
@@ -38,6 +40,11 @@ async def may_write(user: str, repo: str) -> bool:
     if not registry.owns(user, agent):
         return False
     return bool((await github_setup.identity(agent, repo)).get("push"))
+
+
+def is_safe_chat(room: MatrixRoom) -> bool:
+    """One of my private chats made with the safeguards above (older ones are replaced, not reused)."""
+    return getattr(room, "history_visibility", "") == HISTORY and room.power_levels.defaults.invite >= PM_ONLY
 
 
 class Settings:
@@ -90,12 +97,9 @@ class Settings:
     async def private_room(self, user: str) -> str | None:
         known = self.dm_rooms.get(user)
         room = self.client.rooms.get(known) if known else None
-        if room is not None and set(room.users) <= {self.user_id, user}:
-            if room.name != DISPLAY_NAMES["pm"]:      # opened under an older name ("Hagency (private)")
-                renamed = await self.client.room_put_state(known, "m.room.name", {"name": DISPLAY_NAMES["pm"]})
-                if not hasattr(renamed, "event_id"):   # only the name: the chat itself still works
-                    log.warning("couldn't rename my chat with %s: %s", user, renamed)
+        if room is not None and set(room.users) <= {self.user_id, user} and is_safe_chat(room):
             return known                      # still just the two of us (joined or invited)
+        # else a new chat: an older one ("Hagency (private)") lets them invite others, who'd read back
         resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
                                              name=DISPLAY_NAMES["pm"], initial_state=[PRIVATE_HISTORY],
                                              power_level_override={"invite": PM_ONLY})
