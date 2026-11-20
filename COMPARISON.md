@@ -526,3 +526,5 @@ Live deploy and the whole-batch review (GPT, 707dd84..HEAD):
   agents all sign in from @pm's container address, and Synapse's default per-address login limit
   (burst 5, then one per ~5 min) ran out. `rc_login.address` is now burst 20, then one per 50 s (GPT: 0.1/s would allow 360 sprayed guesses an hour per address; 0.02/s is 72); the per-account
   and failed-attempt limits stay Synapse's defaults.
+- Live: `.deployed` was never written: bootstrap's `docker compose exec` inherited the ssh session's
+  stdin, which is deploy.sh's remote script, and read the rest of it. bootstrap now gets /dev/null.

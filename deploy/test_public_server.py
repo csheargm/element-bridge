@@ -186,6 +186,10 @@ class Deploy(unittest.TestCase):
         for net in ("173.245.48.0/20", "104.16.0.0/13", "2606:4700::/32", "2c0f:f248::/32"):
             self.assertIn(net, admin)
 
+    def test_bootstrap_cant_swallow_the_rest_of_the_remote_script(self):
+        """Live: `docker compose exec` read deploy.sh's stdin (the script), so .deployed was never written."""
+        self.assertIn('"$app/deploy/bootstrap.sh" </dev/null', (Path(__file__).parent / "deploy.sh").read_text())
+
     def test_pm_runs_as_the_recorded_deploy_user_never_root(self):
         here = Path(__file__).parent
         boot = (here / "bootstrap.sh").read_text()

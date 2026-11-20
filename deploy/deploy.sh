@@ -42,7 +42,7 @@ chmod 700 "$pm"
 git -C "$app" ls-tree -r -z --name-only "$sha" > ~/hagency/.files
 python3 "$app/deploy/release.py" "$pm" < ~/hagency/.files
 git -C "$app" archive "$sha" | tar -x -C "$pm"         # the commit's files; @pm's state stays
-"$app/deploy/bootstrap.sh"
+"$app/deploy/bootstrap.sh" </dev/null                    # its docker exec calls would read the rest of this script
 echo "$sha" > ~/hagency/.deployed                      # only once it's up (outside @pm's folder)
 REMOTE
 
