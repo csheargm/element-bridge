@@ -26,7 +26,8 @@ class Intents(unittest.TestCase):
                  "pause everything": intents.OFF,
                  "where are we?": intents.STATUS, "what's left": intents.STATUS,
                  "let's build it": intents.PLAN, "that's great! let's do it!": intents.PLAN,
-                 "go for it": intents.PLAN, "help": intents.HELP, "hello there": intents.UNKNOWN}
+                 "go for it": intents.PLAN, "can you reiterate teh plan": intents.SHOW_PLAN,
+                 "show me the plan": intents.SHOW_PLAN, "help": intents.HELP, "hello there": intents.UNKNOWN}
         for text, want in cases.items():
             self.assertEqual(intents.classify(text), want, text)
 

@@ -27,6 +27,7 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm stop**: no new work and no merges, right away (anyone)\n"
         "- **@pm where are we?**: what's happening now\n"
         "- **@pm let's build it**: your agent turns this discussion into issues; ✅ to open them\n"
+        "- **@pm show the plan**: the plan waiting for ✅\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
 
 
@@ -93,6 +94,8 @@ class Chat:
             event_id = await self.say(rid, "Got it: I'll run this to the end on my own. Agents build, review "
                                            "and merge without asking. Say \"stop\" anytime. ✅ to confirm?")
             self.pending[rid] = {"event_id": event_id, "until": time.time() + CONFIRM_S, "by": sender}
+        elif intent == intents.SHOW_PLAN:
+            await self.show_plan(rid)
         elif intent == intents.STATUS:
             await self.say(rid, await self.status_text(rid))
         elif intent == intents.PLAN and not await room_state.is_moderator(self.client, room, sender):

@@ -63,6 +63,7 @@ class Loop(Progress, Boards, Chat, Planner):
         # live code fix) doesn't drop a plan someone is about to approve
         self.pending: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-pending.json"))
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
+        self.last_plans: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-plans.json"))
 
     def save(self) -> None:
         for item in self.state.values():            # when an item finished, for the board's "last 24 h"

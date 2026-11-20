@@ -5,8 +5,8 @@ still only pick from this same list.)
 """
 import re
 
-OFF, ASSIST, AUTONOMOUS, STATUS, PLAN, HELP, UNKNOWN = (
-    "off", "assist", "autonomous", "status", "plan", "help", "unknown")
+OFF, ASSIST, AUTONOMOUS, STATUS, SHOW_PLAN, PLAN, HELP, UNKNOWN = (
+    "off", "assist", "autonomous", "status", "show_plan", "plan", "help", "unknown")
 
 _RULES = [   # checked in order; the first match wins, so the safest meanings come first
     (OFF, r"\b(stop|pause|halt|kill|freeze|turn (\w+ ){0,3}off|switch (\w+ ){0,3}off|shut (\w+ )?down|"
@@ -17,6 +17,7 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
                  r"(just )?(get|do) it (all )?done|finish (it|the project|everything)|full auto|go all in)\b"),
     (STATUS, r"\b(status|where are we|progress|what'?s left|how'?s it going|what are (you|the agents) doing|"
              r"what'?s happening|update me)\b"),
+    (SHOW_PLAN, r"\b((show|reiterate|repeat|see|resend|what'?s|where'?s) (me )?(the |teh |our |that |this )?plan)\b"),
     (PLAN, r"\b(let'?s (build|do|start|go|make)|build (it|this|that)|start (the project|building|it)|go ahead|"
            r"go for it|kick (it )?off|ship it|spec is ready|ready to build|make it|plan (it|this))\b"),
     (HELP, r"\b(help|what can you do|how do (i|we) use you)\b"),

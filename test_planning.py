@@ -53,6 +53,7 @@ class Flow(unittest.TestCase):
     def setUp(self):
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.plans, self.lp.boards = "@pm:bridge.localhost", {}, {}, {}
+        self.lp.last_plans = {}
         self.sent = []
 
         async def say(room_id, body, mention=None, task=None):
@@ -90,6 +91,32 @@ class Flow(unittest.TestCase):
                                                                  "numbers": [5]}))
         self.assertIn("Opened #5", self.sent[-1][0])
         self.assertIn("take it all the way", self.sent[-1][0])              # level off: tells them how to start
+
+    def test_an_empty_revision_keeps_the_previous_plan(self):
+        """Seen live: a re-plan came back empty (the agent remembered its earlier draft) and the
+        3-issue plan waiting for ✅ was lost."""
+        items = [{"title": "Add index.html", "criteria": ["exists"]}]
+        self.run_(self.lp.start_plan(self.room, ANNA))
+        self.run_(self.lp.on_plan_result(self.room, ANNA_AGENT, {"kind": "plan", "task_id": self.sent[-1][2]["task_id"],
+                                                                 "items": items}))
+        self.lp.pending.clear()                                    # a revision was asked for
+        self.run_(self.lp.start_plan(self.room, ANNA))
+        self.run_(self.lp.on_plan_result(self.room, ANNA_AGENT, {"kind": "plan", "task_id": self.sent[-1][2]["task_id"],
+                                                                 "items": []}))
+        self.assertIn("plan stays as it was", self.sent[-2][0])
+        self.assertIn("**Issue 1: Add index.html**", self.sent[-1][0])
+        self.assertEqual(self.lp.pending["!r"]["items"], items)     # still ✅-able
+
+    def test_show_the_plan_again(self):
+        self.lp.last_plans["!r"] = {"items": [{"title": "X", "criteria": ["y"]}], "agent": ANNA_AGENT, "by": ANNA}
+        self.run_(self.lp.show_plan("!r"))
+        self.assertIn("**Issue 1: X**", self.sent[-1][0])
+        self.assertEqual(self.lp.pending["!r"]["kind"], "plan")
+
+    def test_plan_prompt_ignores_unapproved_drafts(self):
+        prompt = planning.plan_prompt("anna: hi", ["Existing thing"])
+        self.assertIn("Ignore any plan you drafted earlier", prompt)
+        self.assertIn("- Existing thing", prompt)
 
     def test_needs_the_requesters_own_agent(self):
         self.room.users.pop(ANNA_AGENT)

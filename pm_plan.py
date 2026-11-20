@@ -22,6 +22,7 @@ HISTORY = 200                     # room events read for the discussion
 
 class Planner:
     plans: dict                   # room → {"task_id", "agent", "by"} while an agent drafts or files
+    last_plans: dict              # room → the plan last shown (items, agent, by), kept on disk
 
     def own_agent(self, room: MatrixRoom, person: str) -> str | None:
         """The requester's own agent in this room (<person>-agent): planning runs on their model."""
@@ -69,6 +70,7 @@ class Planner:
         elif result["kind"] == "plan":
             await self.propose(rid, plan, result.get("items"))
         else:
+            self.last_plans.pop(rid, None)                    # opened: it's issues now, not a plan
             numbers = ", ".join(f"#{n}" for n in result.get("numbers", []))
             nxt = ("The agents start on them now." if await self.level(rid) != "off" else
                    'Say "take it all the way" or "let us approve each change" to start building.')
@@ -82,14 +84,28 @@ class Planner:
         except planning.PlanError as e:
             await self.say(rid, f"⚠️ the plan came back malformed ({e}); ask me again")
             return
+        if not items and self.last_plans.get(rid, {}).get("items"):
+            await self.say(rid, "I found nothing to change, so the plan stays as it was:")
+            await self.show_plan(rid)                         # never lose a plan to an empty revision
+            return
         if not items:
             await self.say(rid, "I don't see anything new agreed in the discussion yet.")
             return
+        self.last_plans[rid] = {"items": items, "agent": plan["agent"], "by": plan["by"]}
+        await self.show_plan(rid)
+
+    async def show_plan(self, rid: str) -> None:
+        """Post the room's current plan with its ✅ (also for "@pm show the plan")."""
+        last = self.last_plans.get(rid)
+        if not last:
+            await self.say(rid, "There's no plan yet. Say \"let's build it\" and I'll draft one from the discussion.")
+            return
+        items = last["items"]
         event_id = await self.say(rid, f"Here's the plan from your discussion:\n\n{planning.show(items)}\n\n"
                                        f"✅ to open these {len(items)} issue(s), or tell me what to change "
                                        "and ask me to plan again.")
         self.pending[rid] = {"kind": "plan", "event_id": event_id, "until": time.time() + CONFIRM_S,
-                             "items": items, "agent": plan["agent"], "by": plan["by"]}
+                             "items": items, "agent": last["agent"], "by": last["by"]}
 
     async def file_plan(self, room: MatrixRoom, pending: dict, approver: str) -> None:
         task_id = uuid.uuid4().hex
