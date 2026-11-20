@@ -50,9 +50,9 @@ class Chat:
         if body.startswith("!"):
             await self.command(room, sender, body.split())
             return
-        if intents.is_yes(body) and await self.confirm(room, sender):
-            return
         text = self.addressed_text(event)
+        if (intents.is_yes(body) or (text is not None and intents.is_yes(text))) and await self.confirm(room, sender):
+            return                    # "yes", or "@pm ok", confirms what's waiting
         if text is None:
             return
         intent = intents.classify(text)

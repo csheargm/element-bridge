@@ -95,6 +95,18 @@ class Talk(unittest.TestCase):
         self.react(BETTY, "✅", "$p")
         self.assertIn("!r", self.lp.pending)
 
+    def test_ok_addressed_to_pm_approves_the_plan(self):
+        """Seen live: "@Product Manager: ok" was read as a change request and re-planned."""
+        filed = []
+
+        async def file_plan(room, pending, approver):
+            filed.append(approver)
+        self.lp.file_plan = file_plan
+        self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
+                                 "items": [], "agent": "@anna-agent:x"}
+        self.tell(ANNA, "Product Manager: ok")
+        self.assertEqual(filed, [ANNA])
+
     def test_stop_cancels_a_waiting_plan_approval_too(self):
         self.lp.pending["!r"] = {"kind": "autonomous", "event_id": "$p", "until": time.time() + 60, "by": ANNA}
         self.tell(BETTY, "@pm wait, stop")
