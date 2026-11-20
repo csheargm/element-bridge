@@ -56,7 +56,7 @@ class Watchdog(unittest.TestCase):
         item = self.item("reviewing", loop_progress.STEP_TIMEOUT_S + 1, sends=2)
         self.assertTrue(self.run_watchdog(item))
         self.assertEqual(item["stage"], "stopped")
-        self.assertIn("a person takes over", self.lp.say.call_args.args[1])
+        self.assertIn("@pm retry #7", self.lp.say.call_args.args[1])
 
     def test_item_from_before_the_watchdog_stops_instead_of_guessing(self):
         item = self.item("building", loop_progress.STEP_TIMEOUT_S + 1)

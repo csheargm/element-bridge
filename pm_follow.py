@@ -67,9 +67,10 @@ class Follow:
             return                            # no registered agent, already here, or they said never
         if registry.follow(local) == "ask":
             event_id = await self.say(room.room_id, f"Welcome {local}! Bring your agent ({agent.split(':')[0][1:]}) "
-                                                    "into this room? React 👍 to bring it.")
+                                                    "into this room? Click 👍 below to bring it.")
             self.pending[room.room_id] = {"kind": "bring", "agent": agent, "event_id": event_id,
                                           "until": time.time() + CONFIRM_S, "by": person}
+            await self.offer_thumb(room.room_id, event_id)
             return
         await self.invite_agent(room.room_id, agent, f"{local} joined, so their agent came along "
                                                      "(say \"don't bring my agent\" to change that).")

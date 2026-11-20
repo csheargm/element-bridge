@@ -117,6 +117,7 @@ class Understanding:
             await self.say(room.room_id, "Only the room owner or a maintainer can change how I run this project.")
             return
         event_id = await self.say(room.room_id, f"Do you want me to switch to **{action}** "
-                                                f"({LEVEL_WORDS[action].split(': ', 1)[1]})? React 👍 to confirm.")
+                                                f"({LEVEL_WORDS[action].split(': ', 1)[1]})? Click 👍 below to confirm.")
         self.pending[room.room_id] = {"kind": "mode", "level": action, "event_id": event_id,
                                       "until": time.time() + CONFIRM_S, "by": sender}
+        await self.offer_thumb(room.room_id, event_id)

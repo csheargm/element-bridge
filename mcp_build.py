@@ -196,6 +196,13 @@ async def submit_review(task_id: str, approve: bool, reasons: str) -> dict:
     return await safely(task_id, "review", step)
 
 
+def require_autonomous(t: dict) -> None:
+    """Merging and closing happen only while the room is Autonomous, re-read from the room now."""
+    level = room_state.level_of(core.api("GET", core.room_path(t["_room"], f"/state/{github.LEVEL_EVENT}/"), token=core.token()))
+    if level != "autonomous":
+        raise tasks.TaskError(f"room is {level}, not autonomous")
+
+
 @mcp.tool()
 async def merge_pr(task_id: str) -> dict:
     """Merge the approved PR, only if the room is Autonomous and GitHub says it is ready."""
@@ -204,9 +211,7 @@ async def merge_pr(task_id: str) -> dict:
         return problem
 
     async def step():
-        level = room_state.level_of(core.api("GET", core.room_path(t["_room"], f"/state/{github.LEVEL_EVENT}/"), token=core.token()))
-        if level != "autonomous":
-            raise tasks.TaskError(f"room is {level}, not autonomous")
+        require_autonomous(t)
         return {"done": report(task_id, await tasks.merge(AGENT, "Hermes", core.base_for(t), t)), "next": "Stop."}
     return await safely(task_id, "merge", step)
 

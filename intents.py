@@ -11,6 +11,7 @@ FOLLOW_NEVER, FOLLOW_ASK, FOLLOW_ALWAYS = "follow_never", "follow_ask", "follow_
 GRANT_WEB, REVOKE_WEB = "grant_web", "revoke_web"
 CONSOLE = "console"
 SET_REPO = "set_repo"
+RETRY = "retry"
 # "this room works on owner/name", "set the repo to owner/name", "use https://github.com/owner/name":
 # the repo is the command's own argument (never any other owner/name-looking text in the message).
 SET_REPO_RE = re.compile(
@@ -39,6 +40,7 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
     (STATUS, r"\b(status|where are we|progress|what'?s left|how'?s it going|what are (you|the agents) doing|"
              r"what'?s happening|update me)\b"),
     (SET_REPO, SET_REPO_RE.pattern),
+    (RETRY, r"^\s*(please\s+)?(retry|try (#?\d+ |it |that |this )?again|restart|redo)\b"),
     (CONSOLE, r"\b(console|settings?)\b.*\blink\b|\bsend me (my |the )?(console|settings)\b|\bopen (the )?console\b"),
     (SHOW_PLAN, r"\b((show|reiterate|repeat|see|resend|what'?s|where'?s) (me )?(the |teh |our |that |this )?plan)\b"),
     (PLAN, r"\b(let'?s (build|do|start|go|make)|build (it|this|that)|start (the project|building|it)|go ahead|"
@@ -103,3 +105,9 @@ def is_approval(text: str) -> bool:
         return False              # anything else (a number, a name, another emoji) means more than "yes"
     return (all(w in _APPROVE_CORE or w in _APPROVE_FILLER for w in words)
             and any(w in _APPROVE_CORE for w in words))
+
+
+def issue_named(text: str) -> int | None:
+    """The issue number in "retry #9" / "retry issue 9" (None: not said)."""
+    m = re.search(r"(?:#|\bissue\s+)(\d{1,7})\b", text, re.I)
+    return int(m.group(1)) if m else None

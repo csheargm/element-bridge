@@ -188,8 +188,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
         if sender != item.get("reviewer" if kind in CHECKER_KINDS else "builder"):
             return   # only the agent the step was given to can report on it
         if result.get("error"):
-            item["stage"] = "stopped"
-            await self.say(room.room_id, f"loop stopped on #{num(key)}; a person takes over")
+            await self.stop(room.room_id, key, item, f"{sender.split(':')[0][1:]} couldn't {kind} it")
         elif kind == "build" and result.get("already_done"):
             item["stage"] = "verifying"     # the builder's "nothing to do" needs a second agent's check
             if await self.pick_reviewer(room, item, key, f"verify #{num(key)} is already done"):
@@ -199,16 +198,13 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
             if result.get("verdict") == "approve":
                 item["stage"] = "confirmed_done"
             else:
-                item["stage"] = "stopped"
-                await self.say(room.room_id, f"agents disagree on #{num(key)}; a person takes over")
+                await self.stop(room.room_id, key, item, "the agents disagree on whether it's already done")
         elif kind == "close":
             item["stage"] = "close_sent"    # done only once GitHub itself reports CLOSED
         elif kind == "build":
             item.update(stage="reviewing", pr=int(result["pr"]))
             if not await self.pr_is_builders(item, key):
-                item["stage"] = "stopped"
-                await self.say(room.room_id, f"PR #{item['pr']} isn't {item['builder']}'s branch for #{num(key)}; stopping")
-                self.save()
+                await self.stop(room.room_id, key, item, f"PR #{item['pr']} isn't {item['builder']}'s branch")
                 return
             if await self.pick_reviewer(room, item, key, f"review PR #{item['pr']}"):
                 await self.dispatch(room.room_id, item, item["reviewer"],
@@ -225,8 +221,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
         owner = lambda a: ownership.owner_id(a) or a          # (an unregistered agent is its own owner)
         others = [a for a in self.agents_in(room) if owner(a) != owner(item["builder"])]   # another PERSON
         if not others:
-            item["stage"] = "stopped"
-            await self.say(room.room_id, f"no second agent to {what}; a person does it")
+            await self.stop(room.room_id, key, item, f"there's no second person's agent here to {what.split()[0]} it")
             return False
         item["reviewer"] = others[num(key) % len(others)]
         await self.say(room.room_id, f"{what.split()[0]} requested from {item['reviewer'].split(':')[0][1:]}")

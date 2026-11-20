@@ -160,7 +160,8 @@ def next_task() -> dict:
             return {"task": None, "next": "No open task for you. Say so in one line."}
         _open.setdefault(t["task_id"], {**t, "_room": ev.get("room_id")})   # keep what earlier steps stored
         step = {"build": "start_build", "fix": "start_fix", "review": "get_review", "merge": "merge_pr",
-                "plan": "get_plan_request", "file_issues": "open_issues"}.get(t.get("kind"))
+                "plan": "get_plan_request", "file_issues": "open_issues", "verify": "get_verify",
+                "close": "close_issue"}.get(t.get("kind"))
         return {"task_id": t["task_id"], "kind": t.get("kind"), "issue": t.get("issue"), "pr": t.get("pr"),
                 "next": f"Call {step}(task_id)." if step else
                         f"`{t.get('kind')}` isn't supported here yet: call report_failure(task_id, reason)."}

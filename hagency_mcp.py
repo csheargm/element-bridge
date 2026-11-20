@@ -15,11 +15,13 @@ from mcp_build import (finish_build, finish_fix, get_review, merge_pr, read_file
 from mcp_context import project_status, read_project_file
 from mcp_core import mcp, next_task, report_failure
 from mcp_plan import get_plan_request, open_issues, submit_plan
+from mcp_verify import close_issue, get_verify, submit_verify
 from mcp_web import ask_owner, fetch_page, web_search
 
 # Importing the tool modules registers their tools on `mcp`; re-exported for tests and tooling.
 __all__ = ["ask_owner", "fetch_page", "web_search", "finish_build", "finish_fix", "get_plan_request", "start_fix", "project_status", "read_project_file", "get_review", "mcp", "merge_pr", "next_task", "open_issues",
-           "read_file", "report_failure", "start_build", "submit_plan", "submit_review", "write_files"]
+           "read_file", "report_failure", "start_build", "submit_plan", "submit_review", "write_files",
+           "get_verify", "submit_verify", "close_issue"]
 
 if __name__ == "__main__":
     mcp.run()

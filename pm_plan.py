@@ -24,7 +24,7 @@ HISTORY = 200                     # room events read for the discussion
 # What happens once the plan is approved, by the room's mode (so "autonomous" is never a surprise).
 AFTER_APPROVAL = {"autonomous": "Then the room runs on its own: build → review → merge, no more 👍 needed.",
                   "assist": "Then agents build and review; a person merges each change.",
-                  "off": "The room is stopped, so nothing starts until someone says \"resume\"."}
+                  "off": "The room is stopped, so nothing starts until the owner picks assist or autonomous."}
 
 
 class Planner:
@@ -121,10 +121,11 @@ class Planner:
             self.note_outcome(older.get("event_id"), "replaced by a newer plan, shown below it")
         after = AFTER_APPROVAL.get(await self.level(rid), AFTER_APPROVAL["off"])
         event_id = await self.say(rid, f"Here's the plan from your discussion:\n\n{planning.show(items)}\n\n"
-                                       f"**Waiting for your 👍** (or reply \"ok\") to open these {len(items)} "
+                                       f"**Click 👍 below** (or reply \"ok\") to open these {len(items)} "
                                        f"issue(s). {after} To change it, tell me what to change.")
         self.pending[rid] = {"kind": "plan", "event_id": event_id, "until": time.time() + CONFIRM_S,
                              "items": items, "agent": last["agent"], "by": last["by"], "repo": last.get("repo")}
+        await self.offer_thumb(rid, event_id)
 
     async def file_plan(self, room: MatrixRoom, pending: dict, approver: str) -> None:
         repo = await room_state.repo_of(self.client, room.room_id)

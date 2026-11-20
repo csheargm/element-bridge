@@ -33,6 +33,12 @@ def num(key: str) -> int:
     return int(str(key).rsplit("#", 1)[-1])
 
 
+def next_steps(n: int) -> str:
+    """What a person can do about a paused issue, said every time one pauses."""
+    return (f"To go on, say **@pm retry #{n}**, or handle #{n} yourself on GitHub "
+            "(close it if it's already done).")
+
+
 def issue_key(repo: str, n: int) -> str:
     return f"{repo}#{n}"
 
@@ -111,7 +117,8 @@ class Progress:
         self.save_boards()
         stopped = [k for k, v in self.state.items() if v["room"] == room_id and v.get("repo") == repo and v["stage"] == "stopped"
                    and v.get("ended", 0) > since]
-        extra = f" ({', '.join(f'#{num(k)}' for k in stopped)} stopped and need a person.)" if stopped else ""
+        extra = (f" ({', '.join(f'#{num(k)}' for k in stopped)} paused: say \"@pm retry #N\" or handle it on GitHub.)"
+                 if stopped else "")
         await self.say(room_id, f"🎉 All done: {', '.join(f'#{num(k)}' for k in done)} merged.{extra} Try it: "
                                 f"{await self.where_to_try(self.room_repos.get(room_id, ''))}. Tell me what to change, "
                                 "then say \"let's build it\".")
@@ -182,8 +189,29 @@ class Progress:
     async def stop(self, room_id: str, key: str, item: dict, why: str) -> bool:
         item.update(stage="stopped", why=why)
         self.save()
-        await self.say(room_id, f"{why}; loop stopped on #{num(key)}, a person takes over")
+        await self.say(room_id, f"⏸ #{num(key)} is paused: {why}. {next_steps(num(key))}")
         return True
+
+    async def retry(self, room: MatrixRoom, sender: str, n: int | None) -> None:
+        """"@pm retry #9": a paused issue goes back in the queue (owner or maintainer)."""
+        rid = room.room_id
+        if not await room_state.is_moderator(self.client, room, sender):
+            await self.say(rid, "Only the room's owner or a maintainer can restart paused work.")
+            return
+        async with self.lock:                   # never between a poll and its results
+            repo = self.room_repos.get(rid)
+            paused = sorted((k for k, v in self.state.items() if v["room"] == rid and v.get("repo") == repo
+                             and v["stage"] == "stopped"), key=num)
+            key = paused[0] if n is None and len(paused) == 1 else (issue_key(repo, n) if n and repo else None)
+            if key not in paused:
+                listed = ", ".join(f"#{num(k)}" for k in paused)
+                await self.say(rid, f"Paused here: {listed}. Say which one, e.g. \"@pm retry #{num(paused[0])}\"."
+                               if paused and n is None else
+                               "Nothing is paused here." if not paused else f"#{n} isn't paused. Paused here: {listed}.")
+                return
+            del self.state[key]
+            self.save()
+        await self.say(rid, f"OK, #{num(key)} goes back in the queue; I'll pick it up within a minute.")
 
     async def claim_next(self, room: MatrixRoom, lvl: str) -> None:
         fresh = self.open_issues.get(room.room_id, [])

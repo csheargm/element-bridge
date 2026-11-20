@@ -65,7 +65,7 @@ class Rounds(unittest.TestCase):
             self.result(B, kind="fix")
         self.result(R, kind="review", verdict="request_changes", sha="s", reasons="x")
         self.assertEqual(self.item["stage"], "stopped")
-        self.assertIn("a person takes over", self.lp.say.call_args.args[1])
+        self.assertIn("@pm retry #7", self.lp.say.call_args.args[1])
 
     def test_only_the_builder_reports_a_fix(self):
         self.result(R, kind="review", verdict="request_changes", sha="s1", reasons="x")

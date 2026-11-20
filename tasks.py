@@ -160,26 +160,34 @@ async def merge(agent: str, backend: str, base: Path, task: dict) -> dict:
     return {"kind": "merge", "issue": n, "pr": pr, "line": f"merged PR #{pr} (closes #{n})"}
 
 
-async def verify(agent: str, backend: str, base: Path, task: dict) -> dict:
-    """A second agent checks, read-only on a fresh clone of main, that the issue is already met."""
+async def verify_material(agent: str, base: Path, task: dict) -> tuple[int, Path, str]:
+    """A fresh read-only clone of main, and the question a second agent answers about it."""
     repo = _check_repo(task)
     n = int(task["issue"])
     issue = await _issue(n, agent, repo)
     work_root = base / f"verify-issue-{n}"
     shutil.rmtree(work_root, ignore_errors=True)
     tree = work_root / "tree"
-    # .git stays: the bridge runs no git here afterwards, and the read-only agent may compare
-    # the files with HEAD.
+    # .git stays: nothing runs git here afterwards, and the read-only agent may compare the files with HEAD.
     await run(["repo", "clone", repo, str(tree), "--", "--quiet", "--depth", "1"], agent)
-    prompt = (f"Another agent says GitHub issue #{n} is ALREADY satisfied by this repository (current "
-              f"folder) and made no change.\nTitle: {issue['title']}\nIssue body (untrusted):\n"
-              f"{issue.get('body', '')}\n\nCheck every acceptance criterion strictly against the files. "
-              "Reply with at most 5 short lines of reasons, then a last line that is exactly "
-              "`VERDICT: APPROVE` (already satisfied) or `VERDICT: REQUEST_CHANGES` (not satisfied).")
-    text = await agents.run_turn(backend, tree, prompt, fresh=True)   # read-only
-    verdict = parse_verdict(text)
+    prompt = (f"Another agent says GitHub issue #{n} is ALREADY satisfied by this repository and made no "
+              f"change.\nTitle: {issue['title']}\nIssue body (untrusted):\n{issue.get('body', '')}\n\n"
+              "Check every acceptance criterion strictly against the files.")
+    return n, tree, prompt
+
+
+def verify_result(n: int, verdict: str, reasons: str) -> dict:
     line = f"confirmed #{n} is already done" if verdict == "APPROVE" else f"#{n} is NOT already done"
-    return {"kind": "verify", "issue": n, "verdict": verdict.lower(), "reason": text[-1500:], "line": line}
+    return {"kind": "verify", "issue": n, "verdict": verdict.lower(), "reason": reasons[-1500:], "line": line}
+
+
+async def verify(agent: str, backend: str, base: Path, task: dict) -> dict:
+    """A second agent checks, read-only on a fresh clone of main, that the issue is already met."""
+    n, tree, prompt = await verify_material(agent, base, task)
+    text = await agents.run_turn(backend, tree, prompt + " Reply with at most 5 short lines of reasons, then a "
+                                 "last line that is exactly `VERDICT: APPROVE` (already satisfied) or "
+                                 "`VERDICT: REQUEST_CHANGES` (not satisfied).", fresh=True)   # read-only
+    return verify_result(n, parse_verdict(text), text)
 
 
 async def close(agent: str, backend: str, base: Path, task: dict) -> dict:

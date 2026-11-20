@@ -38,6 +38,7 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm show the plan**: the plan waiting for your 👍\n"
         "- **@pm send me my console link**: settings in a page (also the Hagency panel in this room)\n"
         "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
+        "- **@pm retry #9**: a paused issue goes back in the queue (owner or maintainer)\n"
         "- **@pm this room works on owner/name**: the GitHub repo for this room (one repo per room)\n"
         "The pinned **Project status** and the **Hagency** panel show progress live.")
 
@@ -92,6 +93,9 @@ class Chat:
         if intent == intents.SET_REPO:        # a repo name is exact: never left to a model
             await self.set_repo(room, sender, intents.repo_named(text) or "")
             return
+        if intent == intents.RETRY:           # so is an issue number
+            await self.retry(room, sender, intents.issue_named(text))
+            return
         if intent == intents.OFF or pm_brain.BRAIN == "off":
             await self.by_rules(room, sender, text, intent)    # "stop" never waits for a model
             return
@@ -121,6 +125,15 @@ class Chat:
         await self.say(room.room_id, "Updating the plan with that…")
         await self.start_plan(room, sender)
         return True
+
+    async def offer_thumb(self, room_id: str, event_id: str) -> None:
+        """Put a 👍 under my own question, so approving is one click on it (my own reaction never counts:
+        is_person skips me). Best effort on purpose: typing "ok" or reacting yourself still works."""
+        try:
+            await self.client.room_send(room_id, "m.reaction", {"m.relates_to": {
+                "rel_type": "m.annotation", "event_id": event_id, "key": "👍"}})
+        except Exception as e:                 # noqa: BLE001 — a missing shortcut must not lose the question
+            log.warning("couldn't add the 👍 shortcut in %s: %s", room_id, e)
 
     async def on_reaction(self, room: MatrixRoom, event: ReactionEvent) -> None:
         wanted = self.pending.get(room.room_id, {}).get("event_id")
@@ -157,8 +170,9 @@ class Chat:
         elif intent == intents.PLAN and not await room_state.is_moderator(self.client, room, sender):
             who = sender.split(":")[0].lstrip("@")         # a contributor asks; the owner decides
             event_id = await self.say(rid, f"{who} would like to turn this discussion into work. Room owner or "
-                                           "a maintainer: react 👍 and I'll plan it with your agent.")
+                                           "a maintainer: click 👍 below and I'll plan it with your agent.")
             self.pending[rid] = {"kind": "plan_request", "event_id": event_id, "until": time.time() + CONFIRM_S}
+            await self.offer_thumb(rid, event_id)
         elif intent == intents.PLAN:
             await self.start_plan(room, sender)
         elif intent == intents.HELP:
