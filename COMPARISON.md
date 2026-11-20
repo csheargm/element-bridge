@@ -242,3 +242,27 @@ Deferred (as before, GPT 8 #5):
 
 Found in the browser, not by any review: an apostrophe in a button label broke the console's
 whole script (fbb4a41). `node --check` now runs on the page script in the tests.
+
+## GPT review 12 (the site and the Oracle deploy kit — faf34a2)
+
+No XSS from visitors and no exposed admin or internal ports. Adopted:
+- **`.env` was shell code.** `envfile.py` now reads it as data and validates every value:
+  domains, the e-mail, pinned versions (no `latest`) and a hex password. The file is created
+  mode 600 and secrets are filled without a command line.
+- **An interrupted first run could leave Synapse on SQLite.** The config swap is atomic and keeps
+  the file's owner. A "configured" marker gates the start, the script runs safely every time, and
+  a server-name mismatch is refused.
+- **No admin or invite path.** `invite.sh admin` and `invite.sh token N` use the internal admin
+  API only. Bootstrap checks that sign-up without a token is refused.
+- **The site folder could fall outside Caddy's mount.** The layout is now fixed
+  (`~/hagency/{deploy,site}`) and checked.
+- **iptables vs Docker.** The host-iptables edits and their persistence are gone; OCI's security
+  list is the firewall.
+- **Success claimed too early.** Bootstrap now runs `compose config` and `pull`, validates and
+  reloads Caddy, and checks HTTPS content on every endpoint. Postgres sits on an internal network.
+- **Site claims.** The trust rules are scoped to agents registered on the server, "stop" means
+  new work and merges, and the web-fetch wording is narrower. The preview is "by invitation",
+  the hero room is labelled an example, there are no copy buttons for unpublished commands, and
+  the unclaimed AUR package name was removed because someone else could squat it.
+
+Self-caught while fixing: `curl -f` would have hidden the 401 body the invite-only check reads.

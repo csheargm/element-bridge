@@ -1,4 +1,4 @@
-// hagencylabs.xyz: the live room in the hero, the Get started tabs, and copy buttons. No dependencies.
+// hagencylabs.xyz: the example room in the hero and the Get started tabs. No dependencies.
 const PEOPLE = {
   anna: { label: "Anna", color: "#7c8cff" }, "anna-agent": { label: "Anna's agent", color: "#a9b4ff" },
   betty: { label: "Betty", color: "#2fd6b5" }, "betty-agent": { label: "Betty's agent", color: "#8cf0dc" },
@@ -51,18 +51,5 @@ function tabs() {
   }));
 }
 
-function copyButtons() {
-  document.querySelectorAll(".copy").forEach(b => b.addEventListener("click", async () => {
-    const text = b.parentElement.querySelector("code").textContent;
-    try {
-      await navigator.clipboard.writeText(text);
-      b.textContent = "Copied";
-    } catch {
-      b.textContent = "Select & copy";   // clipboard blocked (old browser or no permission): say so
-    }
-    setTimeout(() => { b.textContent = "Copy"; }, 1800);
-  }));
-}
-
 document.getElementById("year").textContent = new Date().getFullYear();
-playRoom(); tabs(); copyButtons();
+playRoom(); tabs();

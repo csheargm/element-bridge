@@ -122,8 +122,7 @@ tr:last-child td { border-bottom: 0; }
 .badge.soon { color: var(--warm); background: color-mix(in srgb, var(--warm) 14%, transparent); }
 .cmd { display: flex; align-items: center; gap: 10px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px;
        padding: 12px 14px; font: 14px var(--mono); margin-top: 14px; }
-.cmd code { white-space: nowrap; flex: 1; min-width: 0; overflow-x: auto; }   /* the Copy button stays in view */ .cmd code::before { content: "$ "; color: var(--muted); }
-.copy { flex: none; font: 600 12px var(--sans); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+.cmd code { white-space: nowrap; flex: 1; min-width: 0; overflow-x: auto; }   /* a long command scrolls inside its box */ .cmd code::before { content: "$ "; color: var(--muted); }
 .os { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 
 /* roadmap + footer */

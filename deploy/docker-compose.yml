@@ -13,16 +13,17 @@ services:
       ACME_EMAIL: ${ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./site:/srv/site:ro
-      - ./element-config.json:/srv/element-config.json:ro
+      - ../site:/srv/site:ro          # ~/hagency/site, next to ~/hagency/deploy
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [synapse, element]
+    networks: [edge]
     restart: unless-stopped
   synapse:
     image: matrixdotorg/synapse:${SYNAPSE_VERSION}
     volumes: ["./synapse:/data"]
     depends_on: [postgres]
+    networks: [edge, db]
     restart: unless-stopped
   postgres:
     image: postgres:${POSTGRES_VERSION}
@@ -32,11 +33,16 @@ services:
       POSTGRES_DB: synapse
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"   # what Synapse requires
     volumes: ["postgres:/var/lib/postgresql/data"]
+    networks: [db]                      # only Synapse reaches the database
     restart: unless-stopped
   element:
     image: vectorim/element-web:${ELEMENT_VERSION}
     volumes: ["./element-config.json:/app/config.json:ro"]
+    networks: [edge]
     restart: unless-stopped
+networks:
+  edge: {}
+  db: {internal: true}                  # no route out, and nothing but Synapse on it
 volumes:
   caddy_data: {}
   caddy_config: {}

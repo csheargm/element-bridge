@@ -1,6 +1,7 @@
 """Unit tests for configure_synapse.py. Run from deploy/: python3 -m unittest test_configure_synapse"""
 import unittest
 
+import envfile
 from configure_synapse import configure
 
 GENERATED = """server_name: "matrix.example.org"
@@ -12,7 +13,7 @@ log_config: "/data/log.config"
 registration_shared_secret: "keep-me"
 enable_registration: false
 """
-ENV = {"POSTGRES_PASSWORD": "abc123", "MATRIX_DOMAIN": "matrix.example.org"}
+ENV = {"POSTGRES_PASSWORD": "ab" * 32, "MATRIX_DOMAIN": "matrix.example.org", "SERVER_NAME": "matrix.example.org"}
 
 
 class Configure(unittest.TestCase):
@@ -28,11 +29,36 @@ class Configure(unittest.TestCase):
         self.assertIn("registration_requires_token: true", out)
         self.assertEqual(out.count("enable_registration:"), 1)            # replaced, not appended twice
         self.assertIn("url_preview_enabled: false", out)
-        self.assertIn("public_baseurl: https://matrix.example.org/", out)
+        self.assertIn('public_baseurl: "https://matrix.example.org/"', out)
 
     def test_refuses_an_unexpected_file(self):
         with self.assertRaises(SystemExit):
             configure("server_name: x\n", ENV)
+
+    def test_running_again_changes_nothing(self):
+        once = configure(GENERATED, ENV)
+        self.assertEqual(configure(once, ENV), once)
+
+    def test_a_server_name_never_changes(self):
+        """GPT review 12: a mismatched .env must fail, not reconfigure an existing server."""
+        with self.assertRaises(SystemExit):
+            configure(GENERATED, {**ENV, "SERVER_NAME": "hagencylabs.xyz"})
+
+
+class EnvFile(unittest.TestCase):
+    """GPT review 12: .env is data, validated, never sourced by a shell."""
+    GOOD = {"SITE_DOMAIN": "www.example.org", "ROOMS_DOMAIN": "rooms.example.org", "MATRIX_DOMAIN": "matrix.example.org",
+            "SERVER_NAME": "matrix.example.org", "ACME_EMAIL": "ops@example.org", "CADDY_VERSION": "2.8.4",
+            "SYNAPSE_VERSION": "v1.120.0", "POSTGRES_VERSION": "16-alpine", "ELEMENT_VERSION": "v1.11.90",
+            "POSTGRES_PASSWORD": "ab" * 32}
+
+    def test_good_values_pass(self):
+        self.assertEqual(envfile.validate(self.GOOD), [])
+
+    def test_shell_and_latest_are_refused(self):
+        for key, bad in (("SITE_DOMAIN", "$(id).example.org"), ("SYNAPSE_VERSION", "latest"),
+                         ("POSTGRES_PASSWORD", 'x" ; drop'), ("ACME_EMAIL", "a@b`id`.org"), ("CADDY_VERSION", "")):
+            self.assertTrue(envfile.validate({**self.GOOD, key: bad}), (key, bad))
 
 
 if __name__ == "__main__":

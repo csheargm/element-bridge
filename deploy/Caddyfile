@@ -24,7 +24,8 @@
 	}
 }
 
-# Synapse (matrix.hagencylabs.xyz): the client API and federation on 443, federation also on 8448.
+# Synapse (matrix.hagencylabs.xyz): client and federation APIs on 443, and the same on 8448
+# (federation's default port, for servers that don't read .well-known).
 # Admin APIs (/_synapse/admin) are never exposed to the internet.
 {$MATRIX_DOMAIN}, {$MATRIX_DOMAIN}:8448 {
 	handle /.well-known/matrix/server {

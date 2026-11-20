@@ -54,21 +54,35 @@ Don't change `hagencylabs.xyz` or `app`.
 
 Claude does these steps once `ssh hagency-vm` works:
 
-1. Copy `deploy/` and `site/` to `~/hagency` on the VM.
-2. Create `~/hagency/.env` from `.env.example`:
-   - your ACME e-mail;
-   - image versions pinned to current releases, checked on the VM before use.
-3. Run `bootstrap.sh`. It:
-   - installs Docker from Ubuntu's archive;
-   - opens 80/443/8448 in the VM's iptables (Oracle images block them even when the security
-     list allows them);
-   - generates a Postgres password and Synapse's config (`configure_synapse.py`: Postgres,
-     invite-token sign-up only, no URL previews, admin API not exposed);
-   - starts Caddy, Synapse, Postgres and Element.
-4. Check the three sites, the federation tester and an invite-token sign-up.
+1. Copy the repo's `deploy/` to `~/hagency/deploy` and `site/` to `~/hagency/site`. Compose
+   mounts `../site`, and bootstrap refuses to start without `~/hagency/site/index.html`.
+2. Run `bootstrap.sh` once. It creates `~/hagency/deploy/.env`:
+   - mode 600, with a random Postgres password;
+   - plain `NAME=value` data that `envfile.py` validates and that no shell ever sources.
+3. Fill in your ACME e-mail and the image versions. Pin current releases, after checking the
+   tags exist for arm64; `latest` is refused.
+4. Run `bootstrap.sh` again. It:
+   - installs Docker and Compose from Ubuntu's archive;
+   - generates Synapse's config once and adjusts it with `configure_synapse.py`: Postgres,
+     invite-token sign-up only, no URL previews. The swap is atomic, and Synapse won't start
+     without the "configured" marker;
+   - starts Caddy, Synapse, Postgres and Element. Postgres sits on an internal network only
+     Synapse can reach;
+   - reports success only when the site, Element's config, Matrix's versions endpoint and both
+     `.well-known` answers come back over HTTPS, and sign-up without a token is refused.
+5. The firewall is OCI's security list (step 1). Docker publishes Caddy's ports through its own
+   rules, so host iptables are left alone.
 
-Secrets stay in `~/hagency/.env` and `synapse/homeserver.yaml` on the VM (mode 600). They are
-never printed, copied back or committed.
+Then you, on the VM (each command asks for what it needs and stores nothing):
+
+```
+cd ~/hagency/deploy && ./invite.sh admin      # your admin account (Synapse's own tool)
+./invite.sh token 5                           # an invite token for 5 sign-ups, valid 7 days
+```
+
+Secrets stay on the VM, in `deploy/.env` and `deploy/synapse/homeserver.yaml` (mode 600). They
+are never printed, copied back or committed. Changing `POSTGRES_PASSWORD` after the first start
+also needs `ALTER ROLE` in Postgres. The admin API is reachable only inside the container.
 
 ## 4. Next (separate steps)
 
