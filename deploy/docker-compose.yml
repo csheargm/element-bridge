@@ -1,0 +1,43 @@
+# Hagency Rooms on the Oracle VM: Caddy (TLS) in front of Synapse, Element Web and the static site.
+# Only Caddy publishes ports (80/443, plus 8448 for federation). Postgres and Synapse stay internal.
+# Image versions come from .env (pinned and checked on deploy; see docs/DEPLOY_ORACLE.md).
+name: hagency
+services:
+  caddy:
+    image: caddy:${CADDY_VERSION}
+    ports: ["80:80", "443:443", "8448:8448"]
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      ROOMS_DOMAIN: ${ROOMS_DOMAIN}
+      MATRIX_DOMAIN: ${MATRIX_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv/site:ro
+      - ./element-config.json:/srv/element-config.json:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [synapse, element]
+    restart: unless-stopped
+  synapse:
+    image: matrixdotorg/synapse:${SYNAPSE_VERSION}
+    volumes: ["./synapse:/data"]
+    depends_on: [postgres]
+    restart: unless-stopped
+  postgres:
+    image: postgres:${POSTGRES_VERSION}
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: synapse
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"   # what Synapse requires
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    restart: unless-stopped
+  element:
+    image: vectorim/element-web:${ELEMENT_VERSION}
+    volumes: ["./element-config.json:/app/config.json:ro"]
+    restart: unless-stopped
+volumes:
+  caddy_data: {}
+  caddy_config: {}
+  postgres: {}

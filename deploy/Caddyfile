@@ -1,0 +1,51 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# The product site (www.hagencylabs.xyz). Static files only.
+{$SITE_DOMAIN} {
+	root * /srv/site
+	file_server
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'"
+	}
+}
+
+# Element Web (rooms.hagencylabs.xyz).
+{$ROOMS_DOMAIN} {
+	reverse_proxy element:80
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+	}
+}
+
+# Synapse (matrix.hagencylabs.xyz): the client API and federation on 443, federation also on 8448.
+# Admin APIs (/_synapse/admin) are never exposed to the internet.
+{$MATRIX_DOMAIN}, {$MATRIX_DOMAIN}:8448 {
+	handle /.well-known/matrix/server {
+		header Content-Type application/json
+		respond `{"m.server": "{$MATRIX_DOMAIN}:443"}`
+	}
+	handle /.well-known/matrix/client {
+		header Content-Type application/json
+		header Access-Control-Allow-Origin *
+		respond `{"m.homeserver": {"base_url": "https://{$MATRIX_DOMAIN}"}}`
+	}
+	handle /_synapse/admin* {
+		respond 404
+	}
+	handle /_matrix* {
+		reverse_proxy synapse:8008
+	}
+	handle /_synapse/client* {
+		reverse_proxy synapse:8008
+	}
+	handle {
+		respond 404
+	}
+}
