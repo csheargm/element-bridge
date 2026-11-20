@@ -16,7 +16,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 1. Start everything — server, accounts (first run only) and both agent bridges:
 
    ```bash
-   cd ~/hagency-rooms && ./start.sh
+   cd hagency-rooms && ./start.sh      # in your clone
    ```
 
    Leave it running (Ctrl-C stops the bridges; the server keeps running in Docker).
@@ -25,7 +25,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 2. Look up anna's password (it is never printed by the scripts):
 
    ```bash
-   grep PW_ANNA ~/hagency-rooms/.env
+   grep PW_ANNA .env      # in your clone
    ```
 
 3. Open **http://localhost:8649** in your browser (or Element desktop: on the sign-in screen
@@ -129,7 +129,7 @@ short reply.
 ## Stop / reset
 
 ```bash
-docker compose -f ~/hagency-rooms/docker-compose.yml down
+docker compose down      # in your clone
 ```
 
 Delete `data/`, `.env` and `rooms/` to start from scratch.

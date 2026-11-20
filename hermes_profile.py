@@ -122,7 +122,7 @@ display:                              # a shared room sees final replies only: n
 matrix:
   require_mention: true
   gateway_restart_notification: false # restarts (e.g. after a code update) aren't announced in every room
-  reply_to_mode: "off"                # answers don't quote the question (needs docs/hermes-matrix-reply-mode.patch)
+  reply_to_mode: "off"                # answers don't quote the question; threads are kept (docs/hermes-matrix-reply-mode.patch)
 onboarding:                           # no "shall I build your profile?" offers in a shared room
   profile_build: "off"
 mcp_servers:

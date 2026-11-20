@@ -11,7 +11,7 @@ choose to use it yourself or send it here as a pull request. *(In-chat flow: in 
 ## By hand
 
 ```bash
-git clone https://github.com/<you>/hagency-rooms && cd hagency-rooms
+git clone "https://github.com/YOUR-NAME/hagency-rooms" && cd hagency-rooms
 python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m unittest discover -p 'test_*.py'
 ```

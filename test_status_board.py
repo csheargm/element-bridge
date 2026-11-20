@@ -36,6 +36,10 @@ class Render(unittest.TestCase):
         self.assertNotIn("#50", text)                       # older than a day
         self.assertIn("nothing in progress", text)
 
+    def test_an_agents_name_is_never_markup(self):
+        """GPT review 16: who() put the agent's id on the board unescaped."""
+        self.assertEqual(status_board.who("@<b>x</b>:s"), "&lt;b&gt;x&lt;/b&gt;")
+
     def test_never_shows_paths_or_tasks(self):
         text = render({"7": {"stage": "building", "agent": A, "since": NOW, "body": "/Users/x/secret",
                              "task": {"kind": "build"}}}, "autonomous", [], NOW)

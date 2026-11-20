@@ -44,7 +44,7 @@ def ago(seconds: float) -> str:
 
 
 def who(user_id: object) -> str:
-    return str(user_id).split(":")[0].lstrip("@") if user_id else "—"
+    return safe(str(user_id).split(":")[0].lstrip("@")) if user_id else "—"   # agents name themselves
 
 
 def render(items: dict, level: str, queued: list[dict], now: float, repo: str = "") -> str:
