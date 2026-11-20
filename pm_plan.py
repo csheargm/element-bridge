@@ -71,6 +71,7 @@ class Planner:
             await self.propose(rid, plan, result.get("items"))
         else:
             self.last_plans.pop(rid, None)                    # opened: it's issues now, not a plan
+            self.kick()                                       # list them on the board / start them now
             numbers = ", ".join(f"#{n}" for n in result.get("numbers", []))
             nxt = ("The agents start on them now." if await self.level(rid) != "off" else
                    'Say "take it all the way" or "let us approve each change" to start building.')

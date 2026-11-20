@@ -112,5 +112,27 @@ class Watchdog(unittest.TestCase):
         self.assertIn("merge conflicts", self.lp.say.call_args.args[1])
 
 
+class Kick(unittest.TestCase):
+    def test_kick_runs_a_tick_now_instead_of_at_the_next_poll(self):
+        """Seen live: after the owner's ✅ nothing visible happened for up to 30s."""
+        import loop
+        lp = Loop.__new__(Loop)
+        lp.busy, ticks = set(), []
+
+        async def locked_tick():
+            ticks.append(time.monotonic())
+
+        async def scenario():
+            lp.locked_tick = locked_tick
+            with mock.patch.object(loop, "POLL_S", 60):
+                runner = asyncio.create_task(lp.poll_forever())
+                await asyncio.sleep(0.05)
+                lp.kick()
+                await asyncio.sleep(0.05)
+                runner.cancel()
+        asyncio.run(scenario())
+        self.assertEqual(len(ticks), 2)            # the start, then the kick — not 60 s later
+
+
 if __name__ == "__main__":
     unittest.main()

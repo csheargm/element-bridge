@@ -15,7 +15,7 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
              r"review (each|every|it|them)|human review|before (you )?merg\w*|we merge|i('ll| will) merge)\b"),
     (AUTONOMOUS, r"\b(all the way|to the end|end to end|on your own|autonomous\w*|without asking|"
                  r"(just )?(get|do) (it |them |this )?(all |everything )?done|get (it |them )?all done|"
-                 r"finish (it|the project|everything)|full auto|go all in)\b"),
+                 r"finish (it|the project|everything|all|them)|full auto|go all in)\b"),
     (STATUS, r"\b(status|where are we|progress|what'?s left|how'?s it going|what are (you|the agents) doing|"
              r"what'?s happening|update me)\b"),
     (SHOW_PLAN, r"\b((show|reiterate|repeat|see|resend|what'?s|where'?s) (me )?(the |teh |our |that |this )?plan)\b"),

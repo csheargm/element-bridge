@@ -19,7 +19,7 @@ PM = f"@{github.PM_BOT}:bridge.localhost"
 class Intents(unittest.TestCase):
     def test_plain_words(self):
         cases = {"do this project all the way to the end": intents.AUTONOMOUS,
-                 "just get it done": intents.AUTONOMOUS, "get all done": intents.AUTONOMOUS,
+                 "just get it done": intents.AUTONOMOUS, "get all done": intents.AUTONOMOUS, "finish all": intents.AUTONOMOUS,
                  "build it but let us approve each change": intents.ASSIST,
                  "check with us first": intents.ASSIST,
                  "stop": intents.OFF, "turn it all off": intents.OFF, "kill all the AI": intents.OFF,

@@ -254,9 +254,21 @@ class Loop(Progress, Boards, Chat, Planner):
         await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())
 
     async def poll_forever(self) -> None:
+        """Check GitHub every POLL_S, or at once when kick() says something changed."""
+        self.wake = asyncio.Event()
         while True:
             await self.guarded(self.locked_tick())
-            await asyncio.sleep(POLL_S)
+            self.wake.clear()
+            try:
+                await asyncio.wait_for(self.wake.wait(), POLL_S)
+            except asyncio.TimeoutError:
+                pass                          # the regular poll
+
+    def kick(self) -> None:
+        """Act now instead of at the next poll (after a ✅, a mode change or new issues)."""
+        wake = getattr(self, "wake", None)
+        if wake is not None:
+            wake.set()
 
     async def locked_tick(self) -> None:
         async with self.lock:

@@ -142,7 +142,10 @@ class Chat:
         if self.pending.get(room_id, {}).get("kind", "autonomous") == "autonomous":
             self.pending.pop(room_id, None)
         resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, {"level": level, "repo": github.REPO})
-        return None if hasattr(resp, "event_id") else f"⚠️ I couldn't change the mode: {resp}"
+        if not hasattr(resp, "event_id"):
+            return f"⚠️ I couldn't change the mode: {resp}"
+        self.kick()                           # start (or stop) now, not at the next poll
+        return None
 
     async def status_text(self, room_id: str) -> str:
         agents = ", ".join(a.split(":")[0][1:] for a in self.agents_in(self.client.rooms[room_id])) or "none"

@@ -84,6 +84,7 @@ class Progress:
         item = self.state[str(n)] = {"room": room.room_id, "stage": "building", "builder": builder,
                                      "title": issue["title"]}
         self.open_issues[room.room_id] = fresh[1:]
+        await self.say(room.room_id, f"Starting #{n} {issue['title']} with {builder.split(':')[0][1:]}.")
         await self.dispatch(room.room_id, item, builder, f"{builder}: build #{n} {issue['title']} ({lvl})",
                             {"kind": "build", "issue": n})
 
