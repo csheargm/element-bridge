@@ -48,6 +48,14 @@ def migrate(state: dict) -> dict:
 
 
 class Progress:
+    def key_for_result(self, room_id: str, result: dict) -> str | None:
+        """The item a result answers: this room's, this issue, and one of the task_ids it was sent."""
+        for key, item in self.state.items():
+            if (item.get("room") == room_id and str(num(key)) == str(result.get("issue"))
+                    and result.get("task_id") in item.get("task_ids", [item.get("task_id")])):
+                return key
+        return None
+
     # --- polling: pick up issues, check GitHub's merge verdict -------------------------
     async def tick(self) -> None:
         issues_of: dict[str, list] = {}               # one GitHub call per repo per poll
@@ -66,6 +74,7 @@ class Progress:
                     log.warning("can't list issues on %s: %s", repo, str(e)[:200])
                     issues_of[repo] = None
             if issues_of[repo] is None:
+                self.open_issues.pop(room_id, None)   # never show another repo's queue under this one
                 continue
             self.open_issues[room_id] = sorted((i for i in issues_of[repo] if issue_key(repo, i["number"]) not in self.state),
                                                key=lambda i: i["number"])   # "Next" on the board, even while stopped
@@ -93,13 +102,14 @@ class Progress:
             return
         board = self.boards.setdefault(room_id, {})
         since = board.get("announced", 0)
-        done = sorted((k for k, v in self.state.items() if v["room"] == room_id and v["stage"] == "done"
+        repo = self.room_repos.get(room_id)
+        done = sorted((k for k, v in self.state.items() if v["room"] == room_id and v.get("repo") == repo and v["stage"] == "done"
                        and v.get("ended", 0) > since), key=num)
         if not done:
             return
         board["announced"] = time.time()
         self.save_boards()
-        stopped = [k for k, v in self.state.items() if v["room"] == room_id and v["stage"] == "stopped"
+        stopped = [k for k, v in self.state.items() if v["room"] == room_id and v.get("repo") == repo and v["stage"] == "stopped"
                    and v.get("ended", 0) > since]
         extra = f" ({', '.join(f'#{num(k)}' for k in stopped)} stopped and need a person.)" if stopped else ""
         await self.say(room_id, f"🎉 All done: {', '.join(f'#{num(k)}' for k in done)} merged.{extra} Try it: "

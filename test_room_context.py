@@ -102,6 +102,19 @@ class Prune(unittest.TestCase):
         room_context.prune_projects(projects, None)                      # unbound: nothing stays
         self.assertEqual(list(projects.iterdir()), [])
 
+    def test_a_symlinked_root_is_never_followed(self):
+        """GPT review 11: is_dir() follows a link, so pruning could delete outside the agent's folder."""
+        import tempfile
+        from pathlib import Path
+        base = Path(tempfile.mkdtemp())
+        outside = base / "outside"
+        (outside / "precious").mkdir(parents=True)
+        (base / "work").mkdir()
+        (base / "work" / "projects").symlink_to(outside)
+        room_context.prune_projects(base / "work" / "projects", "a__x")
+        self.assertTrue((outside / "precious").is_dir())
+        self.assertFalse((base / "work" / "projects").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

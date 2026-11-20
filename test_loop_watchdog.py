@@ -151,14 +151,14 @@ class AllDone(unittest.TestCase):
     def test_not_while_work_remains(self):
         self.lp.open_issues["!r"] = [{"number": 3, "title": "t"}]
         self.announce()
-        self.lp.state["3"] = {"room": "!r", "repo": "your-name/hagency-hello", "stage": "reviewing"}
+        self.lp.state["3"] = {"room": "!r", "repo": github.REPO, "stage": "reviewing"}
         self.lp.open_issues["!r"] = []
         self.announce()
         self.lp.say.assert_not_called()
 
     def test_the_next_round_is_announced_too(self):
         self.announce()
-        self.lp.state["5"] = {"room": "!r", "repo": "your-name/hagency-hello", "stage": "done", "ended": time.time() + 1}
+        self.lp.state[f"{github.REPO}#5"] = {"room": "!r", "repo": github.REPO, "stage": "done", "ended": time.time() + 1}
         self.announce()
         self.assertIn("All done: #5 merged", self.lp.say.call_args.args[1])
 

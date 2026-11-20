@@ -79,20 +79,25 @@ def describe(snap: dict) -> str:
 
 def prune_projects(projects: Path, keep: str | None) -> None:
     """Only the room's current repo stays readable in the agent's folder: after a switch (or unbind)
-    the old repo's copy goes, so the next answer can't read it."""
+    the old repo's copy goes, so the next answer can't read it. Raises OSError if it can't (the
+    caller then answers without project files)."""
+    if projects.is_symlink():
+        projects.unlink()                                   # never traverse a link we didn't make
+        return
     if not projects.is_dir():
         return
     for child in projects.iterdir():
         if child.is_symlink():
             child.unlink()                                  # never followed: we only ever make plain folders
         elif child.name != keep:
-            shutil.rmtree(child, ignore_errors=True)        # a copy we can re-clone; partial removal is harmless
+            shutil.rmtree(child)                            # errors propagate: a half-removed copy must not be read
+            (projects / f".{child.name}-refreshed").unlink(missing_ok=True)
 
 
 async def refresh_project(agent: str, repo: str, dest: Path) -> bool:
     """Keep a read-only copy of `repo`'s default branch in `dest` (as the agent's own GitHub identity)."""
     marker = dest.parent / f".{dest.name}-refreshed"      # outside the copy, so it never looks changed
-    if marker.exists() and time.time() - marker.stat().st_mtime < REFRESH_S:
+    if (dest / ".git").is_dir() and marker.exists() and time.time() - marker.stat().st_mtime < REFRESH_S:
         return True
     try:
         if (dest / ".git").is_dir():

@@ -117,8 +117,8 @@ def ensure_room(env: dict, alias_name: str, name: str) -> str:
     bots = {bot: login(bot, env["PW_" + bot.upper().replace("-", "_")]) for bot in BOTS}
     for bot, power in BOTS.items():
         add_bot(anna, bots[bot], room, bot, power)
-    level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", token=anna)
-    if "level" not in level:              # written as @pm: the binding counts only if @pm wrote it
+    level = api("GET", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/?format=event", token=anna)
+    if level.get("sender") != f"@{PM_BOT}:{SERVER_NAME}":   # written as @pm: only @pm's binding counts
         api("PUT", f"/_matrix/client/v3/rooms/{room}/state/{LEVEL_EVENT}/", content("off", REPO), token=bots[PM_BOT])
     return room_id
 

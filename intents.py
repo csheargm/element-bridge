@@ -16,7 +16,8 @@ SET_REPO = "set_repo"
 SET_REPO_RE = re.compile(
     r"\b(?:(?:this |the )?room (?:now )?works? on\s+|(?:set |change |switch )?(?:the |this room'?s? )?repo(?:sitory)?"
     r"(?: is| to|:)\s+|use\s+(?:the repo\s+)?(?=https?://))(?:https?://github\.com/)?"
-    r"(?P<repo>[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}?)(?:\.git)?/?(?=$|[\s,.;!?)])", re.I)
+    r"(?P<repo>[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100})/?(?=$|[\s,;!?)])", re.I)
+NEGATED = re.compile(r"\b(don'?t|do not|never|not|no longer|stop using)\b", re.I)
 
 _RULES = [   # checked in order; the first match wins, so the safest meanings come first
     # The follow-me settings mention "my agent" explicitly, so they can go before "stop" without
@@ -59,7 +60,7 @@ def is_confirm_reaction(key: str) -> bool:
 
 def classify(text: str) -> str:
     for intent, rx in _COMPILED:
-        if rx.search(text):
+        if rx.search(text) and (intent != SET_REPO or repo_named(text)):
             return intent
     return UNKNOWN
 
@@ -67,7 +68,10 @@ def classify(text: str) -> str:
 def repo_named(text: str) -> str | None:
     """The owner/name in a "this room works on owner/name" message (a GitHub URL works too)."""
     m = SET_REPO_RE.search(text)
-    return m.group("repo") if m else None
+    if not m or NEGATED.search(text[:m.start()]):     # "please do not use …" is not a command
+        return None
+    repo = m.group("repo").rstrip(".")               # a sentence's full stop, never part of the name
+    return repo.removesuffix(".git") or None
 
 
 def is_yes(text: str) -> bool:

@@ -186,7 +186,11 @@ class Bridge:
             log.warning("no room context for %s: %s", room.room_id, e)
             snap = {"status": "", "conversation": ""}
         repo = snap.get("repo")
-        room_context.prune_projects(workdir / "projects", repo and room_context.repo_dir(repo))
+        try:
+            room_context.prune_projects(workdir / "projects", repo and room_context.repo_dir(repo))
+        except OSError as e:                  # an old repo's copy may remain: answer without any files
+            log.warning("couldn't remove old project copies in %s: %s", workdir, e)
+            repo = None
         has_files = bool(repo) and await room_context.refresh_project(
             f"{self.owner}-agent", repo, workdir / "projects" / room_context.repo_dir(repo))
         try:

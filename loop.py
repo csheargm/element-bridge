@@ -172,19 +172,13 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
         job.add_done_callback(self.busy.discard)
         await asyncio.shield(job)
 
-    def key_for_result(self, room_id: str, result: dict) -> str | None:
-        """The item a result answers: this room's, this issue, and one of the task_ids it was sent."""
-        for key, item in self.state.items():
-            if (item.get("room") == room_id and str(num(key)) == str(result.get("issue"))
-                    and result.get("task_id") in item.get("task_ids", [item.get("task_id")])):
-                return key
-        return None
-
     async def on_result(self, room: MatrixRoom, sender: str, result: dict) -> None:
         kind = result.get("kind")
         if kind in ("plan", "file_issues"):
             await self.on_plan_result(room, sender, result)
             return
+        if room.room_id not in self.room_repos:     # before the first poll: read it (only @pm writes it)
+            self.room_repos[room.room_id] = await room_state.repo_of(self.client, room.room_id)
         key = self.key_for_result(room.room_id, result)
         item = self.state.get(key)
         if not isinstance(kind, str) or not item or item.get("repo") != self.room_repos.get(room.room_id):

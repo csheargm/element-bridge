@@ -18,6 +18,7 @@ import panel
 import registry
 import room_state
 from loop_progress import ACTIVE
+from setup_accounts import SERVER_NAME
 
 log = logging.getLogger("loop")
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
@@ -30,7 +31,9 @@ async def may_write(user: str, repo: str) -> bool:
     """The person's own agent's GitHub account can write to `repo`: so binding a room to a repo needs
     real access to it, not just a room of one's own (anyone can create a room). A read with that
     agent's identity; nothing is changed."""
-    person = user.split(":")[0].lstrip("@")
+    person, _, server = user.lstrip("@").partition(":")
+    if server != SERVER_NAME:                 # @anna:elsewhere is not our anna (federation)
+        return False
     agent = registry.agent_of(person)
     if registry.owner_of(agent) != person:
         return False
@@ -54,12 +57,17 @@ class Settings:
         if repo is None or not await may_write(sender, repo):    # one answer for both: never confirms a name
             return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
                     "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+        async with self.lock:                     # the same lock as polling and results: nothing starts in between
+            return await self.bind(rid, repo)
+
+    async def bind(self, rid: str, repo: str) -> str:
         if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
             return "Work is still running on the current repo; say \"stop\" and let it finish first."
-        failed = await self.write_level(rid, await self.level(rid) if self.room_repos.get(rid) == repo else "off", repo)
+        current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
+        failed = await self.write_level(rid, await self.level(rid) if current == repo else "off", repo)
         if failed:
             return failed
-        if self.room_repos.get(rid) != repo:      # a plan made for the old repo is never filed in the new one
+        if current != repo:                       # a plan made for the old repo is never filed in the new one
             self.pending.pop(rid, None)
             self.plans.pop(rid, None)
             self.last_plans.pop(rid, None)

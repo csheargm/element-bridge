@@ -33,10 +33,14 @@ class Parsing(unittest.TestCase):
     def test_the_repo_is_read_from_plain_words_or_a_url(self):
         for text, repo in (("this room works on your-name/hagency-hello", HELLO),
                            ("use https://github.com/octocat/Hello-World", "octocat/Hello-World"),
-                           ("set the repo to a/b.git", "a/b")):
+                           ("set the repo to a/b.git", "a/b"),
+                           ("set the repo to a/foo.bar", "a/foo.bar"),                  # GPT review 11: was a/foo
+                           ("use https://github.com/a/foo.bar.git", "a/foo.bar"),
+                           ("the repo is a/b.", "a/b")):
             self.assertEqual(intents.classify(text), intents.SET_REPO, text)
             self.assertEqual(intents.repo_named(text), repo, text)   # (allowed or not is set_repo's call)
-        for text in ("let's build it", "let's use docs/guide.md for that", "we use a/b", "use https://evil.com/a/b"):
+        for text in ("let's build it", "let's use docs/guide.md for that", "we use a/b", "use https://evil.com/a/b",
+                     "please do not use https://github.com/a/b"):                # GPT review 11: negation
             self.assertNotEqual(intents.classify(text), intents.SET_REPO, text)
         # GPT review 10: the repo is the command's own argument, not the first owner/name in the message
         self.assertEqual(intents.repo_named("the room works on a/b, see x/y"), "a/b")
@@ -71,7 +75,7 @@ class SetRepo(unittest.TestCase):
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.boards, self.lp.state = PM, {}, {}, {}
         self.lp.generation, self.lp.busy, self.lp.room_repos = {}, set(), {}
-        self.lp.plans, self.lp.last_plans = {}, {}
+        self.lp.plans, self.lp.last_plans, self.lp.lock = {}, {}, asyncio.Lock()
         self.lp.kick = lambda: None
         self.can_write = True                  # the requester's agent's GitHub access to the repo
         q = mock.patch("pm_settings.may_write", lambda user, repo: asyncio.sleep(0, self.can_write))
@@ -215,6 +219,16 @@ class OldRepoWork(unittest.TestCase):
             problem, task = core.claim("T", "build")
         self.assertIsNone(task)
         self.assertIn("wrong repo", problem["next"])
+
+
+class RemoteUsers(unittest.TestCase):
+    def test_a_same_named_user_from_another_server_has_no_access(self):
+        """GPT review 11: @anna:elsewhere was checked against our anna's agent."""
+        import pm_settings
+        with mock.patch.object(pm_settings.github_setup, "identity", mock.AsyncMock(return_value={"push": True})), \
+                mock.patch.object(pm_settings.registry, "owner_of", lambda agent: "anna"):
+            self.assertFalse(asyncio.run(pm_settings.may_write("@anna:elsewhere.org", HELLO)))
+            self.assertTrue(asyncio.run(pm_settings.may_write(f"@anna:{pm_settings.SERVER_NAME}", HELLO)))
 
 
 class ConsoleRepo(unittest.TestCase):
