@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 
 import markdown
-from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, ReactionEvent, RoomMemberEvent,
+from nio import (AsyncClient, RoomMessageAudio, InviteMemberEvent, LoginResponse, MatrixRoom, ReactionEvent, RoomMemberEvent,
                  RoomMessageText, RoomSendResponse)
 
 import github
@@ -33,6 +33,7 @@ from pm_follow import Follow
 from saved_dict import SavedDict
 from pm_plan import Planner
 from pm_understand import Understanding
+from pm_voice import Voice
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -51,7 +52,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
+class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -243,6 +244,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow):
             self.client, github.PM_BOT, self.sync_point,
             lambda: (self.client.add_event_callback(self.on_message, RoomMessageText),
                      self.client.add_event_callback(self.on_reaction_event, ReactionEvent),
+                     self.client.add_event_callback(self.on_voice, RoomMessageAudio),
                      self.client.add_event_callback(self.on_member, RoomMemberEvent)),
             lambda ms: setattr(self, "started_ms", ms))
         log.info("pm online (one repo per room; poll %ss)", POLL_S)
