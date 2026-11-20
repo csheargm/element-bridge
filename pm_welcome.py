@@ -35,6 +35,8 @@ WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their 
            "- 🏠 **House agent**: runs on this server, with free daily credit\n"
            "- 🔌 **Bring your own**: your Codex or Claude Code, on your own computer\n\n"
            "Click one below, or type \"house agent\" or \"bring my own\".")
+POINTER = ("Welcome, {person}! I've sent you a private message with how to get your agent: accept it under "
+           "Invites (top left).")
 HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
                "own: type \"bring my own\" (you need Codex or Claude Code on your computer).")
 BRING_REPLY = ("Your agent is **{agent}**. On your computer, with Codex or Claude Code installed, run:\n\n"
@@ -76,7 +78,7 @@ class Welcome:
         joined = [u for u in getattr(room, "users", {}) if u not in getattr(room, "invited_users", {})]
         for person in joined:
             if self.is_newcomer(person) and person not in self.welcomes():
-                await self.greet(person)
+                await self.greet_from_welcome(resp.room_id, person)
 
     async def on_welcome_member(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
         if (is_stale(event, self.started_ms) or not self.is_welcome_room(room) or event.membership != "join"
@@ -84,7 +86,18 @@ class Welcome:
             return
         person = event.state_key
         if self.is_newcomer(person) and person not in self.welcomes():
-            await self.greet(person)
+            await self.greet_from_welcome(room.room_id, person)
+
+    async def greet_from_welcome(self, welcome_id: str, person: str) -> None:
+        """The private offer, plus ONE line in Welcome naming them: Element lists my private chat as
+        an invite to accept, which newcomers miss, so the buttons would go unseen."""
+        if await self.greet(person) is None or self.welcomes()[person].get("pointed"):
+            return
+        self.welcomes()[person] = {**self.welcomes()[person], "pointed": True}   # once, even if the send fails
+        try:
+            await self.say(welcome_id, POINTER.format(person=person), mention=person)
+        except RuntimeError as e:             # loop.SendError: the private offer is still there
+            log.error("couldn't point %s to my private message: %s", person, e)
 
     async def greet(self, person: str) -> str | None:
         """My private chat with them, with the two buttons; returns that chat's room id. Remembered only

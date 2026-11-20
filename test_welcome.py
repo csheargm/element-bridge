@@ -64,12 +64,40 @@ class Greeting(Base):
         self.assertEqual(self.said[0][0], "!dm")
         self.assertIn("Get your agent", self.said[0][1])
         self.assertEqual([b[2] for b in self.buttons], ["🏠", "🔌"])
-        self.assertEqual(self.lp._welcomes[NEW], {"dm": "!dm", "offer": "$offer", "done": []})
+        self.assertEqual(self.lp._welcomes[NEW], {"dm": "!dm", "offer": "$offer", "done": [], "pointed": True})
+
+    def test_my_private_chat_is_named_product_manager_and_direct(self):
+        """Seen live: it was called "Hagency (private)", which said nothing about who it was with."""
+        self.lp.dm_rooms = {}
+        self.lp.client = mock.Mock(rooms={}, room_create=mock.AsyncMock(return_value=SimpleNamespace(room_id="!new")))
+        self.assertEqual(self.run_(Loop.private_room(self.lp, NEW)), "!new")
+        kw = self.lp.client.room_create.call_args.kwargs
+        self.assertEqual((kw["name"], kw["is_direct"], kw["invite"]), ("Product Manager", True, [NEW]))
+
+    def test_one_line_in_welcome_points_them_to_the_invite(self):
+        """Seen live: Element lists my private chat as an invite, so a newcomer never saw the buttons."""
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        pointers = [b for r, b in self.said if r == "!welcome"]
+        self.assertEqual(len(pointers), 1)
+        self.assertIn(NEW, pointers[0])                     # the pill: Element shows their name
+        self.assertIn("Invites", pointers[0])
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
+        self.assertEqual(len([b for r, b in self.said if r == "!welcome"]), 1)
+
+    def test_the_pointer_mentions_them(self):
+        seen = []
+
+        async def say(room_id, body, mention=None, **k):
+            seen.append((room_id, mention))
+            return "$offer" if body.startswith("Welcome to") else "$x"
+        self.lp.say = say
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        self.assertIn(("!welcome", NEW), seen)
 
     def test_only_once(self):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))   # left and came back
-        self.assertEqual(len(self.said), 1)
+        self.assertEqual(len([r for r, _ in self.said if r == "!dm"]), 1)
 
     def test_agents_bots_people_with_agents_and_other_rooms_are_not_greeted(self):
         for room, who in ((WELCOME_ROOM, f"@newbie1-agent:{S}"), (WELCOME_ROOM, f"@admin-bot:{S}"),
@@ -100,7 +128,7 @@ class Greeting(Base):
         self.run_(self.lp.ensure_welcome_room())
         self.lp.private_room.assert_awaited_once_with(NEW)      # not anna (has an agent), not an invitee
         self.run_(self.lp.ensure_welcome_room())
-        self.assertEqual(len(self.said), 1)                      # once
+        self.assertEqual([r for r, _ in self.said], ["!dm", "!w"])   # once, and pointed to it in Welcome
 
     def test_a_failed_greeting_is_not_remembered(self):
         self.lp.private_room = mock.AsyncMock(return_value=None)

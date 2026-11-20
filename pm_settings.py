@@ -17,7 +17,7 @@ import github_setup
 import registry
 import room_state
 from loop_progress import ACTIVE
-from setup_accounts import SERVER_NAME
+from setup_accounts import DISPLAY_NAMES, SERVER_NAME
 
 log = logging.getLogger("loop")
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
@@ -92,7 +92,7 @@ class Settings:
         if room is not None and set(room.users) <= {self.user_id, user}:
             return known                      # still just the two of us (joined or invited)
         resp = await self.client.room_create(is_direct=True, invite=[user], preset=RoomPreset.private_chat,
-                                             name="Hagency (private)")
+                                             name=DISPLAY_NAMES["pm"])
         if not hasattr(resp, "room_id"):
             log.warning("couldn't open a DM with %s: %s", user, resp)
             return None
