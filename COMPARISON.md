@@ -210,3 +210,35 @@ Adopted, with tests:
 Deferred:
 - Remove inline script and unsafe-inline (board HTML is already escaped server-side).
 - Encrypted DM transport for the link (@pm's Matrix client has no E2EE yet).
+
+## GPT review 10 (one room, one repo — 9e45126)
+
+GPT would have blocked the commit. Adopted (65892f9):
+- **A room creator could bind any allowed repo.** Anyone can create and own a room, so the
+  server allowlist alone exposed every allowed repo. Binding now also needs the requester's own
+  agent's GitHub account to be able to write there. The answer is the same for "not allowed" and
+  "no access", so it never confirms a repo name.
+- **Hand-written state.** A room creator controls power levels, so anyone they choose could write
+  the binding by hand. @pm and the agents now trust the binding (repo and mode) only if @pm wrote
+  it.
+- **A plan filed into another repo.** Plans carry their repo, and a repo change clears waiting
+  plans. Results and polling only touch the room's current repo's items.
+- **`None == None` passed the task guards.** A room with no repo now refuses every task.
+- **Bugs.** Hermes's issue filing and both review paths lost their repo argument (TypeError), and
+  "All done" crashed on the new keys. The tests' mocks had the old signatures, which is why these
+  slipped through; the mocks now assert the repo.
+- **Bridge.** The in-flight dedup is keyed by room and repo, and the old repo's project copy is
+  removed after a switch.
+- **Console.** The repo action shows @pm's answer. Readiness checks the default branch, not
+  `main`, and shows no raw CLI errors. Chat takes the repo from the command's own argument.
+
+Rejected:
+- Migrating old state by historical repo. The old code only ever ran on `LOOP_REPO`, and changing
+  it between runs had the same effect before this change.
+
+Deferred (as before, GPT 8 #5):
+- Hermes still infers its room from recent mentions, because the MCP call doesn't say which room
+  it came from.
+
+Found in the browser, not by any review: an apostrophe in a button label broke the console's
+whole script (fbb4a41). `node --check` now runs on the page script in the tests.
