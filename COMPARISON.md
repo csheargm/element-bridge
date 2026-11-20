@@ -162,3 +162,26 @@ Deferred (docs/ROADMAP.md):
 - Per-owner pending approvals instead of one slot per room.
 - Membership reconciliation at startup.
 - Rejecting duplicate agent_user entries.
+
+## GPT review 8 (tools with owner approval)
+
+Adopted, with tests:
+- **1, 2. SSRF.** safe_fetch.py resolves each hop once, requires every address to be public
+  unicast (IPv4-mapped normalised; multicast, reserved and unspecified refused), connects to that
+  exact IP (Host/SNI/cert keep the name), uses no proxies, and has a 25 s overall deadline.
+- **4. Planted grants republished.** One record per agent (state key `agent:<id>`; "@" keys are
+  reserved by Matrix). @pm reads back only records it wrote itself.
+- **5. Borrowed room.** owners_room() needs an explicit @mention from the owner in the last
+  15 min, and refuses when two rooms qualify.
+- **6. Ambiguous consent.** A grant must be a direct instruction (not a question or quote); the
+  owner must match the registry exactly; a model revoke also needs the person's words.
+- **7. Approval scope.** The full request is shown (max 1000 chars, or refused), a denial wins, the
+  owner can't be the agent, and approved results carry the request text.
+- **8. Blocking.** The web tools and ask_owner are async (to_thread / asyncio.sleep).
+- Also fixed live: "@" state keys were refused by Synapse, and background errors are now logged
+  with tracebacks.
+
+Partly adopted:
+- **3. Exfiltration through web requests.** Every web request is posted in the room (visible
+  audit), the grant message warns, and web is never on by default. Full fix (a research worker
+  with no project or room context) is on the roadmap.

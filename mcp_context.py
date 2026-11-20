@@ -4,13 +4,12 @@ Read-only; files are fetched as this agent's own GitHub identity. See room_conte
 import base64
 import binascii
 import re
+import time
 import urllib.parse
 
 import github
 import mcp_core as core
-import registry
 import room_context
-from bridge import SERVER_NAME
 from mcp_core import AGENT, mcp
 
 MAX_FILE_CHARS = 60_000
@@ -30,17 +29,24 @@ def endpoint(path: str) -> str | None:
     return f"repos/{github.REPO}/contents/" + "/".join(urllib.parse.quote(p, safe="") for p in parts)
 
 
+RECENT_S = 15 * 60
+
+
 def owners_room() -> str | None:
-    """The room where this agent's owner last spoke to it: project_status answers for that room only,
-    so a question in one room never reveals another room's conversation."""
-    owner = f"@{registry.owner_of(AGENT)}:{SERVER_NAME}" if registry.owner_of(AGENT) else None
+    """The room where the owner just @mentioned this agent (last 15 min). If they did so in more than
+    one room, refuse to guess: a turn in one room must never borrow another room's grants or
+    conversation (the MCP call itself doesn't say which room it came from)."""
+    owner = core.owner_id()
+    now_ms = time.time() * 1000
+    rooms = []
     for ev in core.recent_events():
         content = ev.get("content", {})
-        mentions = content.get("m.mentions", {}) if isinstance(content.get("m.mentions"), dict) else {}
-        if ev.get("sender") == owner and (core.USER_ID in (mentions.get("user_ids") or [])
-                                          or AGENT in str(content.get("body", ""))):
-            return ev.get("room_id")
-    return None
+        mentions = content.get("m.mentions") if isinstance(content.get("m.mentions"), dict) else {}
+        ids = mentions.get("user_ids") if isinstance(mentions.get("user_ids"), list) else []
+        if (ev.get("sender") == owner and core.USER_ID in ids
+                and now_ms - ev.get("origin_server_ts", 0) < RECENT_S * 1000 and ev.get("room_id") not in rooms):
+            rooms.append(ev.get("room_id"))
+    return rooms[0] if len(rooms) == 1 else None
 
 
 @mcp.tool()

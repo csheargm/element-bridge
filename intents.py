@@ -15,7 +15,8 @@ _RULES = [   # checked in order; the first match wins, so the safest meanings co
     # ever swallowing a real stop ("stop bringing my agent" is a setting, not a halt).
     (REVOKE_WEB, r"\b(stop letting|don'?t let|do not let|no longer let|disallow|revoke|take away)\b.*\bmy agent\b.*"
                  r"\b(web|internet|search\w*|brows\w*|online)\b"),
-    (GRANT_WEB, r"\b(let|allow|permit|enable)\b.*\bmy agent\b.*\b(web|internet|search\w*|brows\w*|online)\b"),
+    # A grant is an instruction, never a question or a quote: it must start the message and not end in "?".
+    (GRANT_WEB, r"^\s*(please\s+)?(let|allow|permit|enable)\b[^?]*\bmy agent\b[^?]*\b(web|internet|search\w*|brows\w*|online)\b[^?]*$"),
     (FOLLOW_NEVER, r"\b(don'?t|do not|never|stop|no longer) (bring|invit|add)\w* my agent\b"),
     (FOLLOW_ASK, r"\bask (me )?(first |before )?(\w+ )?(bring|invit|add)\w* my agent\b|\bask me (first|before)\b.*\bmy agent\b"),
     (FOLLOW_ALWAYS, r"\b(always |please )?(bring|invite|add) my agent\b"),

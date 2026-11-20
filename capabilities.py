@@ -17,25 +17,31 @@ PM_ID = f"@{github.PM_BOT}:{SERVER_NAME}"
 
 
 def granted(token: str, room_id: str, agent_id: str) -> set[str]:
-    """The capabilities granted to `agent_id` in the room (only trusted if @pm wrote them)."""
+    """The capabilities granted to `agent_id` in the room. One state record per agent (key_for), trusted
+    only if @pm wrote it."""
     state = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/state", token=token)
-    for ev in state if isinstance(state, list) else []:
-        if ev.get("type") == GRANTS_EVENT and ev.get("state_key") == "" and ev.get("sender") == PM_ID:
+    return caps_in(state if isinstance(state, list) else [], agent_id)
+
+
+def key_for(agent_id: str) -> str:
+    """The grant record's state key. (Keys starting with "@" are reserved by Matrix for that user.)"""
+    return f"agent:{agent_id}"
+
+
+def agent_from_key(key: str) -> str:
+    return key.removeprefix("agent:")
+
+
+def caps_in(state: list, agent_id: str) -> set[str]:
+    for ev in state:
+        if ev.get("type") == GRANTS_EVENT and ev.get("state_key") == key_for(agent_id) and ev.get("sender") == PM_ID:
             content = ev.get("content", {})
-            if content.get("repo") != github.REPO:
-                return set()
-            caps = content.get("grants", {}).get(agent_id, {})
+            caps = content.get("caps", {}) if content.get("repo") == github.REPO else {}
             return {c for c in caps if c in CAPS} if isinstance(caps, dict) else set()
     return set()
 
 
-def with_grant(content: dict, agent_id: str, cap: str, owner: str, on: bool) -> dict:
-    """New state content with `cap` switched on/off for `agent_id`."""
-    grants = dict(content.get("grants", {})) if content.get("repo") == github.REPO else {}
-    caps = dict(grants.get(agent_id, {}))
-    if on:
-        caps[cap] = {"by": owner, "ts": int(time.time())}
-    else:
-        caps.pop(cap, None)
-    grants[agent_id] = caps
-    return {"repo": github.REPO, "grants": grants}
+def record(current: set[str], cap: str, owner: str, on: bool) -> dict:
+    """The agent's new grant record (built from what @pm itself wrote, never from anyone else's)."""
+    caps = (current | {cap}) if on else (current - {cap})
+    return {"repo": github.REPO, "caps": {c: {"by": owner, "ts": int(time.time())} for c in sorted(caps)}}

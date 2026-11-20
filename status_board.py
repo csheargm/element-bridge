@@ -95,8 +95,11 @@ class Boards:
         for room_id in list(self.client.rooms):
             if not await room_state.bound(self.client, room_id):
                 continue                      # not a project room for this repo (yet)
-            grants = await room_state.read(self.client, room_id, capabilities.GRANTS_EVENT)
-            self.grants_cache[room_id] = grants.get("grants", {}) if grants.get("repo") == github.REPO else {}
+            state = await self.client.room_get_state(room_id)
+            events = getattr(state, "events", []) or []
+            agents_with = {capabilities.agent_from_key(ev.get("state_key", "")) for ev in events
+                           if ev.get("type") == capabilities.GRANTS_EVENT}
+            self.grants_cache[room_id] = {a: {c: {} for c in capabilities.caps_in(events, a)} for a in agents_with}
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id}
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now)
             board = self.boards.get(room_id, {})

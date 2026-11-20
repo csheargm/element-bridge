@@ -90,7 +90,7 @@ async def start(loop) -> web.AppRunner | None:
         return web.json_response({"html": render(loop, request.query.get("room", ""))}, headers=HEADERS)
     app = web.Application()
     app.add_routes([web.get("/panel", page), web.get("/data", data)])
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(app, access_log=None)        # the widget polls every 3 s: don't flood the log
     await runner.setup()
     try:
         await web.TCPSite(runner, "127.0.0.1", PORT).start()

@@ -101,18 +101,23 @@ class Follow:
     async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool) -> None:
         """The owner lets their OWN agent use a capability in THIS room (or stops it)."""
         local, _, server = sender.lstrip("@").partition(":")
-        if server != SERVER_NAME or not registry.owner_of(registry.agent_of(local)):
+        agent_local = registry.agent_of(local)
+        if server != SERVER_NAME or registry.owner_of(agent_local) != local:
             await self.say(room.room_id, "Only people with an agent registered on this server can do that.")
             return
-        agent = ownership.agent_id(sender)
-        current = await room_state.read(self.client, room.room_id, capabilities.GRANTS_EVENT)
+        agent = f"@{agent_local}:{SERVER_NAME}"
+        state = await self.client.room_get_state(room.room_id)
+        current = capabilities.caps_in(getattr(state, "events", []) or [], agent)   # only what @pm wrote
         resp = await self.client.room_put_state(room.room_id, capabilities.GRANTS_EVENT,
-                                                capabilities.with_grant(current, agent, cap, sender, on))
+                                                capabilities.record(current, cap, sender, on),
+                                                state_key=capabilities.key_for(agent))
         if not hasattr(resp, "event_id"):
             await self.say(room.room_id, f"⚠️ I couldn't save that: {resp}")
             return
+        self.grants_cache.setdefault(room.room_id, {})[agent] = {c: {} for c in (current | {cap} if on else current - {cap})}
         what = capabilities.CAPS[cap]
-        await self.say(room.room_id, f"OK {local}: your agent may now {what} in this room. Say \"stop letting my "
-                                     "agent use the web\" to undo." if on else
+        warn = (" Note: it reads the room and the project, so anything it looks up leaves this room —"
+                " each web request is shown here." if on else "")
+        await self.say(room.room_id, f"OK {local}: your agent may now {what} in this room.{warn} Say \"stop "
+                                     "letting my agent use the web\" to undo." if on else
                                      f"OK {local}: your agent may no longer {what} in this room.")
-

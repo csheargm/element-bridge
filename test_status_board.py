@@ -51,6 +51,9 @@ class FakeClient:
         self.sent.append(content)
         return RoomSendResponse(f"$e{len(self.sent)}", room_id)
 
+    async def room_get_state(self, room_id):
+        return SimpleNamespace(events=[])
+
     async def room_get_state_event(self, room_id, kind, key):
         return RoomGetStateEventResponse({"pinned": ["$other"]}, kind, key, room_id)
 

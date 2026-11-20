@@ -36,6 +36,8 @@ class Understanding:
                 await self.apply(room, sender, *decision, text, reply_to)
         except (RuntimeError, OSError) as e:  # SendError / GitHub / network: tell the log, keep running
             log.error("couldn't act on %s's message: %s", sender, e)
+        except Exception:                     # noqa: BLE001 — a background task: never fail silently
+            log.exception("unexpected error acting on %s's message", sender)
 
     async def think(self, room: MatrixRoom, sender: str, text: str, reply_to: str | None) -> tuple | None:
         """Ask the understanding step (pm_brain.py) with the room's context; None means use the rules."""
@@ -87,7 +89,7 @@ class Understanding:
         if action in ("assist", "autonomous") and intents.classify(text) != BRAIN_ACTIONS[action]:
             await self.ask_mode(room, sender, action)
             return
-        if action.startswith(("follow_", "grant_")) and intents.classify(text) != BRAIN_ACTIONS[action]:
+        if action.startswith(("follow_", "grant_", "revoke_")) and intents.classify(text) != BRAIN_ACTIONS[action]:
             await self.say(rid, "Say it in so many words and I'll change it: e.g. \"let my agent search the web here\", "
                                 "\"don't bring my agent\", \"ask me first\".")
             return                            # a setting or grant changes only on the person's own clear words
