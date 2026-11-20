@@ -7,6 +7,7 @@ from unittest import mock
 from nio import RoomGetStateResponse
 
 import github
+import room_state
 import planning
 from loop import Loop
 
@@ -51,6 +52,9 @@ class Parse(unittest.TestCase):
 
 class Flow(unittest.TestCase):
     def setUp(self):
+        _bound = mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=True))   # a project room
+        _bound.start()
+        self.addCleanup(_bound.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.plans, self.lp.boards = "@pm:bridge.localhost", {}, {}, {}
         self.lp.last_plans = {}

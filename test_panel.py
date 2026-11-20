@@ -42,7 +42,7 @@ class Render(unittest.TestCase):
 
 
 class Widget(unittest.TestCase):
-    def test_added_to_the_right_panel(self):
+    def test_pinned_at_the_top_where_people_see_it(self):
         import asyncio
         from nio import RoomPutStateResponse
         calls = []
@@ -53,7 +53,7 @@ class Widget(unittest.TestCase):
         self.assertTrue(asyncio.run(panel.add_to_room(SimpleNamespace(room_put_state=put), "!r")))
         (kind, content, key), (layout_kind, layout, _) = calls
         self.assertEqual((kind, key, content["url"]), ("im.vector.modular.widgets", "hagency", panel.URL))
-        self.assertEqual(layout["widgets"]["hagency"]["container"], "right")
+        self.assertEqual(layout["widgets"]["hagency"]["container"], "top")
 
 
 if __name__ == "__main__":

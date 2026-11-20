@@ -2,14 +2,15 @@
 import asyncio
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
 from nio import RoomGetStateEventResponse, RoomPutStateResponse, RoomSendResponse
 
+import room_state
 import status_board
 from status_board import Boards, render
-from types import SimpleNamespace
 
 NOW = 1_000_000.0
 A = "@anna-hermes-agent:bridge.localhost"
@@ -65,6 +66,9 @@ class FakeClient:
 
 class Board(unittest.TestCase):
     def setUp(self):
+        _bound = mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=True))   # a project room
+        _bound.start()
+        self.addCleanup(_bound.stop)
         self.b = Boards()
         self.b.client, self.b.state, self.b.open_issues = FakeClient(), {}, {}
         self.b.board_file = Path(tempfile.mkdtemp()) / "boards.json"
@@ -120,6 +124,12 @@ class Board(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.b.client.status["repo"], github.REPO)
         self.assertIn("Project status", self.b.client.status["text"])
+
+    def test_an_unbound_room_gets_no_board(self):
+        """GPT review 7: any local account could invite @pm and read the repo's issues."""
+        with mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=False)):
+            self.refresh()
+        self.assertEqual(self.b.client.sent, [])
 
     def test_board_survives_a_restart(self):
         self.refresh()

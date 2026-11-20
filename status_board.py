@@ -7,6 +7,7 @@ edits the message only when the text changed, so idle rooms aren't flooded with 
 
 Mixed into loop.Loop (which supplies client, state, level, open_issues and STATE_FILE's folder).
 """
+import html
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ from nio import RoomGetStateEventResponse, RoomSendResponse
 
 import github
 import panel
+import room_state
 
 log = logging.getLogger("loop")
 RECENT_S = 24 * 3600            # finished items stay on the board this long
@@ -26,6 +28,12 @@ STEP_WORDS = {"building": "building", "reviewing": "reviewing", "fixing": "fixin
               "ready": "ready — a person merges", "merging": "merging", "merge_sent": "merging",
               "verifying": "checking it's already done", "confirmed_done": "confirmed already done",
               "close_ready": "already done — a person closes", "closing": "closing", "close_sent": "closing"}
+
+
+def safe(text: object) -> str:
+    """Issue titles and reasons come from issue authors and agents: never let them become markup
+    (the board is rendered as HTML in Element and in the side panel)."""
+    return html.escape(" ".join(str(text).split()), quote=False).replace("[", "&#91;").replace("*", "&#42;")
 
 
 def ago(seconds: float) -> str:
@@ -40,25 +48,25 @@ def who(user_id: object) -> str:
 def render(items: dict, level: str, queued: list[dict], now: float) -> str:
     """The board's markdown for one room (items: this room's loop-state entries by issue number)."""
     def title(key: str, item: dict) -> str:
-        return f"#{key} {item.get('title', '')}".rstrip()
+        return f"#{int(key)} {safe(item.get('title', ''))}".rstrip()
 
     lines = [f"📋 **Project status** — {github.REPO} · loop: **{level}**", ""]
     active = [(k, v) for k, v in items.items() if v["stage"] in STEP_WORDS]
-    lines += ["**Now**"] + ([f"- {title(k, v)} — {STEP_WORDS[v['stage']]} · {who(v.get('agent') or v.get('builder'))}"
+    lines += ["**Now**", ""] + ([f"- {title(k, v)} — {STEP_WORDS[v['stage']]} · {who(v.get('agent') or v.get('builder'))}"
                              f" · {ago(now - v.get('since', now))}" for k, v in sorted(active, key=lambda kv: int(kv[0]))]
                             or ["- nothing in progress"])
     if queued:
-        lines += ["", "**Next**"] + [f"- #{i['number']} {i['title']}" for i in queued[:MAX_QUEUED]]
+        lines += ["", "**Next**", ""] + [f"- #{int(i['number'])} {safe(i['title'])}" for i in queued[:MAX_QUEUED]]
     recent = [(k, v) for k, v in items.items() if v["stage"] in ("done", "stopped")
               and now - v.get("ended", 0) < RECENT_S]
     done = [f"- {title(k, v)}" + (f" → PR #{v['pr']} merged" if v.get("pr") else " (closed: already done)")
             for k, v in sorted(recent, key=lambda kv: int(kv[0])) if v["stage"] == "done"]
-    stopped = [f"- {title(k, v)} — {v.get('why') or 'stopped'}"
+    stopped = [f"- {title(k, v)} — {safe(v.get('why') or 'stopped')}"
                for k, v in sorted(recent, key=lambda kv: int(kv[0])) if v["stage"] == "stopped"]
     if done:
-        lines += ["", "**Done (last 24 h)**", *done]
+        lines += ["", "**Done (last 24 h)**", "", *done]
     if stopped:
-        lines += ["", "**Needs a person**", *stopped]
+        lines += ["", "**Needs a person**", "", *stopped]
     return "\n".join(lines)
 
 
@@ -84,6 +92,8 @@ class Boards:
     async def refresh_boards(self) -> None:
         now = time.time()
         for room_id in list(self.client.rooms):
+            if not await room_state.bound(self.client, room_id):
+                continue                      # not a project room for this repo (yet)
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id}
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now)
             board = self.boards.get(room_id, {})

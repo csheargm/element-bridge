@@ -10,6 +10,7 @@ from nio import MatrixRoom
 
 import agents
 import github
+import room_state
 
 log = logging.getLogger("loop")
 
@@ -34,6 +35,8 @@ class Progress:
                                         "open", "--json", "number,title", "--limit", "50"])
         queued = sorted((i for i in issues if str(i["number"]) not in self.state), key=lambda i: i["number"])
         for room_id, room in self.client.rooms.items():
+            if not await room_state.bound(self.client, room_id):
+                continue                      # an unbound room never sees the repo's issues
             self.open_issues[room_id] = queued        # shown on the board under "Next", even while stopped
             lvl = await self.level(room_id)
             if lvl == "off":

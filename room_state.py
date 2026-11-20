@@ -20,6 +20,13 @@ def level_of(content: dict) -> str:
     return lvl if lvl in github.LEVELS else "off"
 
 
+async def bound(client: AsyncClient, room_id: str) -> bool:
+    """A moderator has tied this room to github.REPO (by asking @pm for a plan or a mode). Only then
+    does @pm show the repo's issues, status and panel there: a room anyone can create must not
+    become a window into the repo."""
+    return (await read(client, room_id, github.LEVEL_EVENT)).get("repo") == github.REPO
+
+
 async def level(client: AsyncClient, room_id: str) -> str:
     return level_of(await read(client, room_id, github.LEVEL_EVENT))
 

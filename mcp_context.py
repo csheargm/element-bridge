@@ -3,44 +3,73 @@
 Read-only; files are fetched as this agent's own GitHub identity. See room_context.py."""
 import base64
 import binascii
-from pathlib import PurePosixPath
+import re
+import urllib.parse
 
 import github
 import mcp_core as core
+import registry
 import room_context
+from bridge import SERVER_NAME
 from mcp_core import AGENT, mcp
 
 MAX_FILE_CHARS = 60_000
 
 
+SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def endpoint(path: str) -> str | None:
+    """The contents endpoint for a repo path, or None if the path isn't plainly inside the repo.
+    Checked on the raw input (before any normalising), and every segment must be a plain name."""
+    if path in ("", "/"):
+        return f"repos/{github.REPO}/contents"
+    parts = path.strip("/").split("/")
+    if path.startswith("/") or any(p in ("", ".", "..") or not SEGMENT_RE.match(p) for p in parts):
+        return None
+    return f"repos/{github.REPO}/contents/" + "/".join(urllib.parse.quote(p, safe="") for p in parts)
+
+
+def owners_room() -> str | None:
+    """The room where this agent's owner last spoke to it: project_status answers for that room only,
+    so a question in one room never reveals another room's conversation."""
+    owner = f"@{registry.owner_of(AGENT)}:{SERVER_NAME}" if registry.owner_of(AGENT) else None
+    for ev in core.recent_events():
+        content = ev.get("content", {})
+        mentions = content.get("m.mentions", {}) if isinstance(content.get("m.mentions"), dict) else {}
+        if ev.get("sender") == owner and (core.USER_ID in (mentions.get("user_ids") or [])
+                                          or AGENT in str(content.get("body", ""))):
+            return ev.get("room_id")
+    return None
+
+
 @mcp.tool()
 def project_status() -> dict:
-    """The live status of each project room you're in (what's done, in progress, next, stopped) and
-    the room's recent conversation. Check this before answering questions about the project:
-    it is more current than your memory."""
-    rooms = []
-    for room in core.rooms():
-        snap = room_context.snapshot(core.token(), room)
-        if snap["status"]:                       # a project room (@pm publishes a status there)
-            rooms.append({"room": room, **snap})
-    return {"repo": github.REPO, "rooms": rooms or "no project room with a published status"}
+    """The live status (what's done, in progress, next, stopped) and recent conversation of the room
+    your owner last spoke to you in. Check this before answering questions about the project: it is
+    more current than your memory."""
+    room = owners_room()
+    if room is None:
+        return {"error": "no recent message from your owner to you in a project room"}
+    snap = room_context.snapshot(core.token(), room)
+    return {"repo": github.REPO, **snap} if snap["status"] else {"error": "that room has no project status"}
 
 
 @mcp.tool()
 async def read_project_file(path: str = "") -> dict:
     """Read a file (or list a folder, path "" for the top) on the project's default branch."""
-    rel = PurePosixPath(path.strip("/"))
-    if rel.is_absolute() or ".." in rel.parts:
-        return {"error": "use a path inside the repo, e.g. README.md or docs/"}
+    url = endpoint(path)
+    if url is None:
+        return {"error": "use a plain path inside the repo, e.g. README.md or docs/guide.md"}
     try:
-        data = await github.run_json(["api", f"repos/{github.REPO}/contents/{rel}".rstrip("/.")], AGENT)
+        data = await github.run_json(["api", url], AGENT)
     except github.GitHubError as e:
         return {"error": f"not found or not readable: {str(e)[:120]}"}
     if isinstance(data, list):
-        return {"folder": str(rel) or "/", "entries": [f"{e.get('name')}{'/' if e.get('type') == 'dir' else ''}"
-                                                        for e in data]}
+        return {"folder": path or "/", "entries": [f"{e.get('name')}{'/' if e.get('type') == 'dir' else ''}"
+                                                   for e in data]}
     try:
         text = base64.b64decode(str(data.get("content", ""))).decode("utf-8", errors="replace")
     except (binascii.Error, ValueError):
         return {"error": "couldn't decode that file"}
-    return {"path": str(rel), "content": text[:MAX_FILE_CHARS], "truncated": len(text) > MAX_FILE_CHARS}
+    return {"path": path, "content": text[:MAX_FILE_CHARS], "truncated": len(text) > MAX_FILE_CHARS}

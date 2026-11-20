@@ -21,6 +21,15 @@ PORT = int(os.environ.get("PANEL_PORT", "8650"))
 URL = f"http://localhost:{PORT}/panel?room=$matrix_room_id"
 WIDGET_ID = "hagency"
 REFRESH_MS = 3000
+ELEMENT_ORIGIN = os.environ.get("ELEMENT_ORIGIN", "http://localhost:8649")
+HEADERS = {"Content-Security-Policy": f"frame-ancestors {ELEMENT_ORIGIN}; default-src 'self'; "
+                                      "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
+           "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+
+
+def local_host(request) -> bool:
+    """Only requests addressed to this machine (guards against DNS-rebinding style access)."""
+    return request.host.split(":")[0] in ("localhost", "127.0.0.1")
 log = logging.getLogger("loop")
 
 PAGE = """<!doctype html><meta charset="utf-8"><title>Hagency</title>
@@ -68,10 +77,14 @@ def render(loop, room_id: str) -> str:
 async def start(loop) -> web.AppRunner | None:
     """Serve the panel on 127.0.0.1:PORT; never fatal (the chat works without it)."""
     async def page(request):
-        return web.Response(text=PAGE, content_type="text/html")
+        if not local_host(request):
+            return web.Response(status=403)
+        return web.Response(text=PAGE, content_type="text/html", headers=HEADERS)
 
     async def data(request):
-        return web.json_response({"html": render(loop, request.query.get("room", ""))})
+        if not local_host(request):
+            return web.Response(status=403)
+        return web.json_response({"html": render(loop, request.query.get("room", ""))}, headers=HEADERS)
     app = web.Application()
     app.add_routes([web.get("/panel", page), web.get("/data", data)])
     runner = web.AppRunner(app)
@@ -85,12 +98,12 @@ async def start(loop) -> web.AppRunner | None:
 
 
 async def add_to_room(client, room_id: str) -> bool:
-    """Add the panel to the room as an Element widget, docked in the right-hand panel."""
+    """Add the panel to the room as an Element widget, pinned at the top above the chat."""
     resp = await client.room_put_state(room_id, "im.vector.modular.widgets",
                                        {"type": "m.custom", "url": URL, "name": "Hagency",
                                         "id": WIDGET_ID, "data": {}}, state_key=WIDGET_ID)
     if not hasattr(resp, "event_id"):
         return False
-    await client.room_put_state(room_id, "io.element.widgets.layout",
-                                {"widgets": {WIDGET_ID: {"container": "right"}}})
+    await client.room_put_state(room_id, "io.element.widgets.layout",       # pinned above the chat
+                                {"widgets": {WIDGET_ID: {"container": "top", "index": 0, "width": 100, "height": 40}}})
     return True

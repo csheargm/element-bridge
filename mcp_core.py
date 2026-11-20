@@ -10,6 +10,7 @@ import markdown
 from mcp.server.fastmcp import FastMCP
 
 import github
+import registry
 import tasks
 from bridge import ROOT, SERVER_NAME
 from redact import room_safe
@@ -110,12 +111,22 @@ async def safely(task_id: str, kind: str, step) -> dict:
         return {"failed": line, "next": "Tell the room in one line that this step failed. Stop."}
 
 
+def owner_in(room: str) -> bool:
+    owner = registry.owner_of(AGENT)
+    if not owner or not room:
+        return False
+    joined = api("GET", room_path(room, "/joined_members"), token=token()).get("joined", {})
+    return f"@{owner}:{SERVER_NAME}" in joined
+
+
 def claim(task_id: str, kind: str | tuple[str, ...]) -> tuple[dict | None, dict | None]:
     """(hint for the agent, None) if task_id isn't its current `kind` task, else (None, task)."""
     try:
         t = task(task_id, kind)
     except WrongTask as e:
         return {"error": str(e), "next": "Call next_task, then use the task_id it returns."}, None
+    if not owner_in(t.get("_room") or ""):   # an agent never works in a room without its owner
+        return {"error": "your owner isn't in that room any more", "next": "Stop."}, None
     if t.get("repo") != github.REPO:     # never act on another repo than the one this agent is set up for
         return {"error": f"this task is for {t.get('repo')!r}, but I'm set up for {github.REPO!r}",
                 "next": "Call report_failure(task_id, 'wrong repo') and tell your owner."}, None

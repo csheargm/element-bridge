@@ -86,6 +86,10 @@ class Understanding:
         if action in ("assist", "autonomous") and intents.classify(text) != BRAIN_ACTIONS[action]:
             await self.ask_mode(room, sender, action)
             return
+        if action.startswith("follow_") and intents.classify(text) != BRAIN_ACTIONS[action]:
+            await self.say(rid, "To change whether I bring your agent along, say \"don't bring my agent\", "
+                                "\"ask me first\" or \"always bring my agent\".")
+            return                            # a setting changes only on the person's own clear words
         waiting = self.pending.get(rid, {})
         if action == "approve" and waiting and not (intents.is_yes(text) or reply_to == waiting.get("event_id")):
             await self.say(rid, "To approve it, react ✅ to the message above (or reply \"ok\" to it).")

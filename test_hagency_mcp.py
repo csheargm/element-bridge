@@ -11,6 +11,15 @@ import hagency_mcp as m  # noqa: E402
 import mcp_core as core  # noqa: E402
 
 ME, BOT = core.USER_ID, core.PM_ID
+_owner_here = mock.patch.object(core, "owner_in", lambda room: True)   # owner present unless a test says not
+
+
+def setUpModule():
+    _owner_here.start()
+
+
+def tearDownModule():
+    _owner_here.stop()
 
 
 def task_event(task_id, kind="build", sender=BOT, agent=ME, **kw):
@@ -83,6 +92,14 @@ class Trust(unittest.TestCase):
         self.events([task_event("M", "merge", pr=9, sha="a", repo="someone/else")])
         out = asyncio.run(m.merge_pr("M"))
         self.assertIn("I'm set up for", out["error"])
+        self.assertEqual(self.posted, [])
+
+    def test_nothing_happens_once_the_owner_has_left(self):
+        """GPT review 7: work could continue after the owner left the room."""
+        self.events([task_event("M", "merge", pr=9, sha="a")])
+        with mock.patch.object(core, "owner_in", lambda room: False):
+            out = asyncio.run(m.merge_pr("M"))
+        self.assertIn("owner isn't in that room", out["error"])
         self.assertEqual(self.posted, [])
 
     def test_review_steps_keep_their_state(self):

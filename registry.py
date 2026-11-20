@@ -13,7 +13,10 @@ def load() -> dict:
         data = json.loads(PATH.read_text())
     except (OSError, ValueError):
         return dict(DEFAULT)              # not onboarded yet (or a damaged file): the two demo people
-    return data if isinstance(data, dict) and data else dict(DEFAULT)
+    if not isinstance(data, dict) or not data:
+        return dict(DEFAULT)
+    # Keep only well-formed entries: a damaged line must never crash @pm or confuse ownership.
+    return {p: (v if isinstance(v, dict) else {}) for p, v in data.items() if isinstance(p, str) and p}
 
 
 def save(data: dict) -> None:

@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 import github
+import room_state
 import loop_progress
 from loop import Loop
 
@@ -13,6 +14,9 @@ AGENT = "@b-agent:x"
 
 class Watchdog(unittest.TestCase):
     def setUp(self):
+        _bound = mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=True))   # a project room
+        _bound.start()
+        self.addCleanup(_bound.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.level = mock.AsyncMock(return_value="autonomous")   # dispatch checks the mode
         self.lp.state = {}

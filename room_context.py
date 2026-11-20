@@ -11,17 +11,25 @@ import urllib.parse
 from pathlib import Path
 
 import github
-from setup_accounts import api
+from setup_accounts import SERVER_NAME, api
 
 CONVERSATION_LINES = 60
 LINE_CHARS = 600
 REFRESH_S = 60                     # the project copy is refreshed at most this often
 
 
+PM_ID = f"@{github.PM_BOT}:{SERVER_NAME}"
+
+
 def status(token: str, room_id: str) -> str:
-    content = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/state/{github.STATUS_EVENT}/",
-                  token=token)
-    return str(content.get("text", "")) if content.get("repo") == github.REPO else ""
+    """@pm's published status, trusted only if @pm wrote it (anyone allowed to write state could
+    otherwise plant a fake "status" for agents to believe)."""
+    state = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/state", token=token)
+    for ev in state if isinstance(state, list) else []:
+        if ev.get("type") == github.STATUS_EVENT and ev.get("state_key") == "" and ev.get("sender") == PM_ID:
+            content = ev.get("content", {})
+            return str(content.get("text", "")) if content.get("repo") == github.REPO else ""
+    return ""
 
 
 def conversation(token: str, room_id: str, lines: int = CONVERSATION_LINES) -> str:
@@ -34,8 +42,7 @@ def conversation(token: str, room_id: str, lines: int = CONVERSATION_LINES) -> s
         if ev.get("type") != "m.room.message" or not body or "m.new_content" in content \
                 or body.lstrip("* ").startswith("📋"):
             continue
-        who = ev.get("sender", "?").split(":")[0].lstrip("@")
-        out.append(f"{who}: {' '.join(body.split())[:LINE_CHARS]}")
+        out.append(f"{ev.get('sender', '?')}: {' '.join(body.split())[:LINE_CHARS]}")   # full ID: no look-alikes
         if len(out) >= lines:
             break
     return "\n".join(reversed(out))

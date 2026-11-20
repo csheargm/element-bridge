@@ -46,14 +46,16 @@ class Follow:
         if is_stale(event, self.started_ms) or not self.sync_point.first_time(event.event_id):
             return
         person = event.state_key
-        if person == self.user_id or person.split(":")[0].endswith(("-agent", "-bot")):
-            return
+        if (person == self.user_id or person.split(":")[0].endswith(("-agent", "-bot"))
+                or not person.endswith(f":{SERVER_NAME}")):
+            return                            # only local people have registered agents
         try:
             if event.membership == "join" and event.prev_membership != "join":
                 await self.bring_agent(room, person)
             elif event.membership in ("leave", "ban") and event.prev_membership == "join":
                 await self.remove_agent(room, person)
-        except RuntimeError as e:             # SendError: membership still works; the log shows why
+        except (RuntimeError, ValueError, TypeError, AttributeError, OSError) as e:
+            # SendError, a damaged registry, a network hiccup: membership still works; the log shows why
             log.error("follow-me failed for %s in %s: %s", person, room.room_id, e)
 
     async def bring_agent(self, room: MatrixRoom, person: str) -> None:
@@ -84,8 +86,11 @@ class Follow:
             await self.client.room_kick(room.room_id, agent, reason="its owner left the room")
 
     async def set_follow(self, room: MatrixRoom, sender: str, value: str) -> None:
-        """Only ever the sender's OWN setting."""
-        local = sender.split(":")[0].lstrip("@")
+        """Only ever the sender's OWN setting, and only for people on this server."""
+        local, _, server = sender.lstrip("@").partition(":")
+        if server != SERVER_NAME:
+            await self.say(room.room_id, "Agent settings are only for people on this server.")
+            return
         if not registry.owner_of(registry.agent_of(local)):
             await self.say(room.room_id, f"{local}, you don't have an agent registered here yet.")
             return

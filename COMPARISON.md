@@ -135,3 +135,30 @@ Adopted, with tests:
 Deferred:
 - **5. Killing the CLI's descendants on timeout.** lifecycle.communicate kills the direct child.
 - **6. A merge already in flight when "stop" lands may complete** (documented).
+
+## GPT review 7 (ownership, follow-me, agent context, side panel)
+
+Adopted, with tests:
+- **Any local account could invite @pm and read the repo's issues.** Rooms must be bound to the
+  repo (a moderator asked @pm for a plan or a mode) before @pm shows a board, queue or panel there.
+- **project_status crossed rooms.** It answers only for the room where the agent's owner last spoke
+  to it.
+- **Panel and board XSS.** Issue titles and stop reasons are HTML-escaped (and brackets and stars
+  neutralised) before markdown. The panel sends CSP frame-ancestors (Element only), no-store and
+  nosniff, and answers only to a localhost Host.
+- **Untrusted status.** Agents trust the published status only when @pm wrote it; the conversation
+  shows full sender IDs.
+- **Work after the owner left.** The bridge refuses chat turns and tasks without its owner in the
+  room; MCP claim() checks the owner's membership before every step.
+- **Anyone could invite someone else's bridge agent.** It accepts invites only from its owner or
+  @pm.
+- **read_project_file path handling.** The raw path is validated, every segment is a plain name and
+  URL-encoded, the root endpoint is explicit, and a test proves bad paths never reach gh api.
+- **Follow settings via the model, remote look-alikes, a damaged registry.** A follow change needs
+  the person's own words; only local people; malformed registry entries are tolerated.
+
+Deferred (docs/ROADMAP.md):
+- Panel viewer identity through Element's OpenID hand-off.
+- Per-owner pending approvals instead of one slot per room.
+- Membership reconciliation at startup.
+- Rejecting duplicate agent_user entries.

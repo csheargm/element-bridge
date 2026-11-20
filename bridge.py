@@ -77,17 +77,24 @@ class Bridge:
             return "sender is not a joined room member"
         if event.sender.split(":")[0].endswith("-agent"):
             return "message from another agent (loop guard)"
+        if not self.owner_here(room):
+            return "my owner isn't in this room"
         # The CLI runs with the owner's file access, so by default only the owner drives it.
         if event.sender != self.owner_id and not self.allow_members:
             return "sender is not the agent's owner (start with --allow-members to open it up)"
         return None
 
+    def owner_here(self, room: MatrixRoom) -> bool:
+        return self.owner_id in room.users and self.owner_id not in room.invited_users
+
     # --- event handlers ------------------------------------------------------------
     async def on_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
         if event.state_key != self.user_id or event.membership != "invite":
             return
-        if not event.sender.endswith(f":{SERVER_NAME}"):
-            log.warning("ignoring invite to %s from remote user %s", room.room_id, event.sender)
+        if event.sender not in (self.owner_id, f"@{github.PM_BOT}:{SERVER_NAME}"):
+            # Only my owner brings me into a room (or @pm, following my owner's own setting):
+            # nobody else can pull their agent into a room.
+            log.warning("ignoring invite to %s from %s (not my owner or @pm)", room.room_id, event.sender)
             return
         log.info("joining %s (invited by %s)", room.room_id, event.sender)
         await self.client.join(room.room_id)
@@ -125,6 +132,9 @@ class Bridge:
             log.info("ignored loop task in %s from %s", room.room_id, event.sender)
             return
         if event.event_id in self.seen_tasks:
+            return
+        if not self.owner_here(room):        # an agent never works in a room without its owner
+            log.info("ignored loop task in %s: my owner isn't in the room", room.room_id)
             return
         self.seen_tasks.add(event.event_id)
         step = step_key(task)

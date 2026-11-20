@@ -49,6 +49,11 @@ class Ownership(Registry):
     def test_an_invited_owner_doesnt_count_yet(self):
         self.assertEqual(ownership.agents_in(room(ANNA_A, BETTY, BETTY_A, invited=[ANNA])), [BETTY_A])
 
+    def test_a_damaged_registry_line_doesnt_crash(self):
+        registry.PATH.write_text(json.dumps({"anna": None, "betty": {"follow": "ask"}}))
+        self.assertEqual(registry.agent_of("anna"), "anna-agent")
+        self.assertEqual(registry.follow("betty"), "ask")
+
     def test_settings(self):
         self.assertEqual((registry.follow("anna"), registry.follow("betty")), ("always", "ask"))
         registry.set_follow("anna", "never")

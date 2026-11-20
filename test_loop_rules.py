@@ -35,6 +35,22 @@ class BridgeTaskTrust(unittest.TestCase):
         self.task_from(BOT, {"kind": "build", "agent": AGENT})
         self.assertEqual(len(self.started), 1)
 
+    def test_no_work_while_my_owner_is_away(self):
+        """GPT review 7: an agent must never work in a room without its owner."""
+        self.task_from(BOT, {"kind": "build", "agent": AGENT}, room([AGENT, BOT, BETTY]))
+        self.assertEqual(self.started, [])
+
+    def test_only_my_owner_or_pm_can_bring_me_into_a_room(self):
+        joined = []
+
+        async def join(room_id):
+            joined.append(room_id)
+        self.b.client.join = join
+        for sender in (BETTY, ANNA, BOT):
+            ev = SimpleNamespace(state_key=AGENT, membership="invite", sender=sender)
+            asyncio.run(self.b.on_invite(SimpleNamespace(room_id=f"!{sender}"), ev))
+        self.assertEqual(joined, [f"!{ANNA}", f"!{BOT}"])
+
     def test_redelivered_task_runs_once(self):
         ev = SimpleNamespace(sender=BOT, event_id="$same")
         for _ in range(2):
