@@ -21,7 +21,11 @@ PROVIDER_KEYS = {"ollama-cloud": "OLLAMA_API_KEY", "openrouter": "OPENROUTER_API
 MATRIX_KEYS = ("MATRIX_HOMESERVER", "MATRIX_USER_ID", "MATRIX_PASSWORD", "MATRIX_DEVICE_ID", "MATRIX_ALLOWED_USERS",
                "MATRIX_ALLOWED_ROOMS", "MATRIX_HOME_ROOM", "MATRIX_E2EE_MODE", "MATRIX_AUTO_THREAD",
                "MATRIX_SESSION_SCOPE", "MATRIX_REQUIRE_MENTION")
-ROOM_RULES = ("\n\nIn Hagency rooms: when @pm gives you a task, ALWAYS call the hagency tool next_task first, even "
+ROOM_RULES = ("\n\nIn Hagency rooms: before answering any question about the project (status, what's done or "
+              "planned, what happened, what the app does), call the hagency tool project_status and, when the "
+              "question is about the code or content, read_project_file. They show the live state and the whole "
+              "room's conversation; your own memory of earlier turns may be out of date. "
+              "When @pm gives you a task, ALWAYS call the hagency tool next_task first, even "
               "if the issue looks familiar from earlier in the conversation: each task is new work and the tools, "
               "not your memory, say what to do. Then do exactly what each answer's `next` field says. Edit repo "
               "files only with the hagency read_file/write_files tools. Other people read the room: never post "

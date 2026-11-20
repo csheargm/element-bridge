@@ -9,6 +9,7 @@ from nio import RoomGetStateEventResponse, RoomPutStateResponse, RoomSendRespons
 
 import status_board
 from status_board import Boards, render
+from types import SimpleNamespace
 
 NOW = 1_000_000.0
 A = "@anna-hermes-agent:bridge.localhost"
@@ -53,7 +54,10 @@ class FakeClient:
         return RoomGetStateEventResponse({"pinned": ["$other"]}, kind, key, room_id)
 
     async def room_put_state(self, room_id, kind, content):
-        self.pins = content["pinned"]
+        if kind == "m.room.pinned_events":
+            self.pins = content["pinned"]
+        else:
+            self.status = content
         return RoomPutStateResponse("$p", room_id)
 
 
@@ -97,7 +101,8 @@ class Board(unittest.TestCase):
         async def put_state(room_id, kind, content):
             if refused["yes"]:
                 return SimpleNamespace(message="M_FORBIDDEN")
-            self.b.client.pins = content["pinned"]
+            if kind == "m.room.pinned_events":
+                self.b.client.pins = content["pinned"]
             return RoomPutStateResponse("$p", room_id)
         self.b.client.room_put_state = put_state
         self.refresh()
@@ -106,6 +111,13 @@ class Board(unittest.TestCase):
         self.refresh()                                       # same text: no repost, but the pin is retried
         self.assertEqual(self.b.client.pins, ["$other", "$e1"])
         self.assertEqual(len(self.b.client.sent), 1)
+
+    def test_status_is_published_for_agents_to_read(self):
+        """the owner: agents answered from their own memory ('awaiting room approval') after the project was done."""
+        import github
+        self.refresh()
+        self.assertEqual(self.b.client.status["repo"], github.REPO)
+        self.assertIn("Project status", self.b.client.status["text"])
 
     def test_board_survives_a_restart(self):
         self.refresh()

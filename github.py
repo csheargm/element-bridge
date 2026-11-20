@@ -24,6 +24,7 @@ CMD_TIMEOUT_S = 120
 TASK_KEY = "xyz.hagencylabs.task"
 RESULT_KEY = "xyz.hagencylabs.result"
 LEVEL_EVENT = "xyz.hagencylabs.loop"
+STATUS_EVENT = "xyz.hagencylabs.status"   # @pm's live project status (the board text), for agents to read
 LEVELS = ("off", "assist", "autonomous")
 PM_BOT = "pm"                    # Matrix localpart of the project coordinator, @pm (loop.py)
 

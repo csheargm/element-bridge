@@ -70,8 +70,9 @@ class Boards:
             boards = json.loads(self.board_file.read_text())
         except (OSError, ValueError):
             return {}                         # no board yet (or a damaged file): post a new one
-        for board in boards.values():         # re-check real pins after a restart instead of trusting
-            board["pinned"] = False           # the file (pin() is a no-op for a board already pinned)
+        for board in boards.values():         # re-check real pins (and re-publish) after a restart instead
+            board["pinned"] = False           # of trusting the file (both are no-ops when already done)
+            board["published"] = False
         return boards
 
     def save_boards(self) -> None:
@@ -89,14 +90,25 @@ class Boards:
                 if board.get("event_id") and not board.get("pinned"):   # e.g. posted before @pm was a moderator
                     board["pinned"] = await self.pin(room_id, board["event_id"], None)
                     self.save_boards()
+                if not board.get("published"):
+                    board["published"] = await self.publish(room_id, text)
+                    self.save_boards()
                 continue
             event_id = await self.show(room_id, board.get("event_id"), text)
             if event_id:
                 pinned = board.get("pinned", False) if event_id == board.get("event_id") else False
                 if not pinned:
                     pinned = await self.pin(room_id, event_id, board.get("event_id"))
-                self.boards[room_id] = {"event_id": event_id, "text": text, "pinned": pinned}
+                self.boards[room_id] = {"event_id": event_id, "text": text, "pinned": pinned,
+                                        "published": await self.publish(room_id, text),
+                                        **({"announced": board["announced"]} if "announced" in board else {})}
                 self.save_boards()
+
+    async def publish(self, room_id: str, text: str) -> bool:
+        """The same status as room state, so every agent in the room can read it (room_context.py)."""
+        resp = await self.client.room_put_state(room_id, github.STATUS_EVENT,
+                                                {"repo": github.REPO, "text": text, "ts": int(time.time())})
+        return hasattr(resp, "event_id")
 
     async def show(self, room_id: str, event_id: str | None, text: str) -> str | None:
         body = {"msgtype": "m.notice", "body": text, "format": "org.matrix.custom.html",

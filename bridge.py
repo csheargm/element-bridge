@@ -9,7 +9,7 @@ import hashlib
 import logging
 import re
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from pathlib import Path
 
 import markdown
@@ -18,6 +18,7 @@ from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Megol
 import agents
 import github
 import lifecycle
+import room_context
 from redact import room_safe
 import room_state
 import tasks
@@ -25,7 +26,6 @@ import tasks
 ROOT = Path(__file__).parent
 HOMESERVER = "http://127.0.0.1:8648"
 SERVER_NAME = "bridge.localhost"
-CONTEXT_LINES = 20          # recent room lines handed to the agent as context
 TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapses
 TYPING_TIMEOUT_MS = 30_000
 MAX_REPLY_CHARS = 30_000
@@ -50,7 +50,6 @@ class Bridge:
         self.owner_id = f"@{owner}:{SERVER_NAME}"
         self.user_id = f"@{owner}-agent:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{owner.upper()}")
-        self.history: dict[str, deque] = defaultdict(lambda: deque(maxlen=CONTEXT_LINES))
         self.locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.warned_e2ee: set[str] = set()
         self.tasks: set[asyncio.Task] = set()
@@ -110,12 +109,10 @@ class Bridge:
         name = room.user_name(event.sender) or event.sender
         line = f"{name} ({event.sender}): {event.body}"
         if not self.is_addressed(room, event):
-            self.history[room.room_id].append(line)
-            return
+            return                            # it's still context: answer() reads the room's conversation
         reason = self.should_ignore(room, event)
         if reason:
             log.info("ignored message in %s: %s", room.room_id, reason)
-            self.history[room.room_id].append(line)
             return
         task = asyncio.create_task(self.answer_locked(room, event, line))  # don't block sync
         self.tasks.add(task)
@@ -165,11 +162,20 @@ class Bridge:
             await self.answer(room, event, line)
 
     async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
-        context = "\n".join(self.history[room.room_id])
-        self.history[room.room_id].clear()
+        """Answer from the room's reality: live project status, everyone's recent conversation, and a
+        read-only copy of the project's files (room_context.py) — not just the agent's own memory."""
+        workdir = self.workdir(room.room_id)
+        try:
+            snap = await asyncio.to_thread(room_context.snapshot, self.client.access_token, room.room_id)
+        except OSError as e:
+            log.warning("no room context for %s: %s", room.room_id, e)
+            snap = {"status": "", "conversation": ""}
+        has_files = await room_context.refresh_project(f"{self.owner}-agent", workdir / "project")
         prompt = (f"You are {self.owner}'s personal AI agent ({self.user_id}) in the Matrix chat room "
-                  f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n"
-                  + (f"\nRecent room messages since your last reply:\n{context}\n" if context else "")
+                  f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n\n"
+                  + room_context.describe(snap)
+                  + ("\nThe project's files (default branch) are in ./project: read them when the question is "
+                     "about what the project contains or does.\n" if has_files else "")
                   + f"\nMessage addressed to you:\n{line}\n")
         typing = asyncio.create_task(self.keep_typing(room.room_id))
         try:
@@ -181,7 +187,6 @@ class Bridge:
             typing.cancel()
             await self.client.room_typing(room.room_id, False)
         await self.send(room.room_id, reply[:MAX_REPLY_CHARS], reply_to=event)
-        self.history[room.room_id].append(f"{self.user_id} (you): {reply[:500]}")
 
     async def keep_typing(self, room_id: str) -> None:
         while True:
