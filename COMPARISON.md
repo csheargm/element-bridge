@@ -522,3 +522,7 @@ Live deploy and the whole-batch review (GPT, 707dd84..HEAD):
   invalid; deploy.sh refuses commits older than the PM_UID layout (a rollback that couldn't start @pm).
 - Live: certificates for rooms and matrix issued; the admin host's HTTP-01 is blocked by Cloudflare
   Access until the owner bypasses /.well-known/acme-challenge/ (see DEPLOY_ORACLE.md).
+- Live: the second deploy's `ensure owner` got 429 on admin-bot's sign-in. @pm, admin-bot and new
+  agents all sign in from @pm's container address, and Synapse's default per-address login limit
+  (burst 5, then one per ~5 min) ran out. `rc_login.address` is now burst 20, then one per 50 s (GPT: 0.1/s would allow 360 sprayed guesses an hour per address; 0.02/s is 72); the per-account
+  and failed-attempt limits stay Synapse's defaults.

@@ -4,7 +4,7 @@ running it again changes nothing):
   - sign-up only with a registration token (an invite), no guests, no URL previews;
   - every new account joins the private Welcome room, created by @pm, where @pm greets them
     (pm_welcome.py; @pm must exist before the first sign-up, or Synapse can't create the room);
-  - the public URL; Synapse's own default rate limits (the local prototype relaxes them);
+  - the public URL; Synapse's own rate limits, except sign-ins per address (@pm's container signs in often);
   - Oracle's free limits: uploads up to 20 MB, local media kept 90 days and remote media 30 days.
 It refuses a config whose server_name differs from .env (a server's name can never change). The
 new file is written next to the old one and swapped in, so an interruption never leaves half a
@@ -63,6 +63,10 @@ def configure(text: str, e: dict) -> str:
         "allow_guest_access": "false",
         "max_upload_size": "20M",                    # with media_retention: the disk and traffic stay free-tier
         "media_retention": "{local_media_lifetime: 90d, remote_media_lifetime: 30d}",
+        # @pm signs in from one container address (itself, admin-bot for invites, new agents): Synapse's
+        # default (5, then one per ~5 min per address) refused it on a deploy; 20, then one per 50 s. Per account and
+        # failed-attempt limits stay Synapse's own, so guessing a password is still slow.
+        "rc_login": "{address: {per_second: 0.02, burst_count: 20}}",
         "url_preview_enabled": "false",              # previews would fetch arbitrary URLs from the server
         **welcome_settings(e["SERVER_NAME"]),
     }

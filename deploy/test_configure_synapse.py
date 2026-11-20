@@ -46,6 +46,11 @@ class Configure(unittest.TestCase):
         self.assertIn("media_retention: {local_media_lifetime: 90d, remote_media_lifetime: 30d}", out)
         self.assertEqual(out.count("media_retention:"), 1)
 
+    def test_pm_can_sign_in_often_but_accounts_keep_synapses_limits(self):
+        out = configure(GENERATED, ENV)
+        self.assertIn("rc_login: {address: {per_second: 0.02, burst_count: 20}}", out)
+        self.assertNotIn("account:", out.split("rc_login:")[1].splitlines()[0])
+
     def test_set_keys_replaces_in_place_and_appends_once(self):
         text = "a: 1\nb: 2"                                   # no final newline: the new key gets its own line
         out = set_keys(text, {"a": "9", "c": "3"})
