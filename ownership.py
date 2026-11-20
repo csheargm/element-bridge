@@ -17,15 +17,14 @@ def joined(room: MatrixRoom, user_id: str) -> bool:
 
 
 def owner_id(agent_id: str) -> str | None:
-    """@person:server for a registered agent on this server, else None."""
+    """The owner's full ID (any server) for a registered agent on this server, else None."""
     local, server = split(agent_id)
-    owner = registry.owner_of(local) if server == SERVER_NAME else None
-    return f"@{owner}:{server}" if owner else None
+    return registry.owner_of(local) if server == SERVER_NAME else None
 
 
 def agent_id(person_id: str) -> str:
-    local, server = split(person_id)
-    return f"@{registry.agent_of(local)}:{server}"
+    """The person's agent account: always on this server, whichever server the person is on."""
+    return f"@{registry.agent_of(person_id)}:{SERVER_NAME}"
 
 
 def agents_in(room: MatrixRoom) -> list[str]:

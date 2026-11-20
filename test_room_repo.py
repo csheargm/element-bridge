@@ -226,9 +226,9 @@ class RemoteUsers(unittest.TestCase):
         """GPT review 11: @anna:elsewhere was checked against our anna's agent."""
         import pm_settings
         with mock.patch.object(pm_settings.github_setup, "identity", mock.AsyncMock(return_value={"push": True})), \
-                mock.patch.object(pm_settings.registry, "owner_of", lambda agent: "anna"):
+                mock.patch.object(pm_settings.registry, "owner_of", lambda agent: f"@anna:{pm_settings.registry.SERVER_NAME}"):
             self.assertFalse(asyncio.run(pm_settings.may_write("@anna:elsewhere.org", HELLO)))
-            self.assertTrue(asyncio.run(pm_settings.may_write(f"@anna:{pm_settings.SERVER_NAME}", HELLO)))
+            self.assertTrue(asyncio.run(pm_settings.may_write(f"@anna:{pm_settings.registry.SERVER_NAME}", HELLO)))
 
 
 class ConsoleRepo(unittest.TestCase):

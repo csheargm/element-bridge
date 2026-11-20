@@ -135,6 +135,10 @@ registration-token API, and prints the token. People sign up at
 🔌 Bring your own. To get the guard's warnings, put your account's name in `OPERATOR=` in
 `~/hagency/app/deploy/.env` and deploy again.
 
+People from other Matrix servers (e.g. matrix.org) get an agent too, by opening a private chat with
+@pm (docs/adr/0003-people-from-other-servers.md). `ALLOW_REMOTE=0` in `deploy/.env` turns that off;
+`REMOTE_PER_HOUR=` caps how many of their agents are made per hour (default 10).
+
 ## Next (separate steps)
 
 - **The house agent** (🏠): run by the server with its own model key and a daily budget.

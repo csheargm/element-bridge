@@ -82,7 +82,7 @@ class AgentHears(unittest.TestCase):
     """Betty's agent hears "Betty's agent, …" itself; @pm isn't involved."""
     def setUp(self):
         self.b = bridge.Bridge.__new__(bridge.Bridge)
-        self.b.owner, self.b.owner_id, self.b.user_id = "betty", BETTY, BETTY_AGENT
+        self.b.owner, self.b.owner_name, self.b.owner_id, self.b.user_id = "betty", "betty", BETTY, BETTY_AGENT
         self.b.allow_members, self.b.tasks, self.b.refused, self.b.last_message = False, set(), {}, {}
         self.b.client = SimpleNamespace(room_get_event=mock.AsyncMock(return_value=None),
                                         room_send=mock.AsyncMock(return_value=SimpleNamespace(event_id="$a")))

@@ -36,6 +36,10 @@ _sessions: dict[str, tuple[str, float, str | None]] = {}   # session → (user, 
 _links: dict[str, tuple[str, float, str]] = {}             # one-time code → (user, expires, room)
 USER_RE = re.compile(r"^@[a-z0-9._=/+-]+:" + re.escape(SERVER_NAME) + "$")
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
+# Element's sign-in token is checked with OUR homeserver, which knows only its own people. Someone
+# from another server signs in with a one-time link instead (checking their server's token over
+# federation is future work: it means fetching a URL their server names).
+NOT_VERIFIED = "couldn't verify you here; from another server? Say \"@pm send me my console link\" in the room"
 PORT = int(os.environ.get("PANEL_PORT", "8650"))
 # Also safe inside sh: it goes into the install line and connect.sh (GPT review 21).
 URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1))(:\d{1,5})?$")
@@ -117,13 +121,13 @@ async def view(loop, room_id: str, user: str) -> dict:
     if room is None or not loop.is_person(room, user):
         return {"error": "you're not in that room"}
     local = user.split(":")[0].lstrip("@")
-    agent = ownership.agent_id(user) if registry.owner_of(registry.agent_of(local)) == local else None
+    agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
     return {"user": local, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
-            "follow": registry.follow(local) if agent else None,
-            "version": (customize.in_use().get(local) or "")[:7] if agent else None,   # their own version, if any
+            "follow": registry.follow(user) if agent else None,
+            "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
             "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
             "waiting": {"kind": waiting.get("kind") or "mode", "mine": waiting.get("by") == user,
                         "id": waiting.get("event_id"), "items": [i["title"] for i in waiting.get("items", [])]}
@@ -155,7 +159,7 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
     if action == "goback":                # customize.py: official code, so it works when theirs is broken
         local, _, server = user.lstrip("@").partition(":")
         if server != loop.user_id.partition(":")[2]:   # a person from another server never maps to ours
-            return "only people on this server have an agent here"
+            return "only agents this server runs can go back to the official version"
         customize.go_back(local)
         return "ok"
     if action == "approve":
@@ -209,7 +213,7 @@ def routes(loop, panel_html_fn) -> list:
         if not allowed(request, True):
             return reply({"error": "refused"}, 403)
         user = await asyncio.to_thread(openid_user, (await request.json()).get("access_token", ""))
-        return reply({"session": new_session(user)} if user else {"error": "couldn't verify you"})
+        return reply({"session": new_session(user)} if user else {"error": NOT_VERIFIED})
 
     async def auth_link(request):
         if not allowed(request, True):

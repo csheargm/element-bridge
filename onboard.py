@@ -59,10 +59,10 @@ def main() -> None:
     print(f"{args.person}:")
     person_pw = ensure_user(env, args.person, shared_secret)
     agent_pw = ensure_user(env, f"{args.person}-agent", shared_secret)
-    people = registry.load()
-    info = {**people.get(args.person, {}), "agent": args.agent}
+    people, key = registry.load(), registry.person_id(args.person)
+    info = {**people.get(key, {}), "agent": args.agent}
     info["dm"] = ensure_dm(args.person, person_pw, agent_pw, info.get("dm"))
-    people[args.person] = info
+    people[key] = info
     registry.save(people)
     if args.agent == "hermes":
         hermes_profile.configure(f"{args.person}room", owner=args.person, agent=f"{args.person}-agent",

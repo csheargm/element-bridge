@@ -190,7 +190,7 @@ def render(loop, room_id: str) -> str:
         owner = ownership.owner_id(user)
         if owner:
             here = "" if ownership.joined(room, owner) else " <span class=muted>(owner not here: idle)</span>"
-            follow = registry.follow(owner.split(":")[0].lstrip("@"))
+            follow = registry.follow(owner)
             caps = ", ".join(sorted(grants.get(user, {}))) or "project only"
             agents.append(f"<li><div><b>{html.escape(user.split(':')[0][1:])}</b> <span class=muted>· "
                           f"{html.escape(owner.split(':')[0][1:].capitalize())}'s agent{here}</span></div>"

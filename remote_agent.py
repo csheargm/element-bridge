@@ -1,8 +1,9 @@
 """Bring your own agent from your own computer: the server side.
 
-provision() makes <person>-agent (generated password in the git-ignored .env, like onboard.py),
-records it in agents.json as "remote" (the supervisor never runs it here) and has the agent open a
-private chat with its person. A one-time code (pairing.py) then lets connect.py on the person's
+provision() makes the person's agent account here (identity.py names it from their FULL Matrix ID,
+so a person from another server gets one too; generated password in the git-ignored .env, like
+onboard.py), records it in agents.json as "remote" (the supervisor never runs it here) and has the
+agent open a private chat with its person. remote_people.py limits people from other servers. A one-time code (pairing.py) then lets connect.py on the person's
 computer fetch the agent's sign-in once, from POST /connect on the console server; GET /connect.sh
 serves the installer. The password is never logged; only the code's hash is stored.
 """
@@ -15,6 +16,7 @@ from aiohttp import web
 import console
 import pairing
 import registry
+import remote_people
 import setup_accounts
 from bridge_config import ROOT, SERVER_NAME
 from setup_accounts import AccountError, api, load_env, mark_direct, try_login
@@ -57,12 +59,12 @@ def open_dm(agent: str, password: str, person: str) -> str:
     if not token:
         raise AccountError(f"couldn't sign in as @{agent}")
     try:
-        person_id, agent_id = f"@{person}:{SERVER_NAME}", f"@{agent}:{SERVER_NAME}"
+        agent_id = f"@{agent}:{SERVER_NAME}"
         r = api("POST", "/_matrix/client/v3/createRoom", {"is_direct": True, "preset": "trusted_private_chat",
-                                                         "invite": [person_id]}, token=token)
+                                                         "invite": [person]}, token=token)
         if "room_id" not in r:
             raise AccountError(f"couldn't open a chat for @{agent}: {r.get('errcode')}")
-        mark_direct(token, agent_id, person_id, r["room_id"])
+        mark_direct(token, agent_id, person, r["room_id"])
         return r["room_id"]
     finally:
         api("POST", "/_matrix/client/v3/logout", {}, token=token)
@@ -72,36 +74,44 @@ WRITING = threading.Lock()                    # .env and agents.json are read-mo
 
 
 def provision(person: str) -> str:
-    """Create (or reuse) <person>-agent as a remote agent; returns its localpart. Blocking I/O."""
+    """Create (or reuse) the agent of `person` (a full Matrix ID) as a remote agent; returns its
+    localpart. Blocking I/O."""
     with WRITING:
-        return _provision(person)
+        return _provision(registry.person_id(person))
 
 
 def _provision(person: str) -> str:
-    if not registry.NAME_RE.match(person):
+    local = registry.local_name(person)
+    if local is not None and not registry.NAME_RE.match(local):
         raise AccountError("for now an agent needs an account name of lowercase letters and digits")
     people = registry.load()
     info = people.get(person, {})
     if person in people and info.get("agent") != registry.REMOTE:    # no "agent": a server-run default one
         raise AccountError("you already have an agent here, run by this server")
-    agent = f"{person}-agent"
+    agent = registry.agent_of(person)
+    if registry.owner_of(agent) not in (None, person):
+        raise AccountError("your agent's account name is taken here; ask this server's operator")
+    if local is None and person not in people:
+        remote_people.check_new(people)       # people from other servers: allowed, and not too many at once
     password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
     dm = info.get("dm") or open_dm(agent, password, person)
     people = registry.load()                  # re-read: keep anything written meanwhile
-    people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm}
+    people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm,
+                      **({} if local or "created" in people.get(person, {}) else {"created": remote_people.now()})}
     registry.save(people)
     return agent
 
 
 def credentials_for(person: str) -> dict | None:
-    """What connect.py needs to run <person>-agent, or None if it isn't a remote agent any more."""
+    """What connect.py needs to run `person`'s agent, or None if it isn't a remote agent any more."""
+    person = registry.person_id(person)       # codes issued before full IDs hold a bare name
     if registry.load().get(person, {}).get("agent") != registry.REMOTE:
         return None
-    password = load_env().get(setup_accounts.password_key(f"{person}-agent"))
+    agent = registry.agent_of(person)
+    password = load_env().get(setup_accounts.password_key(agent))
     if not password:
         return None
-    return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{person}-agent:{SERVER_NAME}",
-            "password": password, "owner": person}
+    return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": person}
 
 
 def routes() -> list:

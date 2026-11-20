@@ -40,7 +40,7 @@ class BridgeVoice:
 
     def named_me(self, text: str) -> bool:
         """A spoken request starts with my name: "Betty's agent, …" (not a mention of me mid-sentence)."""
-        owner = re.escape(self.owner)
+        owner = re.escape(self.owner_name)
         return re.match(rf"^\W*((hey|hi|hello|ok(ay)?)\W+)?{owner}(?:'s|s)?[\s-]*agent\b", text, re.I) is not None
 
     def reply_relation(self, room_id: str, question) -> dict:
@@ -103,6 +103,6 @@ class BridgeVoice:
         self.refused = {k: t for k, t in self.refused.items() if now - t < REFUSAL_EVERY_S}   # stays small
         self.refused[key] = now
         try:
-            await self.send(room.room_id, f"I only take requests from {self.owner.capitalize()}.", reply_to=event)
+            await self.send(room.room_id, f"I only take requests from {self.owner_name.capitalize()}.", reply_to=event)
         except RuntimeError as e:             # a note that can't be posted must never stop the sync loop
             log.warning("couldn't post the owner-only note in %s: %s", room.room_id, e)

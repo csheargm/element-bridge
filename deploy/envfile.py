@@ -19,9 +19,11 @@ RULES = {
     "POSTGRES_PASSWORD": r"[0-9a-f]{64}",
     "OPERATOR": r"[a-z0-9._=-]{1,64}",       # the account guard.py warns (a localpart)
     "PM_UID": r"[1-9][0-9]{2,5}",            # @pm's container runs as the deploy user (owns ~/hagency/pm)
+    "ALLOW_REMOTE": r"[01]",                 # people from other servers may get an agent (default 1)
+    "REMOTE_PER_HOUR": r"[0-9]{1,4}",        # how many of their agents per hour (default 10)
 }
 SECRETS = {"POSTGRES_PASSWORD"}
-OPTIONAL = {"OPERATOR"}                      # empty until the operator has an account
+OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR"}   # OPERATOR: empty until the operator has an account
 
 
 def read() -> dict:

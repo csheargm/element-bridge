@@ -25,10 +25,13 @@ FOLLOW_WORDS = {"always": "I'll bring your agent along whenever you join a proje
 
 class Follow:
     async def on_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
-        """People create project rooms in Element and invite @pm: join if a local person asked."""
+        """People create project rooms in Element and invite @pm: join if a local person asked. From
+        another server, only a private chat (pm_welcome.py: how they ask for an agent)."""
         local = event.sender.split(":")[0]
-        if (event.state_key != self.user_id or event.membership != "invite" or local.endswith(("-agent", "-bot"))
-                or not event.sender.endswith(f":{SERVER_NAME}")):
+        if not event.sender.endswith(f":{SERVER_NAME}"):
+            await self.on_remote_invite(room, event)
+            return
+        if event.state_key != self.user_id or event.membership != "invite" or local.endswith(("-agent", "-bot")):
             return
         await self.client.join(room.room_id)
         r = await self.client.room_get_state_event(room.room_id, "m.room.power_levels", "")
@@ -47,9 +50,8 @@ class Follow:
         if is_stale(event, self.started_ms) or not self.sync_point.first_time(event.event_id):
             return
         person = event.state_key
-        if (person == self.user_id or person.split(":")[0].endswith(("-agent", "-bot"))
-                or not person.endswith(f":{SERVER_NAME}")):
-            return                            # only local people have registered agents
+        if person == self.user_id or person.split(":")[0].endswith(("-agent", "-bot")):
+            return                            # people only (from any server: ownership is by full ID)
         try:
             if event.membership == "join" and event.prev_membership != "join":
                 await self.bring_agent(room, person)
@@ -64,10 +66,10 @@ class Follow:
             return
         agent = ownership.agent_id(person)
         local = person.split(":")[0].lstrip("@")
-        if (not registry.owner_of(agent.split(":")[0][1:]) or agent in room.users
-                or registry.follow(local) == "never"):
-            return                            # no registered agent, already here, or they said never
-        if registry.follow(local) == "ask":
+        if (not registry.owns(person, agent.split(":")[0][1:]) or agent in room.users
+                or registry.follow(person) == "never"):
+            return                            # not their registered agent, already here, or they said never
+        if registry.follow(person) == "ask":
             event_id = await self.say(room.room_id, f"Welcome {local}! Bring your agent ({agent.split(':')[0][1:]}) "
                                                     "into this room? Click 👍 below to bring it.")
             self.pending[room.room_id] = {"kind": "bring", "agent": agent, "event_id": event_id,
@@ -90,22 +92,19 @@ class Follow:
             await self.client.room_kick(room.room_id, agent, reason="its owner left the room")
 
     async def set_follow(self, room: MatrixRoom, sender: str, value: str) -> None:
-        """Only ever the sender's OWN setting, and only for people on this server."""
-        local, _, server = sender.lstrip("@").partition(":")
-        if server != SERVER_NAME:
-            await self.say(room.room_id, "Agent settings are only for people on this server.")
-            return
-        if not registry.owner_of(registry.agent_of(local)):
+        """Only ever the sender's OWN setting (by full ID: from any server, never a same-named other)."""
+        local = sender.lstrip("@").partition(":")[0]
+        if not registry.owns(sender, registry.agent_of(sender)):
             await self.say(room.room_id, f"{local}, you don't have an agent registered here yet.")
             return
-        registry.set_follow(local, value)
+        registry.set_follow(sender, value)
         await self.say(room.room_id, f"OK {local}: {FOLLOW_WORDS[value]}.")
 
     async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool) -> None:
         """The owner lets their OWN agent use a capability in THIS room (or stops it)."""
-        local, _, server = sender.lstrip("@").partition(":")
-        agent_local = registry.agent_of(local)
-        if server != SERVER_NAME or registry.owner_of(agent_local) != local:
+        local = sender.lstrip("@").partition(":")[0]
+        agent_local = registry.agent_of(sender)
+        if not registry.owns(sender, agent_local):
             await self.say(room.room_id, "Only people with an agent registered on this server can do that.")
             return
         agent = f"@{agent_local}:{SERVER_NAME}"

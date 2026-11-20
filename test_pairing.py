@@ -101,7 +101,7 @@ class Server(unittest.IsolatedAsyncioTestCase):
         status, body, headers = await self.post(code)
         self.assertEqual(status, 200)
         self.assertEqual(body, {"homeserver": "http://localhost:8648", "user_id": "@newbie1-agent:bridge.localhost",
-                                "password": "s3cret", "owner": "newbie1"})
+                                "password": "s3cret", "owner": "@newbie1:bridge.localhost"})
         self.assertEqual(headers["Cache-Control"], "no-store")
         status, body, _ = await self.post(code)
         self.assertEqual(status, 400)
@@ -154,9 +154,9 @@ class Provision(unittest.TestCase):
     def test_creates_the_agent_records_it_remote_and_opens_its_chat(self):
         self.assertEqual(remote_agent.provision("newbie1"), "newbie1-agent")
         self.assertEqual(self.ensure.call_args.args[1:], ("newbie1-agent", "secret"))
-        self.dm.assert_called_once_with("newbie1-agent", "pw", "newbie1")
-        self.assertEqual(registry.load()["newbie1"], {"agent": "remote", "dm": "!dm"})
-        self.assertEqual(registry.owner_of("newbie1-agent"), "newbie1")
+        self.dm.assert_called_once_with("newbie1-agent", "pw", "@newbie1:bridge.localhost")
+        self.assertEqual(registry.load()["@newbie1:bridge.localhost"], {"agent": "remote", "dm": "!dm"})
+        self.assertEqual(registry.owner_of("newbie1-agent"), "@newbie1:bridge.localhost")
         remote_agent.provision("newbie1")                    # again: same chat, nothing new
         self.dm.assert_called_once()
 

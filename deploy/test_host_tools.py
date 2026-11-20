@@ -134,6 +134,14 @@ class EnvUpgrade(unittest.TestCase):
                          ("rooms.mine.org", "admin.example.org", "ab" * 32))      # kept, added, kept
         self.assertEqual(values["PM_UID"], str(os.getuid()))                    # whoever runs bootstrap owns ~/hagency/pm
 
+    def test_the_remote_people_settings_are_optional_and_checked(self):
+        import envfile
+        base = {"ROOMS_DOMAIN": "r.org", "MATRIX_DOMAIN": "m.org", "SERVER_NAME": "m.org", "ADMIN_DOMAIN": "a.org",
+                "POSTGRES_PASSWORD": "ab" * 32, "PM_UID": "1001"}
+        self.assertEqual(envfile.validate(base), [])
+        self.assertEqual(envfile.validate({**base, "ALLOW_REMOTE": "0", "REMOTE_PER_HOUR": "5"}), [])
+        self.assertEqual(len(envfile.validate({**base, "ALLOW_REMOTE": "yes please", "REMOTE_PER_HOUR": "-1"})), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

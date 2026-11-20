@@ -103,10 +103,11 @@ class Greeting(Base):
         """GPT review 23 re-check: "I want an agent" re-greets, which must keep "pointed"."""
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
         self.lp.addressed_text = lambda event: event.body
-        self.run_(self.lp.on_welcome_text(WELCOME_ROOM, text(NEW, "I want an agent")))
+        self.run_(self.lp.on_welcome_text(WELCOME_ROOM, text(NEW, "I want an agent")))   # answered: a second line
         self.assertTrue(self.lp._welcomes[NEW]["pointed"])
+        before = len(self.said)
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
-        self.assertEqual(len([r for r, _ in self.said if r == "!welcome" and "Invites" in _]), 1)
+        self.assertEqual(len(self.said), before)                 # a rejoin repeats nothing
 
     def test_no_pointer_for_someone_who_already_clicked_a_button(self):
         self.lp._welcomes[NEW] = {"dm": "!dm", "offer": "$offer", "done": ["🏠"]}
@@ -137,7 +138,7 @@ class Greeting(Base):
 
     def test_agents_bots_people_with_agents_and_other_rooms_are_not_greeted(self):
         for room, who in ((WELCOME_ROOM, f"@newbie1-agent:{S}"), (WELCOME_ROOM, f"@admin-bot:{S}"),
-                          (WELCOME_ROOM, ANNA), (WELCOME_ROOM, PM), (WELCOME_ROOM, "@newbie1:elsewhere.org"),
+                          (WELCOME_ROOM, ANNA), (WELCOME_ROOM, PM),
                           (DM, NEW)):
             self.run_(self.lp.on_welcome_member(room, member(who)))
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="join")))   # a profile change
@@ -204,7 +205,7 @@ class Buttons(Base):
 
     def test_bring_your_own_creates_the_agent_and_sends_one_line_with_a_code(self):
         self.assertTrue(self.click("🔌"))
-        self.provision.assert_called_once_with("newbie1")
+        self.provision.assert_called_once_with(NEW)
         room_id, body = self.said[0]
         self.assertEqual(room_id, "!dm")
         self.assertRegex(body, r"curl -fsSL http://localhost:8650/connect\.sh \| sh -s -- [A-Z2-9]{5}-[A-Z2-9]{5}")
@@ -230,7 +231,7 @@ class Buttons(Base):
             self.assertTrue(await self.lp.on_welcome_text(DM, text(NEW, "I'll bring my own")))
             await asyncio.gather(*self.lp.busy)
         self.run_(bring())
-        self.provision.assert_called_once_with("newbie1")
+        self.provision.assert_called_once_with(NEW)
 
     def test_one_set_up_at_a_time_per_person(self):
         async def twice():
@@ -268,22 +269,33 @@ class Asking(Base):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
         self.assertTrue(self.run_(self.lp.on_welcome_text(room, text(NEW, "@pm I want an agent"))))
         self.assertIn("Get your agent", self.said[0][1])
-        self.assertEqual(self.said[1], ("!project", "Sent you a private message, newbie1."))
+        self.assertEqual(self.said[1][0], "!project")
+        self.assertIn("accept it under Invites", self.said[1][1])
 
     def test_someone_with_an_agent_is_told(self):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
         self.run_(self.lp.on_welcome_text(room, text(ANNA, "@pm can I get an agent?")))
         self.assertEqual(self.said, [("!project", "You already have an agent here: anna-agent.")])
 
-    def test_a_same_named_person_from_another_server_gets_nothing(self):
-        """GPT review 21: @newbie1:evil.org must never get a code for our newbie1's agent."""
+    def test_a_same_named_person_from_another_server_gets_their_own_agent_never_ours(self):
+        """GPT review 21: @newbie1:evil.org must never get a code for our newbie1's agent. Since
+        review 23 they may get an agent of their own, named from their full ID."""
         registry.PATH.write_text(json.dumps({"newbie1": {"agent": "remote"}}))
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
-        self.run_(self.lp.on_welcome_text(room, text("@newbie1:evil.org", "@pm I want an agent")))
-        self.lp.private_room.assert_not_called()
-        self.assertIn("only for people with an account on this server", self.said[0][1])
-        self.run_(self.lp.choose("!dm", "@newbie1:evil.org", "🔌"))
-        self.assertEqual(self.lp.busy, set())
+        evil = "@newbie1:evil.org"
+        self.run_(self.lp.on_welcome_text(room, text(evil, "@pm I want an agent")))
+        self.lp.private_room.assert_awaited_once_with(evil)
+        self.assertNotIn("newbie1-agent", " ".join(b for _, b in self.said))
+        provision = mock.patch.object(remote_agent, "provision", return_value="x").start()
+        self.addCleanup(mock.patch.stopall)
+        self.lp.client = mock.Mock(room_get_state=mock.AsyncMock(return_value=SimpleNamespace(events=[])))
+
+        async def bring():
+            await self.lp.choose("!dm", evil, "🔌")
+            await asyncio.gather(*self.lp.busy)
+        self.run_(bring())
+        provision.assert_called_once_with(evil)                  # the full ID: never our newbie1
+        self.assertNotIn("newbie1", [v["person"] for v in remote_agent.CODES.codes.values()])
 
     def test_project_requests_that_mention_an_agent_go_on_to_the_usual_chat(self):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)

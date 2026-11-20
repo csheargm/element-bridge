@@ -17,7 +17,7 @@ import github_setup
 import registry
 import room_state
 from loop_progress import ACTIVE
-from setup_accounts import DISPLAY_NAMES, SERVER_NAME
+from setup_accounts import DISPLAY_NAMES
 
 log = logging.getLogger("loop")
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
@@ -30,11 +30,8 @@ async def may_write(user: str, repo: str) -> bool:
     """The person's own agent's GitHub account can write to `repo`: so binding a room to a repo needs
     real access to it, not just a room of one's own (anyone can create a room). A read with that
     agent's identity; nothing is changed."""
-    person, _, server = user.lstrip("@").partition(":")
-    if server != SERVER_NAME:                 # @anna:elsewhere is not our anna (federation)
-        return False
-    agent = registry.agent_of(person)
-    if registry.owner_of(agent) != person:
+    agent = registry.agent_of(user)           # by full ID: @anna:elsewhere is not our anna
+    if not registry.owns(user, agent):
         return False
     return bool((await github_setup.identity(agent, repo)).get("push"))
 

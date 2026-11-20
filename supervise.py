@@ -107,9 +107,9 @@ def children(agent: str, allow_members: bool) -> list[Child]:
     `agent` is the CLI for people onboard.py hasn't recorded a choice for."""
     extra = ["--allow-members"] if allow_members else []
     kids = []
-    for person, info in sorted(registry.load().items()):
-        choice = info.get("agent", agent)
-        if choice == registry.REMOTE:            # runs on the person's own computer (connect.py), not here
+    for key, info in sorted(registry.load().items()):
+        choice, person = info.get("agent", agent), registry.local_name(key)
+        if choice == registry.REMOTE or not person:   # runs on the person's own computer (connect.py), not here
             continue
         if choice == "hermes":
             hermes_profile.set_repos(f"{person}room")    # its MCP server works on this run's repos

@@ -119,8 +119,7 @@ async def safely(task_id: str, kind: str, step) -> dict:
 
 
 def owner_id() -> str | None:
-    owner = registry.owner_of(AGENT)
-    return f"@{owner}:{SERVER_NAME}" if owner else None
+    return registry.owner_of(AGENT)           # a full ID, any server
 
 
 def owner_in(room: str) -> bool:
@@ -128,7 +127,7 @@ def owner_in(room: str) -> bool:
     if not owner or not room:
         return False
     joined = api("GET", room_path(room, "/joined_members"), token=token()).get("joined", {})
-    return f"@{owner}:{SERVER_NAME}" in joined
+    return owner in joined
 
 
 def claim(task_id: str, kind: str | tuple[str, ...]) -> tuple[dict | None, dict | None]:

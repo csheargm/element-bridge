@@ -42,7 +42,7 @@ class Config(unittest.TestCase):
 
     def test_a_bridge_started_with_the_file_uses_its_server_and_password(self):
         code = ("import bridge, bridge_config as c; "
-                "print(c.HOMESERVER, c.SERVER_NAME, bridge.Bridge('newbie1', 'codex').owner_id, c.agent_password('newbie1'))")
+                "print(c.HOMESERVER, c.SERVER_NAME, bridge.Bridge('newbie1', 'codex').owner_id, c.agent_password('newbie1-agent'))")
         out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
                              cwd=Path(__file__).parent, env={**os.environ, "HAGENCY_CREDENTIALS": write(CREDS)}).stdout
         self.assertEqual(out.split(), ["https://matrix.example.org", "example.org", "@newbie1:example.org", "s3cret"])
@@ -50,7 +50,7 @@ class Config(unittest.TestCase):
     def test_the_file_is_only_for_its_owner(self):
         with mock.patch.object(bridge_config, "CREDENTIALS", CREDS):
             with self.assertRaises(SystemExit):
-                bridge_config.agent_password("anna")
+                bridge_config.agent_password("anna-agent")
 
 
 class Connect(unittest.TestCase):

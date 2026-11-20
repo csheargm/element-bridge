@@ -13,7 +13,6 @@ import bridge_custom
 import customize
 import mcp_core as core
 import registry
-from bridge import SERVER_NAME
 from mcp_core import mcp
 from saved_dict import SavedDict
 
@@ -24,14 +23,14 @@ _change: dict = {}                       # the change being worked on: {"request
 
 def owner() -> str:
     person = registry.owner_of(core.AGENT)
-    if not person:
-        raise customize.CustomError(f"{core.AGENT} isn't anyone's registered agent")
-    return person
+    if not person or not registry.local_name(person):     # custom code runs here: only for people here
+        raise customize.CustomError(f"{core.AGENT} isn't the registered agent of anyone on this server")
+    return registry.local_name(person)
 
 
 def private_room(person: str) -> str | None:
     """The room where it's just the owner and me, invitation only."""
-    wanted = {f"@{person}:{SERVER_NAME}", core.USER_ID}
+    wanted = {registry.person_id(person), core.USER_ID}
     for room in core.rooms():
         joined = core.api("GET", core.room_path(room, "/joined_members"), token=core.token()).get("joined", {})
         if set(joined) == wanted:

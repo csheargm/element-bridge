@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 
+import identity
+
 ROOT = Path(__file__).parent
 DEFAULT_HOMESERVER = "http://127.0.0.1:8648"
 DEFAULT_SERVER_NAME = "bridge.localhost"
@@ -27,9 +29,20 @@ def load_credentials(path: str | None) -> dict:
         raise SystemExit(f"can't read the Hagency credentials file {path}: {e}") from e
     if not isinstance(data, dict) or not all(isinstance(data.get(k), str) and data[k] for k in CREDENTIAL_KEYS):
         raise SystemExit(f"the Hagency credentials file {path} is incomplete; run connect.py again with a new code")
-    if data["user_id"] != f"@{data['owner']}-agent:{data['user_id'].partition(':')[2]}":
+    if not credentials_match(data["user_id"], data["owner"]):
         raise SystemExit(f"the Hagency credentials file {path} doesn't belong to {data['owner']}'s agent")
     return data
+
+
+def credentials_match(user_id: str, owner: str) -> bool:
+    """`user_id` is exactly `owner`'s agent account (owner: a full ID, or a bare name on its server)."""
+    server = user_id.partition(":")[2]
+    return bool(server) and user_id == f"@{identity.agent_localpart(owner, server)}:{server}"
+
+
+def password_key(user: str) -> str:
+    """The .env name of an account's password (localparts here are [a-z0-9-])."""
+    return "PW_" + user.upper().replace("-", "_")
 
 
 CREDENTIALS = load_credentials(os.environ.get("HAGENCY_CREDENTIALS"))
@@ -47,10 +60,11 @@ def read_env() -> dict[str, str]:
     return env
 
 
-def agent_password(owner: str) -> str:
-    """The password of <owner>-agent: from the credentials file on a person's computer, else .env."""
+def agent_password(agent: str) -> str:
+    """The password of agent account `agent` (a localpart): from the credentials file on a person's
+    computer, else .env."""
     if CREDENTIALS:
-        if CREDENTIALS["owner"] != owner:
-            raise SystemExit(f"the credentials file is for {CREDENTIALS['owner']}'s agent, not {owner}'s")
+        if CREDENTIALS["user_id"] != f"@{agent}:{SERVER_NAME}":
+            raise SystemExit(f"the credentials file is for {CREDENTIALS['user_id']}, not @{agent}")
         return CREDENTIALS["password"]
-    return read_env()[f"PW_{owner.upper()}_AGENT"]
+    return read_env()[password_key(agent)]

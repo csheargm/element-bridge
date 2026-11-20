@@ -1,7 +1,7 @@
-"""Bring-your-own-agent bridge: logs in as <owner>-agent and answers @mentions/DMs
+"""Bring-your-own-agent bridge: logs in as the owner's agent and answers @mentions/DMs
 by running the owner's local agent CLI (Codex or Claude Code) per room.
 
-Usage: python bridge.py anna [--agent codex|claude]
+Usage: python bridge.py anna [--agent codex|claude]     (or a full ID: @alice:matrix.org)
 """
 import argparse
 import asyncio
@@ -21,6 +21,7 @@ from bridge_custom import BridgeCustom
 from bridge_voice import BridgeVoice
 import capabilities
 import github
+import identity
 import lifecycle
 import room_context
 from redact import room_safe
@@ -39,10 +40,12 @@ log = logging.getLogger("bridge")
 
 class Bridge(BridgeVoice, BridgeCustom):
     def __init__(self, owner: str, backend: str, allow_members: bool = False, buttons_only: bool = False):
-        self.owner, self.backend, self.allow_members, self.buttons_only = owner, backend, allow_members, buttons_only
-        self.owner_id = f"@{owner}:{SERVER_NAME}"
-        self.user_id = f"@{owner}-agent:{SERVER_NAME}"
-        self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{owner.upper()}")
+        self.backend, self.allow_members, self.buttons_only = backend, allow_members, buttons_only
+        self.owner_id = identity.person_id(owner, SERVER_NAME)     # full IDs only: should_ignore compares them
+        self.owner = identity.handle(self.owner_id, SERVER_NAME)   # folders and names: anna, alice-at-...-agent
+        self.owner_name = identity.split(self.owner_id)[0]         # how people call them: anna, alice
+        self.user_id = f"@{self.owner}-agent:{SERVER_NAME}"
+        self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{self.owner.upper()}")
         self.locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.warned_e2ee: set[str] = set()
         self.tasks: set[asyncio.Task] = set()
@@ -233,7 +236,7 @@ class Bridge(BridgeVoice, BridgeCustom):
 
     # --- lifecycle -----------------------------------------------------------------
     async def run(self) -> None:
-        password = agent_password(self.owner)   # bridge_config.py: .env, or connect.py's file
+        password = agent_password(f"{self.owner}-agent")   # bridge_config.py: .env, or connect.py's file
         resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"login failed for {self.user_id}: {resp}")
@@ -267,13 +270,13 @@ def is_stale(event, started_ms: int) -> bool:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("owner", help="person whose agent this is, e.g. anna")
+    ap.add_argument("owner", help="person whose agent this is: anna (here), or a full ID like @alice:matrix.org")
     ap.add_argument("--agent", choices=sorted(agents.BACKENDS), default="codex")
     ap.add_argument("--allow-members", action="store_true",
                     help="let every joined room member drive this agent (default: owner only)")
     ap.add_argument("--buttons-only", action="store_true", help="only the code-change buttons (Hermes agents)")
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{args.owner}-agent] %(message)s")
+    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{identity.handle(args.owner, SERVER_NAME)}-agent] %(message)s")
     logging.getLogger("nio").setLevel(logging.WARNING)
     bridge = Bridge(args.owner, args.agent, args.allow_members, args.buttons_only)
     try:

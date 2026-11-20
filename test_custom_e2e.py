@@ -25,7 +25,7 @@ WAIT_S = 900
 def running_dir(owner: str) -> Path:
     """The folder the agent's code really runs from (not just what the state file says): the bridge's
     folder, or for Hermes the folder of the hagency_mcp.py it started."""
-    if registry.load().get(owner, {}).get("agent") == "hermes":
+    if registry.load().get(registry.person_id(owner), {}).get("agent") == "hermes":
         cmds = subprocess.run(["pgrep", "-fl", "hagency_mcp.py"], capture_output=True, text=True).stdout.split()
         return Path(next(c for c in cmds if c.endswith("hagency_mcp.py"))).resolve().parent
     pid = subprocess.run(["pgrep", "-f", f"bridge.py {owner} --agent"], capture_output=True, text=True).stdout.split()[0]

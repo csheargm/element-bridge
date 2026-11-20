@@ -4,17 +4,21 @@ agent joins it, @pm opens a private chat with them, once, and offers two buttons
   🏠 House agent: run by this server (not built yet: it comes with the public server);
   🔌 Bring your own: their Codex or Claude Code on their own computer (remote_agent.py, connect.py).
 Only that person's click on that message counts, each button once. Typing "house agent" or "bring
-my own" in that chat works too, and "@pm I want an agent" anywhere offers it again.
+my own" in that chat works too, and "@pm I want an agent" anywhere offers it again. People from
+other servers (remote_people.py) start by opening a private chat with @pm, or with that sentence.
 Mixed into loop.Loop (client, user_id, say, offer_thumb, private_room, addressed_text, busy, started_ms).
 """
 import asyncio
 import logging
 import re
 
-from nio import MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset, RoomResolveAliasResponse
+from nio import (InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset,
+                 RoomResolveAliasResponse)
 
+import identity
 import registry
 import remote_agent
+import remote_people
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
@@ -54,15 +58,16 @@ class Welcome:
     def is_welcome_room(self, room: MatrixRoom) -> bool:
         return getattr(room, "canonical_alias", None) == WELCOME_ALIAS
 
-    def is_local_person(self, user_id: str) -> bool:
-        """A person on THIS server (never me, an agent, a bot, or @same-name:another-server)."""
-        local, _, server = user_id.lstrip("@").partition(":")
-        return server == SERVER_NAME and user_id != self.user_id and not local.endswith(("-agent", "-bot"))
+    def may_have_agent(self, user_id: str) -> bool:
+        """A person (never me, an agent or a bot) who may get an agent here: anyone on this server, and
+        people from other servers unless this server turned that off. Always by their full ID."""
+        local, server = identity.split(user_id)
+        return (bool(identity.USER_RE.match(user_id)) and user_id != self.user_id and not local.endswith(("-agent", "-bot"))
+                and (server == SERVER_NAME or remote_people.allowed()))
 
     def is_newcomer(self, user_id: str) -> bool:
-        """A local person with no agent of their own here yet."""
-        local = user_id.lstrip("@").partition(":")[0]
-        return self.is_local_person(user_id) and registry.owner_of(registry.agent_of(local)) is None
+        """A person who may have an agent here and has none of their own yet."""
+        return self.may_have_agent(user_id) and not registry.owns(user_id, registry.agent_of(user_id))
 
     async def ensure_welcome_room(self) -> None:
         """The Welcome room exists and is mine (Synapse only creates it for a server's very first user),
@@ -158,17 +163,35 @@ class Welcome:
         return True
 
     async def offer_again(self, room: MatrixRoom, person: str) -> None:
-        local = person.split(":")[0].lstrip("@")
-        info = registry.load().get(local, {})
-        if not self.is_local_person(person):  # @newbie1:elsewhere is not our newbie1 (federation)
-            await self.say(room.room_id, "Agents are only for people with an account on this server.")
+        info = registry.load().get(person, {})   # by full ID: @newbie1:elsewhere is not our newbie1
+        if not self.may_have_agent(person):
+            await self.say(room.room_id, f"Sorry, {remote_people.OFF}.")
             return
         if not self.is_newcomer(person) and info.get("agent") != registry.REMOTE:
-            await self.say(room.room_id, f"You already have an agent here: {registry.agent_of(local)}.")
+            await self.say(room.room_id, f"You already have an agent here: {registry.agent_of(person)}.")
             return
         dm = await self.greet(person)
         if dm and dm != room.room_id:
-            await self.say(room.room_id, f"Sent you a private message, {local}.")
+            await self.say(room.room_id, POINTER.format(person=person), mention=person)
+
+    async def on_remote_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
+        """Someone from another server opened a private chat with me: their way in (no Welcome for
+        them). I join it and answer as to "I want an agent"; the offer itself goes to a chat I make
+        (theirs may be encrypted, which I can't read), and their chat says where to find it."""
+        if (event.state_key != self.user_id or event.membership != "invite" or not event.content.get("is_direct")
+                or not self.may_have_agent(event.sender) or identity.split(event.sender)[1] == SERVER_NAME):
+            return
+        if not self.__dict__.setdefault("_dm_joins", remote_people.DmJoins()).take():
+            log.warning("not joining %s from %s: too many chats from other servers this hour", room.room_id, event.sender)
+            return
+        joined = await self.client.join(room.room_id)
+        if not isinstance(joined, JoinResponse):
+            log.warning("couldn't join %s from %s: %s", room.room_id, event.sender, joined)
+            return
+        try:
+            await self.offer_again(room, event.sender)
+        except RuntimeError as e:             # loop.SendError: they can still say "@pm I want an agent"
+            log.error("couldn't answer %s in %s: %s", event.sender, room.room_id, e)
 
     async def only_us(self, room_id: str, person: str) -> bool:
         """Asked of the server now, not my cached view: nobody but the two of us joined or invited."""
@@ -182,8 +205,8 @@ class Welcome:
             await self.say(dm, HOUSE_REPLY)
             return
         busy = self.__dict__.setdefault("_provisioning", set())
-        if person in busy or not self.is_local_person(person):
-            return                            # one at a time per person; only this server's people
+        if person in busy or not self.may_have_agent(person):
+            return                            # one at a time per person; never an agent, a bot or a refused server
         busy.add(person)
         job = asyncio.create_task(self.bring_own(dm, person))   # creating the account takes a moment
         job.add_done_callback(lambda _: busy.discard(person))
@@ -191,13 +214,12 @@ class Welcome:
         job.add_done_callback(self.busy.discard)
 
     async def bring_own(self, dm: str, person: str) -> None:
-        local = person.split(":")[0].lstrip("@")
         try:
-            agent = await asyncio.to_thread(remote_agent.provision, local)
+            agent = await asyncio.to_thread(remote_agent.provision, person)
             chat = await self.private_room(person)        # re-checked: still just the two of us, or a new chat
             if chat is None or not await self.only_us(chat, person):
                 raise RuntimeError("I couldn't open a private chat with just you")
-            code = remote_agent.CODES.issue(local)
+            code = remote_agent.CODES.issue(person)
             await self.say(chat, BRING_REPLY.format(agent=agent, line=remote_agent.install_line(code)))
         except (AccountError, OSError, RuntimeError) as e:   # homeserver refused, .env unwritable, send failed, bad URL
             log.error("bring-your-own failed for %s: %s", person, e)

@@ -1,4 +1,4 @@
-"""Connect your own Codex or Claude Code to Hagency Rooms as <you>-agent, from your own computer.
+"""Connect your own Codex or Claude Code to Hagency Rooms as your agent, from your own computer.
 
   python connect.py CODE [--agent codex|claude]   # once, with the code @pm sent you; then it runs
   python connect.py                               # later: run again with the saved sign-in
@@ -20,11 +20,14 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import identity
+from bridge_config import credentials_match
+
 APP = Path(__file__).resolve().parent
 BACKENDS = ("codex", "claude")
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 TIMEOUT_S = 30
-USER_RE = re.compile(r"^@[a-z0-9]{2,24}-agent:[A-Za-z0-9.-]+(:\d+)?$")
+USER_RE = re.compile(r"^@[a-z0-9-]{2,80}-agent:[A-Za-z0-9.-]+(:\d+)?$")
 
 
 def safe_url(url: str) -> bool:
@@ -48,8 +51,10 @@ def redeem(server: str, code: str) -> dict:
         raise SystemExit(f"✗ {reason or f'the server said {e.code}'}") from e
     except (OSError, ValueError) as e:
         raise SystemExit(f"✗ couldn't reach {server}: {e}") from e
+    owner = data.get("owner") if isinstance(data, dict) else None
     if not (isinstance(data, dict) and USER_RE.match(str(data.get("user_id", ""))) and safe_url(str(data.get("homeserver", "")))
-            and data["user_id"].startswith(f"@{data.get('owner')}-agent:") and isinstance(data.get("password"), str)):
+            and isinstance(owner, str) and (identity.USER_RE.match(owner) or identity.NAME_RE.match(owner))
+            and credentials_match(data["user_id"], owner) and isinstance(data.get("password"), str)):
         raise SystemExit("✗ the server's answer doesn't look like an agent's sign-in; nothing was saved")
     return {k: data[k] for k in ("homeserver", "user_id", "password", "owner")}
 

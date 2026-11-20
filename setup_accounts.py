@@ -17,12 +17,13 @@ import urllib.parse
 from pathlib import Path
 
 import registry
-from bridge_config import HOMESERVER as HS, ROOT, SERVER_NAME, read_env
+from bridge_config import HOMESERVER as HS, ROOT, SERVER_NAME, password_key, read_env
 from github import LEVEL_EVENT, PM_BOT, REPO
 from room_state import content
 # each gets a <person>-agent (onboard.py adds people). People who signed up themselves and brought
 # their own agent (pm_welcome.py: "remote") have accounts we didn't create and stay out of the Lounge.
-PEOPLE = sorted(p for p, v in registry.load().items() if v.get("agent") != registry.REMOTE)
+PEOPLE = sorted(registry.local_name(p) for p, v in registry.load().items()
+                if v.get("agent") != registry.REMOTE and registry.local_name(p))
 # Bot → exact power level. @pm is the room's one bot: it writes the room's mode and pins its
 # status board, so it is a moderator (state events need 50); people decide, it applies.
 BOTS = {"pm": 50}
@@ -72,10 +73,6 @@ def shared_secret() -> str:
         return Path(secret_file).read_text().strip()
     yaml = (ROOT / "data" / "homeserver.yaml").read_text()
     return re.search(r'^registration_shared_secret: "?([^"\n]+)"?', yaml, re.M).group(1)
-
-
-def password_key(user: str) -> str:
-    return "PW_" + user.upper().replace("-", "_")
 
 
 def ensure_user(env: dict, user: str, secret: str, admin: bool = False, verify: bool = False) -> tuple[str, bool]:

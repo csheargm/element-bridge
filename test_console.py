@@ -146,7 +146,7 @@ class Actions(unittest.TestCase):
         remote = "@betty:elsewhere.example"
         self.loop.client.rooms["!r"].users[remote] = 0
         with mock.patch.object(console.customize, "go_back") as back:
-            self.assertIn("only people on this server", self.act(remote, "goback", ""))
+            self.assertIn("only agents this server runs", self.act(remote, "goback", ""))
         back.assert_not_called()
 
     def test_owner_changes_the_mode_contributor_cant(self):
@@ -177,6 +177,16 @@ class Actions(unittest.TestCase):
         v = asyncio.run(console.view(self.loop, "!r", BETTY))
         self.assertEqual((v["user"], v["moderator"], v["agent"], v["follow"], v["web"]),
                          ("betty", False, "betty-agent", "always", False))
+
+    def test_someone_from_another_server_sees_their_own_agent_never_a_namesakes(self):
+        """GPT review 23: people from other servers sign in with a link and see their own agent."""
+        alice, namesake = "@alice:matrix.org", "@betty:elsewhere.example"
+        registry.PATH.write_text(json.dumps({"betty": {}, alice: {"agent": "remote", "follow": "ask"}}))
+        self.loop.client.rooms["!r"].users.update({alice: 0, namesake: 0})
+        v = asyncio.run(console.view(self.loop, "!r", alice))
+        self.assertEqual((v["agent"], v["follow"]), (registry.agent_of(alice), "ask"))
+        self.assertTrue(v["agent"].startswith("alice-at-matrix-org-"))
+        self.assertIsNone(asyncio.run(console.view(self.loop, "!r", namesake))["agent"])
 
 
 if __name__ == "__main__":

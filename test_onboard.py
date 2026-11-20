@@ -28,7 +28,7 @@ class Supervisor(unittest.TestCase):
 
     def test_registry_defaults_to_the_two_demo_people(self):
         with mock.patch.object(registry, "PATH", Path(tempfile.mkdtemp()) / "missing.json"):
-            self.assertEqual(sorted(registry.load()), ["anna", "betty"])
+            self.assertEqual(sorted(registry.load()), ["@anna:bridge.localhost", "@betty:bridge.localhost"])
 
 
 class HermesProfile(unittest.TestCase):

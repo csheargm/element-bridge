@@ -72,7 +72,7 @@ def live_dir(owner: str, sha: str) -> Path:
 def why_not_use(owner: str) -> str | None:
     """Why "Use it myself" isn't offered here, or None. Custom code runs as this computer's account,
     so on a computer that also runs other people's agents it could read their passwords."""
-    others = [p for p in registry.load() if p != owner]
+    others = [p for p in registry.load() if registry.local_name(p) != owner]
     if others and os.environ.get("HAGENCY_CUSTOM_SHARED_OK") != "1":
         return ("this computer also runs other people's agents, and your version would run with access to "
                 "their passwords too. Send it as a pull request instead, or run your agent on your own computer")
