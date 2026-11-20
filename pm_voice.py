@@ -113,12 +113,21 @@ class Voice:
             return
         # A caption on the voice message itself (not @pm talking), so everyone, agents too, can read it.
         await self.say(room.room_id, f"📝 Transcript: “{text}”", plain=True, reply_to=event.event_id)
-        await self.on_human(room, self.as_text(room, event, text))
+        await self.on_human(room, self.as_text(room, event, text, await self.replies_to_me(room, event)))
 
-    def as_text(self, room: MatrixRoom, event: RoomMessageAudio, text: str) -> SimpleNamespace:
+    async def replies_to_me(self, room: MatrixRoom, event: RoomMessageAudio) -> bool:
+        """A voice reply to one of my messages is for me (a voice message can't carry an @mention)."""
+        rel = event.source.get("content", {}).get("m.relates_to")
+        target = (rel.get("m.in_reply_to") or {}).get("event_id") if isinstance(rel, dict) else None
+        if not isinstance(target, str):
+            return False
+        resp = await self.client.room_get_event(room.room_id, target)
+        return getattr(getattr(resp, "event", None), "sender", None) == self.user_id
+
+    def as_text(self, room: MatrixRoom, event: RoomMessageAudio, text: str, to_me: bool = False) -> SimpleNamespace:
         """The voice message as the typed message it stands for (same sender, same reply)."""
         content = event.source.get("content", {})
-        for_me = (NAMED_PM.search(text) is not None or len(room.users) == 2
+        for_me = (to_me or NAMED_PM.search(text) is not None or len(room.users) == 2
                   or (room.room_id in self.pending and intents.is_approval(text)))   # answered: "click 👍"
         body = NAMED_PM.sub("", text, count=1).lstrip(" ,.:;!-") if NAMED_PM.match(text.strip()) else text
         source = {"content": {"body": body, "m.mentions": {"user_ids": [self.user_id] if for_me else []},

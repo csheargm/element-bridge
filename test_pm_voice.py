@@ -47,6 +47,15 @@ class Voice(unittest.TestCase):
         self.voice("Okay, go ahead.")
         self.assertEqual(self.heard, [("Okay, go ahead.", [PM])])
 
+    def test_a_voice_reply_to_pm_is_for_pm(self):
+        """Seen live: anna said "Who are you?" by voice and @pm only showed the transcript."""
+        self.lp.client.room_get_event = mock.AsyncMock(return_value=SimpleNamespace(event=SimpleNamespace(sender=PM)))
+        ev = SimpleNamespace(sender=ANNA, url="mxc://x/abc", event_id="$v", source={"content": {
+            "msgtype": "m.audio", "info": {"duration": 3000}, "m.relates_to": {"m.in_reply_to": {"event_id": "$pm"}}}})
+        with mock.patch.object(pm_voice, "transcribe", mock.AsyncMock(return_value="Who are you?")):
+            asyncio.run(self.lp.hear(self.room, ev))
+        self.assertEqual(self.heard, [("Who are you?", [PM])])
+
     def test_people_talking_is_shown_but_not_a_command(self):
         self.voice("Let's meet tomorrow about the toggle.")
         self.assertEqual(self.heard, [("Let's meet tomorrow about the toggle.", [])])
