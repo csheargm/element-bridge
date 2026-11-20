@@ -16,6 +16,7 @@ import markdown
 from nio import AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, MegolmEvent, RoomMessageText
 
 import agents
+import capabilities
 import github
 import lifecycle
 import room_context
@@ -181,6 +182,11 @@ class Bridge:
             log.warning("no room context for %s: %s", room.room_id, e)
             snap = {"status": "", "conversation": ""}
         has_files = await room_context.refresh_project(f"{self.owner}-agent", workdir / "project")
+        try:
+            web = "web" in await asyncio.to_thread(capabilities.granted, self.client.access_token,
+                                                   room.room_id, self.user_id)
+        except OSError:
+            web = False                       # can't read the grants: no extra tools
         prompt = (f"You are {self.owner}'s personal AI agent ({self.user_id}) in the Matrix chat room "
                   f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n\n"
                   + room_context.describe(snap)
@@ -189,7 +195,7 @@ class Bridge:
                   + f"\nMessage addressed to you:\n{line}\n")
         typing = asyncio.create_task(self.keep_typing(room.room_id))
         try:
-            reply = await agents.run_turn(self.backend, self.workdir(room.room_id), prompt)
+            reply = await agents.run_turn(self.backend, workdir, prompt, web=web)
         except agents.AgentError as e:
             log.error("agent failed in %s: %s", room.room_id, e)
             reply = f"⚠️ {self.owner}'s agent ({self.backend}) failed: {room_safe(e)}"

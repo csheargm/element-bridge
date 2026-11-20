@@ -36,6 +36,7 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm where are we?**: what's happening now\n"
         "- **@pm let's build it**: your agent turns this discussion into issues; ✅ to open them\n"
         "- **@pm show the plan**: the plan waiting for ✅\n"
+        "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
         f"I work on `{github.REPO}`; the pinned **Project status** shows progress live.")
 
 
@@ -137,6 +138,8 @@ class Chat:
             await self.say(rid, await self.change_level(rid, "autonomous") or
                            "Running on my own now: agents build, review and merge without asking. "
                            "Say \"stop\" anytime.")
+        elif intent in (intents.GRANT_WEB, intents.REVOKE_WEB):   # the sender's own agent, this room only
+            await self.set_grant(room, sender, "web", intent == intents.GRANT_WEB)
         elif intent in FOLLOW_SETTINGS:      # the sender's own setting only (pm_follow.py)
             await self.set_follow(room, sender, FOLLOW_SETTINGS[intent])
         elif intent == intents.SHOW_PLAN:

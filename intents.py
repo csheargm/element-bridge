@@ -8,10 +8,14 @@ import re
 OFF, ASSIST, AUTONOMOUS, STATUS, SHOW_PLAN, PLAN, ABOUT, HELP, UNKNOWN = (
     "off", "assist", "autonomous", "status", "show_plan", "plan", "about", "help", "unknown")
 FOLLOW_NEVER, FOLLOW_ASK, FOLLOW_ALWAYS = "follow_never", "follow_ask", "follow_always"
+GRANT_WEB, REVOKE_WEB = "grant_web", "revoke_web"
 
 _RULES = [   # checked in order; the first match wins, so the safest meanings come first
     # The follow-me settings mention "my agent" explicitly, so they can go before "stop" without
     # ever swallowing a real stop ("stop bringing my agent" is a setting, not a halt).
+    (REVOKE_WEB, r"\b(stop letting|don'?t let|do not let|no longer let|disallow|revoke|take away)\b.*\bmy agent\b.*"
+                 r"\b(web|internet|search\w*|brows\w*|online)\b"),
+    (GRANT_WEB, r"\b(let|allow|permit|enable)\b.*\bmy agent\b.*\b(web|internet|search\w*|brows\w*|online)\b"),
     (FOLLOW_NEVER, r"\b(don'?t|do not|never|stop|no longer) (bring|invit|add)\w* my agent\b"),
     (FOLLOW_ASK, r"\bask (me )?(first |before )?(\w+ )?(bring|invit|add)\w* my agent\b|\bask me (first|before)\b.*\bmy agent\b"),
     (FOLLOW_ALWAYS, r"\b(always |please )?(bring|invite|add) my agent\b"),

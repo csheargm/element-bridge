@@ -71,6 +71,7 @@ class Board(unittest.TestCase):
         self.addCleanup(_bound.stop)
         self.b = Boards()
         self.b.client, self.b.state, self.b.open_issues = FakeClient(), {}, {}
+        self.b.grants_cache = {}
         self.b.board_file = Path(tempfile.mkdtemp()) / "boards.json"
         self.b.boards = self.b.load_boards()
 

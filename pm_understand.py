@@ -19,7 +19,8 @@ log = logging.getLogger("loop")
 BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": intents.AUTONOMOUS,
                  "plan": intents.PLAN, "show_plan": intents.SHOW_PLAN, "status": intents.STATUS,
                  "follow_always": intents.FOLLOW_ALWAYS, "follow_ask": intents.FOLLOW_ASK,
-                 "follow_never": intents.FOLLOW_NEVER}
+                 "follow_never": intents.FOLLOW_NEVER, "grant_web": intents.GRANT_WEB,
+                 "revoke_web": intents.REVOKE_WEB}
 
 
 class Understanding:
@@ -86,10 +87,10 @@ class Understanding:
         if action in ("assist", "autonomous") and intents.classify(text) != BRAIN_ACTIONS[action]:
             await self.ask_mode(room, sender, action)
             return
-        if action.startswith("follow_") and intents.classify(text) != BRAIN_ACTIONS[action]:
-            await self.say(rid, "To change whether I bring your agent along, say \"don't bring my agent\", "
-                                "\"ask me first\" or \"always bring my agent\".")
-            return                            # a setting changes only on the person's own clear words
+        if action.startswith(("follow_", "grant_")) and intents.classify(text) != BRAIN_ACTIONS[action]:
+            await self.say(rid, "Say it in so many words and I'll change it: e.g. \"let my agent search the web here\", "
+                                "\"don't bring my agent\", \"ask me first\".")
+            return                            # a setting or grant changes only on the person's own clear words
         waiting = self.pending.get(rid, {})
         if action == "approve" and waiting and not (intents.is_yes(text) or reply_to == waiting.get("event_id")):
             await self.say(rid, "To approve it, react ✅ to the message above (or reply \"ok\" to it).")

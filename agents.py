@@ -38,9 +38,9 @@ CODEX_FEATURES_OFF = ("apps", "plugins", "computer_use", "browser_use", "in_app_
 BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def _codex_lockdown() -> list[str]:
+def _codex_lockdown(web: bool = False) -> list[str]:
     args = [x for f in CODEX_FEATURES_OFF for x in ("-c", f"features.{f}=false")]
-    args += ["-c", 'web_search="disabled"']
+    args += ["-c", 'web_search="live"' if web else 'web_search="disabled"']   # web only where the owner granted it
     cfg = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
     try:
         servers = tomllib.loads(cfg.read_text()).get("mcp_servers", {}) if cfg.exists() else {}
@@ -53,10 +53,10 @@ def _codex_lockdown() -> list[str]:
     return args
 
 
-def _codex_argv(workdir: Path, session_id: str | None, write: bool = False) -> list[str]:
+def _codex_argv(workdir: Path, session_id: str | None, write: bool = False, web: bool = False) -> list[str]:
     sandbox = "workspace-write" if write else "read-only"
     common = ["--json", "--skip-git-repo-check", "-c", f'sandbox_mode="{sandbox}"',
-              "-c", 'approval_policy="never"', *_codex_lockdown()]
+              "-c", 'approval_policy="never"', *_codex_lockdown(web)]
     if session_id:
         return ["codex", "exec", "resume", *common, session_id, "-"]
     return ["codex", "exec", *common, "-C", str(workdir), "-"]
@@ -77,11 +77,13 @@ def _parse_codex(stdout: str) -> AgentResult:
     return AgentResult("\n\n".join(m for m in messages if m.strip()), session_id)
 
 
-def _claude_argv(workdir: Path, session_id: str | None, write: bool = False) -> list[str]:
+def _claude_argv(workdir: Path, session_id: str | None, write: bool = False, web: bool = False) -> list[str]:
     # "default" permission mode in -p: tools that need approval are denied, not prompted.
     # --tools limits built-ins to read-only ones even if user settings pre-approve Bash/Edit;
     # --strict-mcp-config (with no --mcp-config) loads no MCP servers.
     tools, mode = ("Read,Grep,Glob,Edit,Write", "acceptEdits") if write else ("Read,Grep,Glob", "default")
+    if web:                                   # granted by the owner for this room (capabilities.py)
+        tools += ",WebSearch,WebFetch"
     # --setting-sources user: never load .claude/ settings or hooks from the (untrusted) project.
     argv = ["claude", "-p", "--output-format", "json", "--permission-mode", mode,
             "--tools", tools, "--strict-mcp-config", "--setting-sources", "user"]
@@ -108,7 +110,7 @@ def agent_env(workdir: Path) -> dict:
 
 
 async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False,
-                   fresh: bool = False) -> str:
+                   fresh: bool = False, web: bool = False) -> str:
     """Run one turn in workdir, resuming that room's saved session unless fresh=True."""
     argv_fn, parse_fn = BACKENDS[backend]
     workdir.mkdir(parents=True, exist_ok=True)
@@ -119,7 +121,7 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
         session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
 
     proc = await asyncio.create_subprocess_exec(
-        *argv_fn(workdir, session_id, write), cwd=workdir, env=agent_env(workdir),
+        *argv_fn(workdir, session_id, write, web), cwd=workdir, env=agent_env(workdir),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await lifecycle.communicate(proc, prompt.encode(), TURN_TIMEOUT_S)

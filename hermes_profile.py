@@ -29,7 +29,11 @@ ROOM_RULES = ("\n\nIn Hagency rooms: before answering any question about the pro
               "if the issue looks familiar from earlier in the conversation: each task is new work and the tools, "
               "not your memory, say what to do. Then do exactly what each answer's `next` field says. Edit repo "
               "files only with the hagency read_file/write_files tools. Other people read the room: never post "
-              "file paths, folder names, tool calls or raw JSON there; reply with one short line about the outcome.\n")
+              "file paths, folder names, tool calls or raw JSON there; reply with one short line about the outcome. "
+              "Your owner may allow web research per room: then use the hagency web_search and fetch_page tools. "
+              "Before doing anything outside the project that isn't a read (posting elsewhere, writing a shared "
+              "document, contacting anyone), call the hagency tool ask_owner and go ahead only if it returns "
+              "approved.\n")
 
 
 def profile_dir(name: str) -> Path:

@@ -17,6 +17,7 @@ from pathlib import Path
 import markdown
 from nio import RoomGetStateEventResponse, RoomSendResponse
 
+import capabilities
 import github
 import panel
 import room_state
@@ -94,6 +95,8 @@ class Boards:
         for room_id in list(self.client.rooms):
             if not await room_state.bound(self.client, room_id):
                 continue                      # not a project room for this repo (yet)
+            grants = await room_state.read(self.client, room_id, capabilities.GRANTS_EVENT)
+            self.grants_cache[room_id] = grants.get("grants", {}) if grants.get("repo") == github.REPO else {}
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id}
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now)
             board = self.boards.get(room_id, {})

@@ -10,6 +10,7 @@ import time
 
 from nio import InviteMemberEvent, MatrixRoom, RoomGetStateEventResponse, RoomInviteResponse, RoomMemberEvent
 
+import capabilities
 import ownership
 import registry
 import room_state
@@ -96,3 +97,22 @@ class Follow:
             return
         registry.set_follow(local, value)
         await self.say(room.room_id, f"OK {local}: {FOLLOW_WORDS[value]}.")
+
+    async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool) -> None:
+        """The owner lets their OWN agent use a capability in THIS room (or stops it)."""
+        local, _, server = sender.lstrip("@").partition(":")
+        if server != SERVER_NAME or not registry.owner_of(registry.agent_of(local)):
+            await self.say(room.room_id, "Only people with an agent registered on this server can do that.")
+            return
+        agent = ownership.agent_id(sender)
+        current = await room_state.read(self.client, room.room_id, capabilities.GRANTS_EVENT)
+        resp = await self.client.room_put_state(room.room_id, capabilities.GRANTS_EVENT,
+                                                capabilities.with_grant(current, agent, cap, sender, on))
+        if not hasattr(resp, "event_id"):
+            await self.say(room.room_id, f"⚠️ I couldn't save that: {resp}")
+            return
+        what = capabilities.CAPS[cap]
+        await self.say(room.room_id, f"OK {local}: your agent may now {what} in this room. Say \"stop letting my "
+                                     "agent use the web\" to undo." if on else
+                                     f"OK {local}: your agent may no longer {what} in this room.")
+

@@ -62,13 +62,16 @@ def render(loop, room_id: str) -> str:
         items = "".join(f"<li><b>{html.escape(i['title'])}</b></li>" for i in plan)
         parts.append(f"<h2>Current plan</h2><ol>{items}</ol>")
     agents = []
+    grants = loop.grants_cache.get(room_id, {}) if hasattr(loop, "grants_cache") else {}
     for user in sorted(room.users):
         owner = ownership.owner_id(user)
         if owner:
             here = "" if ownership.joined(room, owner) else " <span class=muted>(owner not here: idle)</span>"
             follow = registry.follow(owner.split(":")[0].lstrip("@"))
+            caps = ", ".join(sorted(grants.get(user, {}))) or "project only"
             agents.append(f"<li>{html.escape(user.split(':')[0][1:])} — "
-                          f"{html.escape(owner.split(':')[0][1:])}'s agent, follows: {follow}{here}</li>")
+                          f"{html.escape(owner.split(':')[0][1:])}'s agent, follows: {follow}, "
+                          f"may use: {html.escape(caps)}{here}</li>")
     parts.append("<h2>Agents</h2><ul>" + ("".join(agents) or "<li class=muted>none</li>") + "</ul>")
     parts.append(f"<p class=muted>Repo: {html.escape(github.REPO)} · change anything by telling @pm in the chat</p>")
     return "".join(parts)

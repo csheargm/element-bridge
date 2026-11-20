@@ -24,14 +24,15 @@ class Render(unittest.TestCase):
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}),
                                     boards={"!r": {"text": "📋 **Project status** — loop: **assist**"}},
                                     pending={"!r": {"kind": "plan", "by": f"@anna:{S}", "until": time.time() + 60}},
-                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}})
+                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}},
+                                    grants_cache={"!r": {f"@anna-agent:{S}": {"web": {"by": f"@anna:{S}"}}}})
 
     def test_shows_status_waiting_plan_and_whose_agent_is_whose(self):
         page = panel.render(self.loop, "!r")
         self.assertIn("<strong>Project status</strong>", page)
         self.assertIn("a plan — anna reacts ✅", page)
-        self.assertIn("anna-agent — anna's agent, follows: always", page)
-        self.assertIn("betty-agent — betty's agent, follows: ask <span class=muted>(owner not here: idle)", page)
+        self.assertIn("anna-agent — anna's agent, follows: always, may use: web", page)
+        self.assertIn("betty-agent — betty's agent, follows: ask, may use: project only <span class=muted>(owner not here: idle)", page)
 
     def test_everything_people_wrote_is_escaped(self):
         self.assertNotIn("<script>", panel.render(self.loop, "!r"))

@@ -111,6 +111,11 @@ async def safely(task_id: str, kind: str, step) -> dict:
         return {"failed": line, "next": "Tell the room in one line that this step failed. Stop."}
 
 
+def owner_id() -> str | None:
+    owner = registry.owner_of(AGENT)
+    return f"@{owner}:{SERVER_NAME}" if owner else None
+
+
 def owner_in(room: str) -> bool:
     owner = registry.owner_of(AGENT)
     if not owner or not room:

@@ -70,6 +70,7 @@ class Loop(Progress, Boards, Chat, Planner, Understanding, Follow):
         self.pending: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-pending.json"))
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
         self.generation: dict = {}                  # room → bumped by "stop" (pm_chat.py)
+        self.grants_cache: dict = {}                # room → agent grants, for the side panel
         self.last_plans: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-plans.json"))
 
     def save(self) -> None:
