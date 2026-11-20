@@ -80,7 +80,10 @@ async def listen(client, event) -> str:
 async def replied_to_sender(client, room_id: str, event) -> str | None:
     """Who sent the message this one replies to (asked of the server, never taken from the event)."""
     rel = event.source.get("content", {}).get("m.relates_to")
-    target = (rel.get("m.in_reply_to") or {}).get("event_id") if isinstance(rel, dict) else None
+    if not isinstance(rel, dict) or rel.get("is_falling_back"):
+        return None                       # a thread's fallback "reply" isn't a reply to anyone in particular
+    reply = rel.get("m.in_reply_to")
+    target = reply.get("event_id") if isinstance(reply, dict) else None
     if not isinstance(target, str):
         return None
     resp = await client.room_get_event(room_id, target)

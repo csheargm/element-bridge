@@ -19,7 +19,14 @@ class PlainAnswer(unittest.TestCase):
         self.b = bridge.Bridge.__new__(bridge.Bridge)
         self.b.last_message = {}
         self.b.client = SimpleNamespace(room_send=mock.AsyncMock(return_value=SimpleNamespace(event_id="$a")))
-        self.question = SimpleNamespace(event_id="$q", sender="@anna:x")
+        self.question = SimpleNamespace(event_id="$q", sender="@anna:x", source={"content": {}})
+
+    def test_a_question_in_a_thread_is_answered_in_that_thread(self):
+        """GPT review 15: an answer to a thread question landed in the main timeline."""
+        self.question.source = {"content": {"m.relates_to": {"rel_type": "m.thread", "event_id": "$root"}}}
+        asyncio.run(self.b.send("!r", "The news…", reply_to=self.question))
+        self.assertEqual((self.sent()["m.relates_to"]["rel_type"], self.sent()["m.relates_to"]["event_id"]),
+                         ("m.thread", "$root"))
 
     def sent(self):
         return self.b.client.room_send.call_args.args[2]

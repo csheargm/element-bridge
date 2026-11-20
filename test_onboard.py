@@ -61,6 +61,7 @@ class HermesProfile(unittest.TestCase):
         self.assertIn("matrix: [todo, memory, skills]", cfg)
         self.assertIn('tool_progress: "off"', cfg)
         self.assertIn('memory_notifications: "off"', cfg)
+        self.assertIn("gateway_restart_notification: false", cfg)   # seen live: "Gateway shutting down" ×5 per update
         self.assertIn("provider: ollama-cloud", cfg)
 
     def test_a_model_chosen_for_the_profile_is_kept(self):

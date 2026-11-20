@@ -121,6 +121,7 @@ display:                              # a shared room sees final replies only: n
   memory_notifications: "off"         # Hermes still learns; it just doesn't announce it in the room
 matrix:
   require_mention: true
+  gateway_restart_notification: false # restarts (e.g. after a code update) aren't announced in every room
 onboarding:                           # no "shall I build your profile?" offers in a shared room
   profile_build: "off"
 mcp_servers:

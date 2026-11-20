@@ -101,12 +101,13 @@ def main():
 
 
 def check_owner_only(betty, room_id, anna_agent):
-    """By default anna's agent (anna's file access) ignores betty, and says nothing."""
+    """By default anna's agent (anna's file access) won't work for betty, and says so once."""
     ev = send(betty, room_id, "anna-agent: what is 2+2?", anna_agent)
     time.sleep(15)  # a Codex turn takes ~5 s; give it 3x before concluding it stayed quiet
     msgs = api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=10", betty)["chunk"]
-    replied = answers_after(msgs, ev, anna_agent)
-    check("anna-agent ignores betty by default (owner-only)", not replied)
+    replied = [m["content"]["body"] for m in answers_after(msgs, ev, anna_agent)]
+    check("anna-agent declines betty by default (owner-only), saying why",
+          replied == ["I only take requests from Anna."], repr(replied))
 
 
 def check_encrypted_room_warning(token, agent):

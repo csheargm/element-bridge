@@ -23,9 +23,35 @@ NOT_OWNER = "sender is not the agent's owner"
 
 
 class BridgeVoice:
+    def is_addressed(self, room: MatrixRoom, event) -> bool:
+        """A typed message for me: a DM, an @mention, or my name typed (not inside a quote or an edit)."""
+        content = event.source.get("content", {})
+        rel = content.get("m.relates_to")
+        if isinstance(rel, dict) and rel.get("rel_type") == "m.replace":
+            return False                      # an edit isn't a new question
+        if room.joined_count == 2 and room.invited_count == 0:   # DM with the agent
+            return True
+        mentions = content.get("m.mentions")
+        user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
+        if isinstance(user_ids, list) and self.user_id in user_ids:
+            return True
+        own = "\n".join(line for line in event.body.splitlines() if not line.startswith(">"))   # not the quoted part
+        return re.search(rf"(?<![\w-])@?{re.escape(self.owner)}-agent\b", own, re.I) is not None
+
     def named_me(self, text: str) -> bool:
+        """A spoken request starts with my name: "Betty's agent, …" (not a mention of me mid-sentence)."""
         owner = re.escape(self.owner)
-        return re.search(rf"\b{owner}(?:'s|s)?[\s-]*agent\b", text, re.I) is not None
+        return re.match(rf"^\W*((hey|hi|hello|ok(ay)?)\W+)?{owner}(?:'s|s)?[\s-]*agent\b", text, re.I) is not None
+
+    def reply_relation(self, room_id: str, question) -> dict:
+        """Answer in the question's thread if it was in one; quote it only if others spoke in between."""
+        rel = question.source.get("content", {}).get("m.relates_to")
+        if isinstance(rel, dict) and rel.get("rel_type") == "m.thread" and isinstance(rel.get("event_id"), str):
+            return {"m.relates_to": {"rel_type": "m.thread", "event_id": rel["event_id"], "is_falling_back": True,
+                                     "m.in_reply_to": {"event_id": question.event_id}}}
+        if self.last_message.get(room_id) != question.event_id:
+            return {"m.relates_to": {"m.in_reply_to": {"event_id": question.event_id}}}
+        return {}
 
     async def on_voice(self, room: MatrixRoom, event: RoomMessageAudio) -> None:
         from bridge import is_stale           # here: bridge.py imports this module
@@ -44,12 +70,15 @@ class BridgeVoice:
     async def hear(self, room: MatrixRoom, event: RoomMessageAudio) -> None:
         sure = (room.joined_count == 2 and room.invited_count == 0) or (
             await voice.replied_to_sender(self.client, room.room_id, event) == self.user_id)
+        if not self.owner_here(room) or (event.sender != self.owner_id and not self.allow_members and not sure):
+            return                            # nothing I'd act on: never spend this computer transcribing it
         try:
             text = await voice.listen(self.client, event)
         except (voice.VoiceError, OSError, RuntimeError, ValueError) as e:
             log.warning("voice message %s: %s", event.event_id, e)
-            if sure:                          # clearly for me: say so; otherwise it may not be my business
-                await self.send(room.room_id, f"🎙 I couldn't hear that ({e}). Please type it.", reply_to=event)
+            if sure:                          # clearly for me: say so (our own words, never a raw error)
+                why = str(e) if isinstance(e, voice.VoiceError) else "something went wrong"
+                await self.send(room.room_id, f"🎙 I couldn't hear that ({why}). Please type it.", reply_to=event)
             return
         if not text or not (sure or self.named_me(text)):
             return
@@ -68,9 +97,12 @@ class BridgeVoice:
         log.info("ignored message in %s: %s", room.room_id, reason)
         if not reason.startswith(NOT_OWNER):
             return                            # other reasons (loop guard, owner absent) stay quiet on purpose
-        key = (room.room_id, event.sender)
-        if time.time() - self.refused.get(key, 0) < REFUSAL_EVERY_S:
+        key, now = (room.room_id, event.sender), time.time()
+        if now - self.refused.get(key, 0) < REFUSAL_EVERY_S:
             return
-        self.refused[key] = time.time()
-        owner = room.user_name(self.owner_id) or self.owner.capitalize()
-        await self.send(room.room_id, f"I only take requests from {owner}: I work with {owner}'s files.", reply_to=event)
+        self.refused = {k: t for k, t in self.refused.items() if now - t < REFUSAL_EVERY_S}   # stays small
+        self.refused[key] = now
+        try:
+            await self.send(room.room_id, f"I only take requests from {self.owner.capitalize()}.", reply_to=event)
+        except RuntimeError as e:             # a note that can't be posted must never stop the sync loop
+            log.warning("couldn't post the owner-only note in %s: %s", room.room_id, e)

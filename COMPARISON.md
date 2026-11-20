@@ -308,3 +308,26 @@ Adopted:
 Deferred: idempotency of a voice job across a crash mid-transcription (it is then lost, not
 repeated). A confirmed question is marked "approved" before its change runs, so a failed write
 leaves it used up: ask again.
+
+## GPT review 15: plain answers, voice per listener, owner-only note (2f5bcb4..7113832)
+
+GPT found no owner-check bypass: typed and spoken requests both reach `should_ignore` with the
+real Matrix sender. Adopted:
+- **Transcribing before checking.** A bridge now transcribes a voice message only if it could
+  act on it: from its owner, or a reply to it or a DM. Other people's clips are never
+  transcribed on the owner's computer.
+- **Names count only at the start.** "PM, tell Betty's agent to stop" goes to @pm only.
+  "PM-related" isn't "PM,", and a typed `betty-agent` needs a left boundary and is ignored
+  inside the quoted part of a reply. Edits are never new questions.
+- **Thread fallbacks** don't count as replies, and malformed reply data no longer crashes the job.
+- **Thread questions are answered in their thread.**
+- **The refusal note** is "I only take requests from Betty." (no file-access detail, no display
+  name). A failed send can't stop the sync loop, and the rate-limit table stays small. Voice
+  errors show only our own wording.
+- **test_e2e** expects the refusal note instead of silence.
+
+Deferred: web notices and grants still infer the room and question from the owner's recent
+@mention (mcp_context.owners_room). Binding them to the event that started the turn needs
+Hermes to tell the MCP server which message it is answering. Room history still enters the
+model prompt as context; that is a prompt-injection risk the prompt only labels. Event
+de-duplication lasts one sync batch.

@@ -65,15 +65,7 @@ class Bridge(BridgeVoice):
         self.refused: dict[tuple, float] = {}   # (room, person) → when I last said "only my owner"
 
     # --- trigger rules -------------------------------------------------------------
-    def is_addressed(self, room: MatrixRoom, event: RoomMessageText) -> bool:
-        if room.joined_count == 2 and room.invited_count == 0:   # DM with the agent
-            return True
-        mentions = event.source.get("content", {}).get("m.mentions")
-        user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
-        if isinstance(user_ids, list) and self.user_id in user_ids:
-            return True
-        localpart = re.escape(f"{self.owner}-agent")
-        return re.search(rf"@?{localpart}\b", event.body, re.I) is not None
+    # is_addressed / named_me / refuse: bridge_voice.py
 
     def should_ignore(self, room: MatrixRoom, event: RoomMessageText) -> str | None:
         if event.sender == self.user_id:
@@ -235,10 +227,8 @@ class Bridge(BridgeVoice):
         html = markdown.markdown(source or body, extensions=["fenced_code", "tables"])
         content = {"msgtype": "m.text", "body": body,
                    "format": "org.matrix.custom.html", "formatted_body": html}
-        if reply_to is not None:              # a quote only when other messages came in between
-            if self.last_message.get(room_id) != reply_to.event_id:
-                content["m.relates_to"] = {"m.in_reply_to": {"event_id": reply_to.event_id}}
-            content["m.mentions"] = {"user_ids": [reply_to.sender]}
+        if reply_to is not None:              # bridge_voice.py: same thread; a quote only if others spoke
+            content.update(self.reply_relation(room_id, reply_to), **{"m.mentions": {"user_ids": [reply_to.sender]}})
         content.update(extra or {})
         resp = await self.client.room_send(room_id, "m.room.message", content)
         if not hasattr(resp, "event_id"):

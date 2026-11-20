@@ -94,10 +94,10 @@ class AgentHears(unittest.TestCase):
         self.room = SimpleNamespace(room_id="!r", users={PM: 0, ANNA: 0, BETTY: 0, BETTY_AGENT: 0}, invited_users={},
                                     joined_count=4, invited_count=0, user_name=lambda u: u.split(":")[0][1:].capitalize())
 
-    def hear(self, words, sender):
+    def hear(self, words, sender, reply_to=None):
         async def go():
             with mock.patch.object(voice, "listen", mock.AsyncMock(return_value=words)):
-                await self.b.hear(self.room, audio(sender=sender))
+                await self.b.hear(self.room, audio(words_reply_to=reply_to, sender=sender))
                 await asyncio.gather(*self.b.tasks)
         asyncio.run(go())
 
@@ -108,12 +108,23 @@ class AgentHears(unittest.TestCase):
         self.hear("Betty's agent, what is the time now?", BETTY)
         self.assertEqual(self.answered, ["Betty (@betty:x) said by voice: Betty's agent, what is the time now?"])
 
-    def test_someone_else_is_told_why_not_once(self):
+    def test_someone_else_replying_by_voice_is_told_why_not_once(self):
         """Seen live: anna asked Betty's agent and nothing happened at all."""
-        self.hear("Betty's agent, what is the time now?", ANNA)
-        self.hear("Betty's agent, are you there?", ANNA)
+        self.b.client.room_get_event = mock.AsyncMock(return_value=SimpleNamespace(event=SimpleNamespace(sender=BETTY_AGENT)))
+        self.hear("What is the time now?", ANNA, reply_to="$agent-msg")
+        self.hear("Are you there?", ANNA, reply_to="$agent-msg")
         self.assertEqual(self.answered, [])
-        self.assertEqual(self.sent(), ["I only take requests from Betty: I work with Betty's files."])
+        self.assertEqual(self.sent(), ["I only take requests from Betty."])
+
+    def test_someone_elses_voice_not_for_me_is_never_transcribed(self):
+        """GPT review 15: a non-owner's clips used this computer's transcription before any check."""
+        with mock.patch.object(voice, "listen", mock.AsyncMock()) as listen:
+            asyncio.run(self.b.hear(self.room, audio(sender=ANNA)))
+        listen.assert_not_called()
+
+    def test_named_only_at_the_start(self):
+        self.assertTrue(self.b.named_me("Hey Betty's agent, what time is it?"))
+        self.assertFalse(self.b.named_me("PM, tell Betty's agent to stop"))
 
     def test_not_named_means_not_for_me(self):
         self.hear("PM, who are you?", BETTY)
