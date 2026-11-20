@@ -141,10 +141,13 @@ async function refresh() {
     <section class="card"><h2>Project repo</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
     value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
     ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
-  if (s.agent) h += `<section class="card"><h2>My agent · ${esc(s.agent)}</h2>
+  if (s.agent) h += `<div class="grid"><section class="card"><h2>My agent · ${esc(s.agent)}</h2>
+    <div class="hint">The same in every room.</div>
     <div class="set"><div>Comes along when I join a project room</div>${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
-    <div class="set"><div>Web research in this room<div class="hint">Each search is listed under your question.</div></div>${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}</div>
-    <div class="set"><div>Code it runs<div class="hint">${s.version ? `Your own version (${esc(s.version)}), made in your private room.` : "The official version."}</div></div>${s.version ? '<button data-a="goback">Go back to official</button>' : ""}</div></section>`;
+    <div class="set"><div>Code it runs<div class="hint">${s.version ? `Your own version (${esc(s.version)}), made in your private room.` : "The official version."}</div></div>${s.version ? '<button data-a="goback">Go back to official</button>' : ""}</div></section>
+    <section class="card"><h2>My agent in this room</h2>
+    <div class="hint">Only here; each room has its own.</div>
+    <div class="set"><div>Web research<div class="hint">Each search is listed under your question.</div></div>${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}</div></section></div>`;
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }
 start(); setInterval(refresh, %d);

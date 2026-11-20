@@ -33,7 +33,11 @@ ROOM_RULES = ("\n\nIn Hagency rooms: before answering any question about the pro
               "Your owner may allow web research per room: then use the hagency web_search and fetch_page tools. "
               "Before doing anything outside the project that isn't a read (posting elsewhere, writing a shared "
               "document, contacting anyone), call the hagency tool ask_owner and go ahead only if it returns "
-              "approved.\n")
+              "approved. "
+              "When your owner asks you to change your own code (how you or Hagency behave), call the hagency "
+              "tool start_code_change and follow its `next` fields; the change goes to their private copy and they "
+              "choose with buttons in your private room. If they ask to go back to the official version, call "
+              "go_back_to_official.\n")
 
 
 def profile_dir(name: str) -> Path:
@@ -58,8 +62,10 @@ def default_model() -> tuple[dict, str | None]:
 def repo_env() -> dict:
     """The repos this run works on, for the agent's MCP server (only checked owner/name values reach
     the YAML)."""
-    return {"LOOP_REPO": github.REPO,
-            "HAGENCY_REPOS": " ".join(r for r in sorted(github.ALLOWED_REPOS) if github.REPO_RE.match(r))}
+    shared_ok = {"HAGENCY_CUSTOM_SHARED_OK": "1"} if os.environ.get("HAGENCY_CUSTOM_SHARED_OK") == "1" else {}
+    return {"LOOP_REPO": github.REPO,           # (and the operator's "Use it myself" opt-in, customize.py)
+            "HAGENCY_REPOS": " ".join(r for r in sorted(github.ALLOWED_REPOS) if github.REPO_RE.match(r)),
+            **shared_ok}
 
 
 def set_repos(name: str) -> None:
@@ -72,6 +78,19 @@ def set_repos(name: str) -> None:
             text = re.sub(rf"^      {key}: .*$", f"      {key}: '{value}'", text, flags=re.M)
         else:
             text = re.sub(r"^(      HAGENCY_AGENT: .*)$", rf"\1\n      {key}: '{value}'", text, count=1, flags=re.M)
+    cfg.write_text(text)
+    soul = profile_dir(name) / "SOUL.md"             # the room rules too: new tools need their rule
+    if soul.exists():
+        soul.write_text(soul.read_text().split("\n\nIn Hagency rooms:")[0] + ROOM_RULES)
+
+
+def set_code_dir(name: str, code: Path) -> None:
+    """Run the profile's hagency MCP server from `code`: the official folder, or its owner's own
+    version (customize.py). HAGENCY_HOME keeps it finding the official folder's state either way."""
+    cfg = profile_dir(name) / "config.yaml"
+    text = re.sub(r"^    args: \[.*hagency_mcp\.py\]$", f"    args: [{code / 'hagency_mcp.py'}]", cfg.read_text(), flags=re.M)
+    if not re.search(r"^      HAGENCY_HOME: .*$", text, re.M):
+        text = re.sub(r"^(      HAGENCY_AGENT: .*)$", rf"\1\n      HAGENCY_HOME: '{ROOT}'", text, count=1, flags=re.M)
     cfg.write_text(text)
 
 

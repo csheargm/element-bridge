@@ -87,17 +87,9 @@ class BridgeCustom:
             await self.offer(rid, sha, text, summary, files)
 
     async def offer(self, rid: str, sha: str, request: str, summary: str, files: list[str]) -> None:
-        shown = ", ".join(f"`{f}`" for f in files[:customize.MAX_DIFF_FILES]) + (" …" if len(files) > customize.MAX_DIFF_FILES else "")
-        risky, no_use = customize.sensitive(files), customize.why_not_use(self.owner)
-        keys = (SEND, DROP) if no_use else (USE, SEND, DROP)
-        body = (f"✏️ **Your version is ready** ({sha[:7]})\n\n{summary}\n\nFiles changed since the official version: {shown}\n\n"
-                + (f"⚠️ **This touches the safety checks** ({', '.join(risky)}): the code that decides who I obey "
-                   "and what I may do.\n\n" if risky else "")
-                + ("" if no_use else f"{USE} **Use it myself**: I test it, then run it, with my access to this computer. ")
-                + f"{SEND} **Send as pull request** “{request.splitlines()[0][:100]}” to the official project. {DROP} **Discard**."
-                + (f"\n\n(Using it here isn't possible: {no_use}.)" if no_use else ""))
+        body, keys, record = offer_message(self.owner, rid, sha, request, summary, files)
         event_id = await self.send(rid, body)
-        self.offers()[event_id] = {"room": rid, "sha": sha, "request": request, "summary": summary, "risky": risky}
+        self.offers()[event_id] = record
         for key in keys:
             await self.react(rid, event_id, key)
 
@@ -173,6 +165,20 @@ class BridgeCustom:
         changed = customize.go_back(self.owner)
         await self.send(rid, "↩️ Going back to the official version: I'll be back in a moment." if changed
                         else "I'm already running the official version.")
+
+
+def offer_message(owner: str, rid: str, sha: str, request: str, summary: str, files: list[str]):
+    """The offer's text, its buttons, and what to remember about it (also used for Hermes: mcp_custom.py)."""
+    shown = ", ".join(f"`{f}`" for f in files[:customize.MAX_DIFF_FILES]) + (" …" if len(files) > customize.MAX_DIFF_FILES else "")
+    risky, no_use = customize.sensitive(files), customize.why_not_use(owner)
+    body = (f"✏️ **Your version is ready** ({sha[:7]})\n\n{summary}\n\nFiles changed since the official version: {shown}\n\n"
+            + (f"⚠️ **This touches the safety checks** ({', '.join(risky)}): the code that decides who I obey "
+               "and what I may do.\n\n" if risky else "")
+            + ("" if no_use else f"{USE} **Use it myself**: I test it, then run it, with my access to this computer. ")
+            + f"{SEND} **Send as pull request** “{request.splitlines()[0][:100]}” to the official project. {DROP} **Discard**."
+            + (f"\n\n(Using it here isn't possible: {no_use}.)" if no_use else ""))
+    record = {"room": rid, "sha": sha, "request": request, "summary": summary, "risky": risky}
+    return body, ((SEND, DROP) if no_use else (USE, SEND, DROP)), record
 
 
 def pr_body(owner: str, offer: dict) -> str:

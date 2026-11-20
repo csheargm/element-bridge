@@ -49,8 +49,8 @@ def read_env() -> dict[str, str]:
 
 
 class Bridge(BridgeVoice, BridgeCustom):
-    def __init__(self, owner: str, backend: str, allow_members: bool = False):
-        self.owner, self.backend, self.allow_members = owner, backend, allow_members
+    def __init__(self, owner: str, backend: str, allow_members: bool = False, buttons_only: bool = False):
+        self.owner, self.backend, self.allow_members, self.buttons_only = owner, backend, allow_members, buttons_only
         self.owner_id = f"@{owner}:{SERVER_NAME}"
         self.user_id = f"@{owner}-agent:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{owner.upper()}")
@@ -253,6 +253,8 @@ class Bridge(BridgeVoice, BridgeCustom):
         self.client.add_event_callback(self.on_invite, InviteMemberEvent)
 
         def register() -> None:
+            if self.buttons_only:     # a Hermes agent answers itself: this only handles code-change buttons
+                return self.client.add_event_callback(self.on_custom_reaction, ReactionEvent)
             self.client.add_event_callback(self.note_last, RoomMessage)     # first: on_message reads it
             self.client.add_event_callback(self.on_message, RoomMessageText)
             self.client.add_event_callback(self.on_voice, RoomMessageAudio)     # bridge_voice.py
@@ -279,10 +281,11 @@ def main() -> None:
     ap.add_argument("--agent", choices=sorted(agents.BACKENDS), default="codex")
     ap.add_argument("--allow-members", action="store_true",
                     help="let every joined room member drive this agent (default: owner only)")
+    ap.add_argument("--buttons-only", action="store_true", help="only the code-change buttons (Hermes agents)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{args.owner}-agent] %(message)s")
     logging.getLogger("nio").setLevel(logging.WARNING)
-    bridge = Bridge(args.owner, args.agent, args.allow_members)
+    bridge = Bridge(args.owner, args.agent, args.allow_members, args.buttons_only)
     try:
         asyncio.run(bridge.run())
     except KeyboardInterrupt:

@@ -38,9 +38,9 @@ def code_files() -> dict[Path, float]:
 
 
 class Child:
-    def __init__(self, name: str, argv: list[str], owner: str | None = None) -> None:
-        self.name, self.argv = name, argv
-        self.owner = owner               # a bridge: runs from its owner's own version when they chose one
+    def __init__(self, name: str, argv: list[str], owner: str | None = None, profile: str | None = None) -> None:
+        self.name, self.argv, self.profile = name, argv, profile   # profile: a Hermes agent's
+        self.owner = owner               # an agent: runs its owner's own version when they chose one
         self.cwd, self.launched = ROOT, None   # launched: the owner's commit it runs (None: official)
         self.proc: asyncio.subprocess.Process | None = None
         self.started = 0.0
@@ -53,6 +53,9 @@ class Child:
             return
         if self.owner:                   # re-read: "use" / "go back" change it
             self.cwd, launched = customize.code_dir(self.owner)
+            if self.profile:             # Hermes itself stays put; its hagency tools run that version
+                hermes_profile.set_code_dir(self.profile, self.cwd)
+                self.cwd = ROOT
             if launched != self.launched:
                 self.crashes = 0             # a different version starts with a clean record
             self.launched = launched
@@ -106,7 +109,9 @@ def children(agent: str, allow_members: bool) -> list[Child]:
         choice = info.get("agent", agent)
         if choice == "hermes":
             hermes_profile.set_repos(f"{person}room")    # its MCP server works on this run's repos
-            kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"]))
+            kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"],
+                              owner=person, profile=f"{person}room"))
+            kids.append(Child(f"{person}-buttons", [PY, "bridge.py", person, "--buttons-only"]))   # always official
         else:
             kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra], owner=person))
     return [*kids, Child("pm", [PY, "loop.py"])]
