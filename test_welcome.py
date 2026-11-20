@@ -99,6 +99,15 @@ class Greeting(Base):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
         self.assertEqual([r for r, _ in self.said], ["!dm", "!welcome"])    # one offer, one pointer
 
+    def test_asking_again_never_brings_the_pointer_back(self):
+        """GPT review 23 re-check: "I want an agent" re-greets, which must keep "pointed"."""
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        self.lp.addressed_text = lambda event: event.body
+        self.run_(self.lp.on_welcome_text(WELCOME_ROOM, text(NEW, "I want an agent")))
+        self.assertTrue(self.lp._welcomes[NEW]["pointed"])
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
+        self.assertEqual(len([r for r, _ in self.said if r == "!welcome" and "Invites" in _]), 1)
+
     def test_no_pointer_for_someone_who_already_clicked_a_button(self):
         self.lp._welcomes[NEW] = {"dm": "!dm", "offer": "$offer", "done": ["🏠"]}
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))

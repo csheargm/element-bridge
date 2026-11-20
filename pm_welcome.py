@@ -121,7 +121,8 @@ class Welcome:
             return None
         finally:
             greeting.discard(person)
-        self.welcomes()[person] = {"dm": dm, "offer": offer, "done": []}
+        pointed = {"pointed": True} if self.welcomes().get(person, {}).get("pointed") else {}   # said once, ever
+        self.welcomes()[person] = {"dm": dm, "offer": offer, "done": [], **pointed}
         for key in (HOUSE, BRING):
             await self.offer_thumb(dm, offer, key)
         return dm

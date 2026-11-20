@@ -496,3 +496,17 @@ Live deploy and the whole-batch review (GPT, 707dd84..HEAD):
   and failed-attempt limits stay Synapse's defaults.
 - Live: `.deployed` was never written: bootstrap's `docker compose exec` inherited the ssh session's
   stdin, which is deploy.sh's remote script, and read the rest of it. bootstrap now gets /dev/null.
+
+### GPT review 23
+
+Welcome UX (GPT, origin/master..HEAD), adopted with tests:
+- The Welcome pointer ("accept it under Invites") was marked sent before sending: a failed send or
+  a restart in between lost it for good. Now saved only once sent; retried at the person's next
+  join or @pm's next start; never for someone who already clicked a button.
+- A reused private chat kept its old "Hagency (private)" name: renamed on reuse.
+- Re-check: "I want an agent" re-greets, which dropped "pointed" and could post the line twice: kept.
+Rejected or deferred:
+- The pointer is an m.notice, which Matrix's default rules don't notify for: the newcomer is looking
+  at Welcome (their only room) when it arrives, and the pill still shows; not worth a new send path.
+- A crash after the server accepts the pointer but before "pointed" is saved can repeat it once:
+  one repeated line is better than a lost one.
