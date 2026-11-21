@@ -125,6 +125,11 @@ def welcome_and_code(me, name):
     # Only @pm's chat opens joined: the agent's stays an invite (-agent names aren't reserved at sign-up).
     agent_dm = until("the agent's chat invite", lambda: invite_from(me, f"@{name}-agent:{SERVER_NAME}"))
     api("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(agent_dm)}", me, {})
+    send(me, dm, f"make me a project room called e2e-{name}", PM)       # my chat with @pm: no "@pm" needed
+    project = until("the project room's invite", lambda: invite_from(me, PM))
+    api("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(project)}", me, {})      # Accept, as in Element
+    title = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(project)}/state/m.room.name/", me).get("name")
+    check("@pm makes a project room and invites me", title == f"e2e-{name}", title)
     members = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(welcome)}/joined_members", me)["joined"]
     print(f"note: shared-secret accounts auto-joined to #welcome: {f'@{name}-agent:{SERVER_NAME}' in members}")
     return agent_dm, found.group(2)

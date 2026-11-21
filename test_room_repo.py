@@ -93,8 +93,12 @@ class SetRepo(unittest.TestCase):
             return RoomPutStateResponse("$s", room_id)
         self.lp.say = say
         self.lp.client = SimpleNamespace(room_put_state=put_state)
+        v = mock.patch("project_rooms.visibility", mock.AsyncMock(return_value="private"))   # pm_projects.py
+        v.start()
+        self.addCleanup(v.stop)
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
-                         ("repo_of", lambda c, rid: asyncio.sleep(0, self.repo))):
+                         ("repo_of", lambda c, rid: asyncio.sleep(0, self.repo)),
+                         ("runs_in_of", lambda c, rid: asyncio.sleep(0, None))):
             q = mock.patch.object(room_state, name, fn)
             q.start()
             self.addCleanup(q.stop)
@@ -243,7 +247,8 @@ class ConsoleRepo(unittest.TestCase):
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": self.room}), set_repo=set_repo,
                                     is_person=lambda r, u: u in r.users, agents_in=lambda r: ["@anna-agent:x"])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
-                         ("repo_of", lambda c, rid: asyncio.sleep(0, HELLO))):
+                         ("repo_of", lambda c, rid: asyncio.sleep(0, HELLO)),
+                         ("runs_in_of", lambda c, rid: asyncio.sleep(0, None))):
             q = mock.patch.object(room_state, name, fn)
             q.start()
             self.addCleanup(q.stop)

@@ -19,6 +19,7 @@ import github_setup
 import registry
 import room_state
 from loop_progress import ACTIVE
+from pm_projects import RUN_ELSEWHERE, Projects
 from setup_accounts import DISPLAY_NAMES
 
 log = logging.getLogger("loop")
@@ -33,6 +34,7 @@ NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner
            "or set it in the Hagency console.")
 INSTALL_RECHECK_S = 30        # after an install link: look again this often...
 INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
+KEEP = object()               # write_level: keep the room's "runs in another room" as it is
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
@@ -58,15 +60,15 @@ def is_my_chat(room: MatrixRoom, me: str, dm_rooms: dict) -> bool:
                                                            or getattr(room, "name", None) in CHAT_NAMES)
 
 
-class Settings:
+class Settings(Projects):
     async def set_repo(self, room: MatrixRoom, sender: str, repo: str) -> str:
         """One room, one repo: the owner or a maintainer names it; never swapped under running work.
         Says the answer in the room and returns it (the console shows it too)."""
         answer = await self.choose_repo(room, sender, repo)
-        await self.say(room.room_id, answer)
+        await self.offer_conflict_buttons(room.room_id, await self.say(room.room_id, answer))   # pm_projects.py
         return answer
 
-    async def choose_repo(self, room: MatrixRoom, sender: str, name: str) -> str:
+    async def choose_repo(self, room: MatrixRoom, sender: str, name: str, separate_from: str | None = None) -> str:
         rid, repo = room.room_id, github.allowed_repo(name)
         if not await room_state.is_moderator(self.client, room, sender):
             return "Only the room owner or a maintainer can choose this room's repo."
@@ -78,9 +80,12 @@ class Settings:
         missing = await self.app_missing(room, sender, repo)
         if missing:
             return missing
+        other = await self.primary_room_for(repo, exclude=rid)   # one project room per repo (pm_projects.py)
+        if other and other != separate_from:
+            return self.conflict_answer(rid, sender, repo, other)
         self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
-            binding = asyncio.ensure_future(self.bind(rid, repo))
+            binding = asyncio.ensure_future(self.bind(rid, repo, other))
             try:
                 return await asyncio.shield(binding)
             except asyncio.CancelledError:        # an install wait cancelled mid-bind: the bind (Matrix state
@@ -131,11 +136,12 @@ class Settings:
         del self.install_watches[rid]
         watch[1].cancel()
 
-    async def bind(self, rid: str, repo: str) -> str:
+    async def bind(self, rid: str, repo: str, runs_in: str | None = None) -> str:
         if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
             return "Work is still running on the current repo; say \"stop\" and let it finish first."
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
-        failed = await self.write_level(rid, await self.level(rid) if current == repo else "off", repo)
+        keep = current == repo and runs_in is None
+        failed = await self.write_level(rid, await self.level(rid) if keep else "off", repo, runs_in)
         if failed:
             return failed
         if current != repo:                       # a plan made for the old repo is never filed in the new one
@@ -143,8 +149,12 @@ class Settings:
             self.plans.pop(rid, None)
             self.last_plans.pop(rid, None)
         self.room_repos[rid] = repo
+        if runs_in:
+            return (f"This room now discusses **{repo}**; its build loop runs in **{self.room_name(runs_in)}**."
+                    + await self.keep_private_repo_closed(rid, repo))
         return (f"This room now works on **{repo}**. Check that it is ready (the agents' write access, the merge "
-                "rule and the agent-ok label) with Check readiness under Project repo in the Hagency console.")
+                "rule and the agent-ok label) with Check readiness under Project repo in the Hagency console."
+                + await self.keep_private_repo_closed(rid, repo))
 
     async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
         """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""
@@ -182,12 +192,16 @@ class Settings:
             return None                       # stopping never binds a room to the repo (anyone may stop)
         return await self.write_level(room_id, level)
 
-    async def write_level(self, room_id: str, level: str, repo: str | None = None) -> str | None:
-        """Write the room's level (and repo): callers have checked that a moderator asked."""
+    async def write_level(self, room_id: str, level: str, repo: str | None = None, runs_in=KEEP) -> str | None:
+        """Write the room's level (and repo): callers have checked that a moderator asked. A room that only
+        discusses a repo another room runs (runs_in) never leaves "off"."""
         repo = repo or await room_state.repo_of(self.client, room_id)
         if repo is None:
             return NO_REPO
-        resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo))
+        other = await room_state.runs_in_of(self.client, room_id) if runs_in is KEEP else runs_in
+        if other and level != "off":
+            return RUN_ELSEWHERE.format(name=self.room_name(other))
+        resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo, other))
         if not hasattr(resp, "event_id"):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":    # a room someone made: I joined at power 0
                 return NEED_POWER

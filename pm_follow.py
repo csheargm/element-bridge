@@ -35,6 +35,17 @@ class Follow:
         if event.state_key != self.user_id or event.membership != "invite" or local.endswith(("-agent", "-bot")):
             return
         await self.client.join(room.room_id)
+        if event.content.get("is_direct") and await self.only_us(room.room_id, event.sender):
+            # They opened a chat with me themselves (e.g. "Get your agent" on the home page before my
+            # own chat reached them): answer with the offer and where it is, never a moderator request.
+            try:
+                if self.is_newcomer(event.sender):
+                    await self.offer_again(room, event.sender)     # pm_welcome.py
+                else:
+                    await self.say(room.room_id, "Hi! Say \"@pm help\" to see what I can do.")
+            except RuntimeError as e:         # loop.SendError: they can ask again ("I want an agent")
+                log.error("couldn't answer %s's chat: %s", event.sender, e)
+            return
         r = await self.client.room_get_state_event(room.room_id, "m.room.power_levels", "")
         users = r.content.get("users", {}) if isinstance(r, RoomGetStateEventResponse) else {}
         if users.get(self.user_id, 0) >= room_state.MODERATOR_LEVEL:

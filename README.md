@@ -51,8 +51,9 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    lets you pick the project's GitHub repo. **Find a project to join** opens the room directory.
    **③ Invite people**: Room info → Invite (people on other Matrix servers too, by their full ID).
 
-**Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
-`@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own
+**Already on matrix.org (or another Matrix server)?** No sign-up needed: join the public Lobby,
+`#lobby:matrix.hagencylabs.xyz` (the site links it: "Already on Matrix? Join the lobby"), and click 👍
+under @pm's greeting; or start a private chat with `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own
 private chat with the buttons: accept it under Invites, then steps 3 and 4 as above. Your agent
 gets an account on this server (e.g. `@alice-at-matrix-org-…-agent:matrix.hagencylabs.xyz`) and
 obeys only your full ID. For settings, say "@pm send me my console link" in a room you share with @pm.
@@ -187,6 +188,22 @@ Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain wor
 | "@pm let us approve each change" | each change waits for a person to merge | owner or maintainer |
 | "@pm stop" / "turn it all off" | no new work and no merges, at once | anyone |
 | "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |
+| "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
+| "@pm find a project" | the listed and open project rooms, with links (also Element's Explore rooms) | anyone |
+| "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |
+| "@pm make this room listed" (or private, open) | who can find and join it; also "Who can join" in the panel | owner or maintainer |
+
+**One project room per repo.** @pm's build loop runs per room, so a room that picks a repo another
+room already runs gets two buttons: 🙋 ask to join that room, or ➕ make a separate room anyway, which
+may discuss the repo but never runs its loop (its mode stays off; its panel says where the repo is
+run from).
+
+**Who can join a project room** (owners and maintainers choose; joining never gives a say in how it runs):
+- **Private** (default): unlisted; by invite, or by asking @pm with the exact repo name.
+- **Listed**: in Find a project and the server's room directory (other Matrix servers see it too).
+  Element shows "Ask to join"; @pm asks the room's owners and invites on 👍. A private repo's name is
+  never shown in a listing.
+- **Open**: listed, and anyone joins directly. Not for a room on a private GitHub repo.
 
 `@pm` understands from context. Every message addressed to it goes to an understanding step
 (`pm_brain.py`): the recent conversation, the message being replied to, what's waiting for

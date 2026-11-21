@@ -44,6 +44,7 @@ class Base(unittest.TestCase):
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy, self.lp._welcomes = PM, 0, set(), {}
         self.lp._add_offers = {}                      # pm_agents.py: never the real data folder
+        self.lp._lobby_greeted, self.lp._join_requests = {}, {}   # pm_lobby.py, pm_joining.py: the same
         self.said, self.buttons = [], []
 
         async def say(room_id, body, *a, **k):
@@ -89,7 +90,7 @@ class Greeting(Base):
         pointers = [b for r, b in self.said if r == "!welcome"]
         self.assertEqual(len(pointers), 1)
         self.assertIn(NEW, pointers[0])                     # the pill: Element shows their name
-        self.assertIn("Invites", pointers[0])
+        self.assertIn("open on the left as **Product Manager**", pointers[0])   # it's joined already
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="leave")))
         self.assertEqual(len([b for r, b in self.said if r == "!welcome"]), 1)
 
@@ -159,8 +160,7 @@ class Greeting(Base):
 
     def test_agents_bots_people_with_agents_and_other_rooms_are_not_greeted(self):
         for room, who in ((WELCOME_ROOM, f"@newbie1-agent:{S}"), (WELCOME_ROOM, f"@admin-bot:{S}"),
-                          (WELCOME_ROOM, ANNA), (WELCOME_ROOM, PM),
-                          (DM, NEW)):
+                          (WELCOME_ROOM, ANNA), (WELCOME_ROOM, PM)):
             self.run_(self.lp.on_welcome_member(room, member(who)))
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, prev="join")))   # a profile change
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW, membership="invite")))
@@ -170,8 +170,9 @@ class Greeting(Base):
         self.lp.client = mock.Mock(room_resolve_alias=mock.AsyncMock(return_value=RoomResolveAliasError("not found")),
                                    room_create=mock.AsyncMock(return_value=SimpleNamespace(room_id="!w")))
         self.run_(self.lp.ensure_welcome_room())
-        kw = self.lp.client.room_create.call_args.kwargs
+        kw = self.lp.client.room_create.call_args_list[0].kwargs
         self.assertEqual((kw["alias"], kw["preset"].value), ("welcome", "private_chat"))
+        self.assertEqual(kw["topic"], "Start here 👉 open 'Product Manager' on the left")
         self.lp.client.room_resolve_alias = mock.AsyncMock(return_value=RoomResolveAliasResponse("#welcome:x", "!w", []))
         self.lp.client.room_create.reset_mock()
         self.lp.client.rooms = {}
@@ -181,7 +182,7 @@ class Greeting(Base):
     def test_people_who_joined_while_i_was_down_are_welcomed_at_start(self):
         """GPT review 21: a join during a restart or cold start is never lost."""
         welcome = SimpleNamespace(users={NEW: None, ANNA: None, PM: None, f"@x:{S}": None}, invited_users={f"@x:{S}": None})
-        self.lp.client = mock.Mock(rooms={"!w": welcome},
+        self.lp.client = mock.Mock(rooms={"!w": welcome}, room_put_state=mock.AsyncMock(),
                                    room_resolve_alias=mock.AsyncMock(return_value=RoomResolveAliasResponse("#w", "!w", [])))
         self.run_(self.lp.ensure_welcome_room())
         self.lp.private_room.assert_awaited_once_with(NEW)      # not anna (has an agent), not an invitee
@@ -300,7 +301,7 @@ class Asking(Base):
         self.assertTrue(self.run_(self.lp.on_welcome_text(room, text(NEW, "@pm I want an agent"))))
         self.assertIn("Get your agent", self.said[0][1])
         self.assertEqual(self.said[1][0], "!project")
-        self.assertIn("accept it under Invites", self.said[1][1])
+        self.assertIn("open on the left", self.said[1][1])
 
     def test_someone_with_an_agent_is_told(self):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)

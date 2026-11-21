@@ -24,6 +24,7 @@ from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
 from pm_chat import without_quote
+from pm_lobby import WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
 from redact import room_safe
 from saved_dict import SavedDict
@@ -41,13 +42,21 @@ WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their 
            "- 🏠 **House agent**: runs on this server, with free daily credit\n"
            "- 🔌 **Bring your own**: your Codex or Claude Code, on your own computer\n\n"
            "Click one below, or type \"house agent\" or \"bring my own\".")
-POINTER = ("Welcome, {person}! I've sent you a private message with how to get your agent: accept it under "
-           "Invites (top left).")
+POINTER = ("Welcome, {person}! I've sent you a private message: it's open on the left as **Product Manager**. "
+           "Click 🔌 there to get your agent.")
+# Other servers don't open my chat for them (deploy/synapse_modules/hagency_auto_accept.py is ours only).
+POINTER_REMOTE = ("Welcome, {person}! I've sent you a private message: accept it under Invites (top left), then "
+                  "click 🔌 there to get your agent.")
 HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
                "own: type \"bring my own\" (you need Codex or Claude Code on your computer).")
 
 
-class Welcome:
+def pointer(person: str) -> str:
+    """Where my offer is, in the words that fit their server."""
+    return (POINTER if identity.split(person)[1] == SERVER_NAME else POINTER_REMOTE).format(person=person)
+
+
+class Welcome(Lobby):
     def welcomes(self) -> dict:
         """person → {"dm", "offer" (event id), "done" (buttons used)}, on disk: welcomed once."""
         if "_welcomes" not in self.__dict__:
@@ -74,10 +83,13 @@ class Welcome:
         resp = await self.client.room_resolve_alias(WELCOME_ALIAS)
         if not isinstance(resp, RoomResolveAliasResponse):
             made = await self.client.room_create(alias=WELCOME_LOCALPART, name="Welcome", preset=RoomPreset.private_chat,
-                                                 topic="Everyone starts here. @pm sends you a private message.")
+                                                 topic=WELCOME_TOPIC)
             if not hasattr(made, "room_id"):
                 log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
+            await self.ensure_lobby()         # pm_lobby.py: the public front door
             return
+        await self.ensure_welcome_topic(resp.room_id)
+        await self.ensure_lobby()
         room = self.client.rooms.get(resp.room_id)
         joined = [u for u in getattr(room, "users", {}) if u not in getattr(room, "invited_users", {})]
         for person in joined:
@@ -85,10 +97,15 @@ class Welcome:
                 await self.greet_from_welcome(resp.room_id, person)
 
     async def on_welcome_member(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
-        if (is_stale(event, self.started_ms) or not self.is_welcome_room(room) or event.membership != "join"
-                or event.prev_membership == "join"):
+        if is_stale(event, self.started_ms) or event.prev_membership == event.membership:
             return
-        if self.is_newcomer(event.state_key):
+        if event.membership == "knock":
+            await self.on_knock(room, event.state_key)          # pm_joining.py: "Ask to join"
+        elif event.membership != "join":
+            return
+        elif not self.is_welcome_room(room):
+            await self.on_room_join(room, event.state_key)      # pm_lobby.py: one line, once, with 👍
+        elif self.is_newcomer(event.state_key):
             await self.greet_from_welcome(room.room_id, event.state_key)
 
     async def greet_from_welcome(self, welcome_id: str, person: str) -> None:
@@ -103,7 +120,7 @@ class Welcome:
             return                            # said already, or they found my chat (they clicked a button)
         pointing.add(person)
         try:
-            await self.say(welcome_id, POINTER.format(person=person), mention=person)
+            await self.say(welcome_id, pointer(person), mention=person)
             self.welcomes()[person] = {**self.welcomes()[person], "pointed": True}
         except RuntimeError as e:             # loop.SendError: retried at their next join or my next start
             log.error("couldn't point %s to my private message: %s", person, e)
@@ -135,7 +152,8 @@ class Welcome:
 
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was a click on my welcome (handled here, used or not), or on "offline" (pm_presence.py)."""
-        if await self.on_offline_reaction(room, event) or await self.on_add_reaction(room, event):   # pm_agents.py
+        if (await self.on_offline_reaction(room, event) or await self.on_add_reaction(room, event)   # pm_agents.py
+                or await self.on_lobby_reaction(room, event) or await self.on_project_reaction(room, event)):
             return True
         entry = self.welcomes().get(event.sender)
         if not entry or room.room_id != entry.get("dm") or event.reacts_to != entry.get("offer"):
@@ -148,7 +166,7 @@ class Welcome:
 
     async def on_welcome_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was about getting an agent (answered here)."""
-        if await self.on_add_text(room, event):  # pm_agents.py: another agent, or the name I asked for
+        if await self.on_add_text(room, event) or await self.on_project_text(room, event):   # pm_agents, pm_projects
             return True
         entry = self.welcomes().get(event.sender) or {}
         in_dm = room.room_id == entry.get("dm")
@@ -179,7 +197,7 @@ class Welcome:
             return
         dm = await self.greet(person)
         if dm and dm != room.room_id:
-            await self.say(room.room_id, POINTER.format(person=person), mention=person)
+            await self.say(room.room_id, pointer(person), mention=person)
 
     async def on_remote_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
         """Someone from another server opened a private chat with me: their way in (no Welcome for

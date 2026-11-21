@@ -40,7 +40,9 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm send me my console link**: settings in a page (also the Hagency panel in this room)\n"
         "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
         "- **@pm retry #9**: a paused issue goes back in the queue (owner or maintainer)\n"
-        "- **@pm this room works on owner/name**: the GitHub repo for this room (one repo per room)\n"
+        "- **@pm this room works on owner/name**: the GitHub repo for this room (one room per repo)\n"
+        "- **@pm make me a project room**, **@pm find a project**, **@pm ask to join owner/name**\n"
+        "- **@pm make this room listed** (or private, or open): who can find and join it (owner or maintainer)\n"
         "The pinned **Project status** and the **Hagency** panel show progress live.")
 
 

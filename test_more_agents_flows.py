@@ -233,6 +233,8 @@ class FollowAndConsole(Base):
         self.lp.pending = {}
         self.lp._seen = {"cx-codex-agent": {"online": True}}
         with mock.patch.object(room_state, "repo_of", mock.AsyncMock(return_value=None)), \
+                mock.patch.object(room_state, "runs_in_of", mock.AsyncMock(return_value=None)), \
+                mock.patch("project_rooms.visibility", mock.AsyncMock(return_value="private")), \
                 mock.patch.object(room_state, "is_moderator", mock.AsyncMock(return_value=False)):
             v = asyncio.run(console.view(self.lp, "!r", CX))
         mine = {a["name"]: a for a in v["agents"]}

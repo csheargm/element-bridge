@@ -42,19 +42,32 @@ def repo_in(content: dict) -> str | None:
     return github.allowed_repo(repo)     # also when someone wrote the state by hand: only allowed repos
 
 
+def runs_in(content: dict) -> str | None:
+    """The room that runs this room's repo, when this one only discusses it (one project room per
+    repo: a separate room may talk about the repo but never runs the build loop for it)."""
+    other = content.get("runs_in") if isinstance(content, dict) else None
+    return other if isinstance(other, str) and other.startswith("!") else None
+
+
 def level_of(content: dict) -> str:
-    """The loop level in a LEVEL_EVENT's content; a room without a repo is off."""
-    lvl = content.get("level") if repo_in(content) else None
+    """The loop level in a LEVEL_EVENT's content; a room without a repo, or one that only discusses
+    a repo another room runs, is off."""
+    lvl = content.get("level") if repo_in(content) and not runs_in(content) else None
     return lvl if lvl in github.LEVELS else "off"
 
 
-def content(level: str, repo: str) -> dict:
-    return {"level": level, "repos": [repo], "repo": repo}
+def content(level: str, repo: str, runs_in_room: str | None = None) -> dict:
+    return {"level": level, "repos": [repo], "repo": repo, **({"runs_in": runs_in_room} if runs_in_room else {})}
 
 
 async def repo_of(client: AsyncClient, room_id: str) -> str | None:
     """The repo this room works on (one room, one repo), or None if nobody has set one."""
     return repo_in(await read_binding(client, room_id))
+
+
+async def runs_in_of(client: AsyncClient, room_id: str) -> str | None:
+    """The room that runs this room's repo, when this room only discusses it (else None)."""
+    return runs_in(await read_binding(client, room_id))
 
 
 async def bound(client: AsyncClient, room_id: str) -> bool:
@@ -65,6 +78,13 @@ async def bound(client: AsyncClient, room_id: str) -> bool:
 
 async def level(client: AsyncClient, room_id: str) -> str:
     return level_of(await read_binding(client, room_id))
+
+
+async def moderators(client: AsyncClient, room: MatrixRoom) -> list[str]:
+    """The room's owners and maintainers who are people (joined, never me, an agent or a bot)."""
+    people = [u for u in room.users if u not in room.invited_users and u != client.user_id
+              and not u.split(":")[0].endswith(("-agent", "-bot"))]
+    return [u for u in sorted(people) if await is_moderator(client, room, u)]
 
 
 async def is_moderator(client: AsyncClient, room: MatrixRoom, sender: str) -> bool:

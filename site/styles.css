@@ -36,5 +36,7 @@ h1 span {
 .enter:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 4px; }
 .enter span { color: var(--accent); }
 .note { margin: 16px 0 0; color: var(--muted); font-size: 14px; }
+.lobby { margin-left: 8px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.lobby:hover, .lobby:focus-visible { color: var(--accent); }
 footer { position: relative; padding: 24px 0; text-align: center; color: var(--muted); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { .enter { transition: none; } .enter:hover { transform: none; } }
