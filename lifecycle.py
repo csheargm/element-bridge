@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
-from nio import AsyncClient, LoginResponse, SyncResponse
+from nio import AsyncClient, LoginResponse, SyncError, SyncResponse
 
 # git-ignored (rooms/); tests point this elsewhere so their hand-offs never reach the real bridges
 HANDOFF_DIR = Path(os.environ.get("HANDOFF_DIR", Path(__file__).parent / "rooms" / ".handoff"))
@@ -69,6 +69,14 @@ class SyncPoint:
         self.handled: set[str] = set(handled or [])     # unbounded, but emptied after every batch
         self.stop = asyncio.Event()                      # set by SIGTERM (installed in first_sync)
         client.add_response_callback(self._batch_done, SyncResponse)   # runs after event callbacks
+        client.add_response_callback(self._sync_failed, SyncError)
+
+    async def _sync_failed(self, response: SyncError) -> None:
+        """Signed out by the server (Disconnect gave the agent a new password): stop for good, a clean
+        exit, instead of retrying the dead sign-in many times a second (seen live)."""
+        if response.status_code == "M_UNKNOWN_TOKEN":
+            log.error("signed out by the server (disconnected): stopping; connect again with a new code")
+            self.stop.set()
 
     async def _batch_done(self, response: SyncResponse) -> None:
         self.token = response.next_batch

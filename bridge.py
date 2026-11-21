@@ -279,7 +279,7 @@ def main() -> None:
                     help="let every joined room member drive this agent (default: owner only)")
     ap.add_argument("--buttons-only", action="store_true", help="only the code-change buttons (Hermes agents)")
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{identity.handle(args.owner, SERVER_NAME)}-agent] %(message)s")
+    logging.basicConfig(level=logging.INFO, format=f"%(asctime)s [{agent_handle(identity.person_id(args.owner, SERVER_NAME))}-agent] %(message)s")
     logging.getLogger("nio").setLevel(logging.WARNING)
     bridge = Bridge(args.owner, args.agent, args.allow_members, args.buttons_only)
     try:

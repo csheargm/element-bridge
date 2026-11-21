@@ -36,6 +36,18 @@ class HandOff(unittest.TestCase):
         data = lifecycle.take_handoff("x")
         self.assertEqual((data["token"], data["handled"]), ("B1", ["$a"]))  # resume at B1, skip $a
 
+    def test_a_disconnected_agent_stops_instead_of_retrying_its_dead_sign_in(self):
+        """Seen live (step 4): after Disconnect the bridge re-synced ~45 times a second for ever."""
+        from nio import SyncResponse
+        client = FakeClient()
+        point = lifecycle.SyncPoint(client)
+        busy = SyncResponse.from_dict({"errcode": "M_LIMIT_EXCEEDED", "error": "slow down"})
+        asyncio.run(client.callbacks[1](busy))
+        self.assertFalse(point.stop.is_set())                               # other errors: nio retries
+        gone = SyncResponse.from_dict({"errcode": "M_UNKNOWN_TOKEN", "error": "Invalid access token passed."})
+        asyncio.run(client.callbacks[1](gone))
+        self.assertTrue(point.stop.is_set())                                # a clean exit: stays stopped
+
     def test_resumed_process_skips_events_already_handled(self):
         point = lifecycle.SyncPoint(FakeClient(), ["$a"])
         self.assertFalse(point.first_time("$a"))
