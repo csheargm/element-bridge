@@ -20,6 +20,7 @@ from nio import MatrixRoom, ReactionEvent, RoomMessageText, RoomPreset
 
 import panel
 import project_rooms
+import registry
 import room_state
 from bridge import ROOT, SERVER_NAME
 from pm_joining import ASKED, Joining
@@ -111,7 +112,15 @@ class Projects(Joining):
         await self.say(resp.room_id, f"This is **{plain(name)}**. Next: pick its GitHub repo in the Hagency panel above "
                                      "(or say \"@pm this room works on owner/name\"), then invite people: Room info → Invite.")
         await self.say(origin.room_id, f"Made **{plain(name)}**: accept its invite on the left (under Invites), then pick "
-                                       "its GitHub repo in the Hagency panel at the top. Your agent comes along when you join.")
+                                       f"its GitHub repo in the Hagency panel at the top.{self.agent_note(person)}")
+
+    def agent_note(self, person: str) -> str:
+        """"comes along" only for an agent that can join (one run here, or theirs connected at least once:
+        pm_presence.py, as the panel's Add an agent); screen test: said to someone whose agent never connected."""
+        mine = registry.agents_of(person)
+        if any(a["agent"] != registry.REMOTE or self.ever_connected(a["localpart"]) for a in mine):
+            return " Your agent comes along when you join."
+        return " Your agent joins once it's connected on your computer." if mine else ""
 
     async def answer_find(self, room_id: str, person: str) -> None:
         recent = [t for t in self.__dict__.setdefault("_finds", {}).get(person, []) if time.time() - t < 3600]

@@ -340,6 +340,23 @@ class MakeAndFind(Base):
             run(self.lp.make_project_room(origin, ANNA, ""))
         self.assertIn("enough new rooms", self.said[-1][1])                   # a few an hour
 
+    def test_a_new_room_says_comes_along_only_for_an_agent_that_can_join(self):
+        """Screen test: "Your agent comes along" to someone whose agent never connected on their computer."""
+        self.lp.client.room_create = mock.AsyncMock(return_value=SimpleNamespace(room_id="!new"))
+        self.lp.addressed_text = lambda event, room=None: event.body
+        registry.PATH.write_text(json.dumps({"anna": {"agent": "hermes"}, "betty": {"agent": registry.REMOTE}}))
+        self.lp._seen = {}
+        with mock.patch("panel.add_to_room", mock.AsyncMock(return_value=True)):
+            for who in (ANNA, BETTY):
+                run(self.lp.on_project_text(project("!o", "Lobby"), SimpleNamespace(sender=who, body="make me a project room")))
+            self.lp._seen = {registry.agents_of(BETTY)[0]["localpart"]: {"ever": True}}
+            run(self.lp.on_project_text(project("!o", "Lobby"), SimpleNamespace(sender=BETTY, body="make me a project room")))
+        made = [b for _, b in self.said if b.startswith("Made")]
+        self.assertIn("Your agent comes along when you join.", made[0])                    # run by this server
+        self.assertIn("Your agent joins once it's connected on your computer.", made[1])   # never connected
+        self.assertNotIn("comes along", made[1])
+        self.assertIn("Your agent comes along when you join.", made[2])                    # connected once
+
     def test_find_lists_only_listed_and_open_rooms_and_never_a_private_repos_name(self):
         rooms = {"!pub": project("!pub", "Pub"), "!sec": project("!sec", "Sec"), "!hid": project("!hid", "Hidden")}
         self.lp.client.rooms = rooms
