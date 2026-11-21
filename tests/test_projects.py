@@ -156,7 +156,7 @@ class RoomPerRepo(Base):
         run(self.lp.on_conflict_reaction(self.b, SimpleNamespace(sender=ANNA, key="🙋", reacts_to=offer)))
         asks = [(r, b) for r, b in self.said if r == f"!dm-{BETTY}"]
         self.assertEqual(len(asks), 1)
-        self.assertIn(f"anna ({ANNA}) asks to join **Alpha**", asks[0][1])
+        self.assertIn(f"{ANNA} asks to join **Alpha**", asks[0][1])
 
     def test_two_rooms_choosing_at_once_never_both_run_the_repo(self):
         """GPT review: the check and the bind are one step under the lock."""

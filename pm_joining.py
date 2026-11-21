@@ -4,7 +4,7 @@
     comes first and is the same whether or not such a room exists: pm_projects.py);
   - 🙋 under my "one room per repo" answer (pm_projects.py), or under a listed room in "find a
     project" (pm_find.py: by room, so a room without a repo works too).
-Each of the room's moderators gets a private message: "<name> (<full ID>) asks to join <room>.
+Each of the room's moderators gets a private message: "<full ID> asks to join <room>.
 👍 Let in · 👎 Decline". Only that moderator's click counts, and only while they're still a joined
 moderator of that room; and only while the request still stands (a knock not withdrawn, the person
 not in already). 👍 invites them (their agent follows them in when they join, per their own setting);
@@ -76,7 +76,7 @@ class Joining:
                 dm = await self.private_room(mod)
                 if dm is None:
                     continue
-                event = await self.say(dm, f"{local_name(person)} ({person}) asks to join **{plain(room.display_name)}**. "
+                event = await self.say(dm, f"{person} asks to join **{plain(room.display_name)}**. "
                                            f"{LET_IN} Let in · {DECLINE} Decline")
             except RuntimeError as e:         # loop.SendError: the other moderators may still be asked
                 log.error("couldn't ask %s about %s: %s", mod, person, e)

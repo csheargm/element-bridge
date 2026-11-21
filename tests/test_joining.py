@@ -43,10 +43,18 @@ class AskToJoin(Base):
     def asks(self):
         return [(r, b) for r, b in self.said if "asks to join" in b]
 
+    def test_the_person_is_named_once(self):
+        """Screen test: "finaltest2 (<pill: finaltest2>) asks to join…": Element turns the full ID into a
+        pill that shows the name, so the plain name before it said it twice."""
+        run(self.lp.ask_to_join("!a", NEW))
+        body = self.asks()[0][1]
+        self.assertTrue(body.startswith(f"{NEW} asks to join "), body)
+        self.assertEqual(body.count(NEW.split(":")[0].lstrip("@")), 1)
+
     def test_every_moderator_is_asked_with_two_buttons_and_only_theirs_counts(self):
         self.assertTrue(run(self.lp.ask_to_join("!a", NEW)))
         self.assertEqual([r for r, _ in self.asks()], [f"!dm-{ANNA}", f"!dm-{BETTY}"])
-        self.assertIn(f"newbie1 ({NEW}) asks to join **Alpha**", self.asks()[0][1])     # the full ID, never just a name
+        self.assertIn(f"{NEW} asks to join **Alpha**", self.asks()[0][1])     # the full ID, never just a name
         self.assertEqual([k for _, _, k in self.buttons], ["👍", "👎", "👍", "👎"])
         anna_q = next(e for e, r in self.lp._join_requests.items() if r["moderator"] == ANNA)
         dm = SimpleNamespace(room_id=f"!dm-{ANNA}")
