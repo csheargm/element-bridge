@@ -29,7 +29,7 @@ STATIC = Path(__file__).resolve().parent / "static"
 # The panel's card scripts, by the URL the page loads them from. The one list: the page's <script>
 # tags and the routes come from it, and deploy/Caddyfile's @pm route must name every one (test_panel).
 SCRIPTS = {"panel-agents.js": STATIC / "panel_agents.js",      # "My agents"
-           "panel-project.js": STATIC / "panel_project.js",    # "Who can join", "Run from another room"
+           "panel-project.js": STATIC / "panel_project.js",    # "Project repo", "Who can join", "Run from another room"
            "panel-github.js": STATIC / "panel_github.js"}      # "Connect GitHub" (pm_github.py)
 REFRESH_MS = 3000
 SIGNIN_MS = 20000                 # no answer from Element by then: the panel says so instead of "Signing in…"

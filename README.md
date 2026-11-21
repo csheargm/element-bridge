@@ -197,6 +197,7 @@ to write "@pm": everything you say there is for it (in project rooms, start with
 | "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
 | "@pm find a project" | one message per listed or open project room: click 🙋 under a listed one to ask its owners, or join an open one by its link (also Element's Explore rooms) | anyone |
 | "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |
+| "@pm remove the repo" / "this room has no repo" | after your ✅: no repo, mode off, the repo free for another room; also **Remove repo** in the panel (click twice). Nothing on GitHub changes | owner or maintainer |
 | "@pm make this room listed" (or private, open) | who can find and join it; also "Who can join" in the panel | owner or maintainer |
 
 **One project room per repo.** @pm's build loop runs per room, so a room that picks a repo another
@@ -241,7 +242,8 @@ Delete `data/`, `.env` and `rooms/` to start from scratch.
 `agent-ok` on **the room's own repo** and drives each issue through the room, one step per line.
 
 **One room, one repo.** The room owner or a maintainer picks it: say `@pm this room works on
-owner/name`, or use **Project repo** in the Hagency console. The console's **Check readiness**
+owner/name`, or use **Project repo** in the Hagency console (**Remove repo** there, or `@pm remove the repo`, takes it
+off again; refused while work runs). The console's **Check readiness**
 button runs the same read-only check as `github_setup.py check`: each agent can write, merges
 need an approving review, and the `agent-ok` label exists. The repo is stored as a list in the
 room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A project that spans

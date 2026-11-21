@@ -68,6 +68,11 @@ def content(level: str, repo: str, discussion: bool = False) -> dict:
     return {"level": level, "repos": [repo], "repo": repo, **({"discussion": True} if discussion else {})}
 
 
+def unbound() -> dict:
+    """A room whose repo was removed (pm_unbind.py): no repo, so its mode is off (level_of)."""
+    return {"level": "off", "repos": []}
+
+
 async def repo_of(client: AsyncClient, room_id: str) -> str | None:
     """The repo this room works on (one room, one repo), or None if nobody has set one."""
     return repo_in(await read_binding(client, room_id))

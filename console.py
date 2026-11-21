@@ -22,10 +22,10 @@ import urllib.request
 
 from aiohttp import web
 
+import console_repo
 import customize
 import github
 import github_link
-import github_setup
 import ownership
 import project_rooms
 import registry
@@ -192,10 +192,8 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
         return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"
     if action == "github":                # pm_github.py: Connect / Disconnect GitHub, for themselves only
         return await loop.github_action(user, value)
-    if action == "repo":
-        return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
-    if action == "check":
-        return await check_repo(loop, room, user)
+    if action in console_repo.ACTIONS:    # the room's repo: choose, remove, check readiness
+        return await console_repo.act(loop, room, user, action, value)
     if action == "visibility":            # pm_projects.py: who can find and join this room
         answer = await loop.set_visibility(room, user, value)
         await loop.say(room_id, answer)
@@ -217,24 +215,6 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
             return "that's no longer what's waiting; look again"   # approve exactly what you saw
         return "ok" if await loop.confirm(room, user) else "nothing of yours is waiting for approval"
     return "unknown action"
-
-
-async def check_repo(loop, room, user: str) -> str:
-    """Is this room's repo ready for the loop? Read-only: changing the repo's settings stays with its
-    GitHub owner (github_setup.py ruleset), never with @pm."""
-    if not await room_state.is_moderator(loop.client, room, user):
-        return "only the room owner or a maintainer can run the check"
-    repo = await room_state.repo_of(loop.client, room.room_id)
-    if repo is None:
-        return "this room has no repo yet"
-    agents = [a.split(":")[0].lstrip("@") for a in loop.agents_in(room)]
-    if not agents:
-        return "no agents in this room yet (each person's agent joins with them)"
-    _, problems = await github_setup.readiness(repo, agents, detail=False)
-    if not problems:
-        return f"✓ {repo} is ready: {', '.join(agents)} can write, merges need an approving review, agent-ok exists."
-    return "\n".join([f"{repo} isn't ready yet:", *(f"✗ {p}" for p in problems),
-                      f"The repo's owner fixes the rule and label with: python github_setup.py ruleset --repo {repo}"])
 
 
 def allowed(request, post: bool) -> bool:
