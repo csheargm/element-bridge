@@ -110,10 +110,10 @@ class Actions(unittest.TestCase):
         async def change_level(rid, level):
             self.calls.append(("mode", level))
 
-        async def set_follow(r, user, value):
+        async def set_follow(r, user, value, agent=None):
             self.calls.append(("follow", user, value))
 
-        async def set_grant(r, user, cap, on):
+        async def set_grant(r, user, cap, on, agent=None):
             self.calls.append(("web", user, on))
 
         async def say(*a, **k):

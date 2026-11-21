@@ -29,15 +29,28 @@ def load_credentials(path: str | None) -> dict:
         raise SystemExit(f"can't read the Hagency credentials file {path}: {e}") from e
     if not isinstance(data, dict) or not all(isinstance(data.get(k), str) and data[k] for k in CREDENTIAL_KEYS):
         raise SystemExit(f"the Hagency credentials file {path} is incomplete; run connect.py again with a new code")
-    if not credentials_match(data["user_id"], data["owner"]):
+    if not credentials_match(data["user_id"], data["owner"], data.get("label")):
         raise SystemExit(f"the Hagency credentials file {path} doesn't belong to {data['owner']}'s agent")
     return data
 
 
-def credentials_match(user_id: str, owner: str) -> bool:
-    """`user_id` is exactly `owner`'s agent account (owner: a full ID, or a bare name on its server)."""
+def credentials_match(user_id: str, owner: str, label: str | None = None) -> bool:
+    """`user_id` is exactly `owner`'s agent account (owner: a full ID, or a bare name on its server),
+    or with a label, exactly that further agent of theirs (identity.py)."""
     server = user_id.partition(":")[2]
-    return bool(server) and user_id == f"@{identity.agent_localpart(owner, server)}:{server}"
+    if not server or (label is not None and not (isinstance(label, str) and identity.LABEL_RE.match(label))):
+        return False
+    return user_id == f"@{identity.agent_localpart(owner, server, label)}:{server}"
+
+
+def agent_handle(owner_id: str) -> str:
+    """The name this machine runs `owner_id`'s agent under (its localpart without -agent): the one in
+    connect.py's credentials file when there is one (a person may have several agents), else the first."""
+    if CREDENTIALS:
+        if identity.person_id(CREDENTIALS["owner"], SERVER_NAME) != owner_id:
+            raise SystemExit(f"the credentials file is {CREDENTIALS['owner']}'s agent, not {owner_id}'s")
+        return CREDENTIALS["user_id"].lstrip("@").partition(":")[0].removesuffix(identity.AGENT_SUFFIX)
+    return identity.handle(owner_id, SERVER_NAME)
 
 
 def password_key(user: str) -> str:

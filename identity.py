@@ -6,6 +6,9 @@ Every agent account lives on THIS server. Its localpart comes from its person's 
   - anyone else (another server, or an unusual name here): a readable prefix plus a hash of the full
     ID, e.g. @alice:matrix.org → alice-at-matrix-org-3f2a9c01d4-agent. The plain names have no
     "-", so the two kinds never meet; the hash keeps @alice:matrix.org and @alice:matrix-org apart.
+A person's further agents add the short label they chose before "-agent": cx-codex-agent,
+alice-at-matrix-org-3f2a9c01d4-laptop-agent. Labels have no "-" and at most 9 characters, so a
+label is never mistaken for a plain name or for the 10-character hash (ADR 0005).
 Pure functions (no project imports): bridge_config.py uses them on people's own computers too.
 """
 import hashlib
@@ -15,6 +18,7 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9]{1,23}$")   # a person here whose agent is 
 AGENT_SUFFIX = "-agent"
 USER_RE = re.compile(r"^@[^:\s]{1,255}:[A-Za-z0-9.-]{1,255}(:\d{1,5})?$")   # a full Matrix user ID
 PREFIX_LOCAL, PREFIX_SERVER, HASH_CHARS = 20, 30, 10
+LABEL_RE = re.compile(r"^[a-z][a-z0-9]{0,8}$")   # a further agent's label: never as long as the hash
 
 
 def person_id(who: str, home: str) -> str:
@@ -35,8 +39,13 @@ def _clean(text: str, limit: int) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit].strip("-") or "x"
 
 
-def agent_localpart(person: str, home: str) -> str:
-    """The localpart of `person`'s agent account on `home` (deterministic, see the module docstring)."""
+def agent_localpart(person: str, home: str, label: str | None = None) -> str:
+    """The localpart of `person`'s agent account on `home` (deterministic, see the module docstring);
+    with a label, the localpart of that further agent of theirs."""
+    if label:
+        if not LABEL_RE.match(label):
+            raise ValueError(f"not an agent label: {label!r}")
+        return f"{handle(person, home)}-{label}{AGENT_SUFFIX}"
     full = person_id(person, home)
     local, server = split(full)
     if server == home and NAME_RE.match(local):

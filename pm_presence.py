@@ -28,9 +28,11 @@ AGAIN = "🔁"
 OFFLINE = ("Your agent **{agent}** is offline: its computer is off or asleep, or its connector stopped. To bring "
            "it back, run the connect line again on that computer (running it again is safe). Click 🔁 below "
            "and I'll send you your Connect page with a fresh code.")
-DISCONNECT_RE = re.compile(r"^\W*(please\W+)?disconnect my agent\W*$", re.I)
+DISCONNECT_RE = re.compile(r"^\W*(please\W+)?disconnect my (agent(\s+(?P<name>[a-z0-9-]+))?|(?P<label>[a-z0-9]+) agent)\W*$", re.I)
 DISCONNECTED = ("Disconnected: {agent} can't sign in from its computer any more. To connect it again, type "
                 "\"bring my own\" here for a new code and Connect page.")
+DISCONNECTED_MORE = ("Disconnected: {agent} can't sign in from its computer any more. To connect it again, click "
+                     "🔁 below for a new code and its Connect page.")
 
 
 class Presence:
@@ -51,9 +53,11 @@ class Presence:
         if now - self.__dict__.get("_checked", 0) < CHECK_S:
             return
         self._checked = now
-        for person, info in registry.load().items():
-            if info.get("agent") == registry.REMOTE:
-                await self.check_agent(person, registry.agent_of(person), now)
+        people = registry.load()
+        for person in people:                 # each of a person's agents on their own computers
+            for found in registry.agents_of(person, people):
+                if found["agent"] == registry.REMOTE:
+                    await self.check_agent(person, found["localpart"], now)
 
     async def check_agent(self, person: str, agent: str, now: float) -> None:
         try:
@@ -85,25 +89,47 @@ class Presence:
 
     async def on_offline_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was 🔁 on my "offline" message, by that agent's owner (handled here)."""
-        mine = next((e for e in self.seen().values() if isinstance(e, dict) and e.get("offer") == event.reacts_to), None)
+        agent = next((a for a, e in self.seen().items() if isinstance(e, dict) and e.get("offer") == event.reacts_to), None)
+        mine = self.seen().get(agent) if agent else None
         if mine is None or mine.get("owner") != event.sender or mine.get("dm") != room.room_id:
             return False
-        if event.key.replace("️", "") == AGAIN:
+        if event.key.replace("️", "") != AGAIN:
+            return True
+        found = registry.find(event.sender, agent)
+        if found is None or found["first"]:
             await self.choose(room.room_id, event.sender, "🔌")    # pm_welcome.py: a fresh code, its own checks
+        elif registry.owns(event.sender, agent):
+            try:
+                await self.send_code(event.sender, agent)          # pm_agents.py: that agent's Connect page
+            except RuntimeError as e:         # no private chat with just them: they can click again
+                log.error("couldn't resend %s's code: %s", agent, e)
         return True
 
-    async def disconnect(self, room_id: str, person: str) -> bool:
-        """The person's own remote agent gets a new password: its computer is signed out for good."""
-        agent = registry.agent_of(person)
-        if registry.load().get(person, {}).get("agent") != registry.REMOTE or not registry.owns(person, agent):
-            await self.say(room_id, "You have no agent connected from your own computer here.")
+    async def disconnect(self, room_id: str, person: str, name: str | None = None) -> bool:
+        """This remote agent of the person's (by name or label; None: their only one) gets a new
+        password: its computer is signed out for good."""
+        remote = [a for a in registry.agents_of(person) if a["agent"] == registry.REMOTE and registry.owns(person, a["localpart"])]
+        if name:
+            remote = [a for a in remote if name.lower() in (a["localpart"], a["label"])]
+        if len(remote) > 1:
+            await self.say(room_id, "Which one? Say \"disconnect my agent NAME\" with one of: "
+                                    + ", ".join(a["label"] for a in remote) + ". (Or use Disconnect in the console.)")
             return False
-        remote_agent.CODES.revoke(person)    # first, here on my own thread: no code can pick up the new password
+        if not remote:
+            await self.say(room_id, f"You have no agent {'called ' + name + ' ' if name else ''}connected from your own computer here.")
+            return False
+        agent, first = remote[0]["localpart"], remote[0]["first"]
+        remote_agent.CODES.revoke(person, None if first else agent)   # first, here on my own thread: no code can pick up the new password
         try:
-            await asyncio.to_thread(remote_agent.disconnect, person)
+            await asyncio.to_thread(remote_agent.disconnect, person, agent)
         except (AccountError, OSError) as e:   # Synapse refused or can't be asked, .env unwritable
             log.error("couldn't disconnect %s's agent: %s", person, e)
             await self.say(room_id, "⚠️ I couldn't disconnect your agent just now; please try again.")
             return False
-        await self.say(room_id, DISCONNECTED.format(agent=agent))
+        if first:
+            await self.say(room_id, DISCONNECTED.format(agent=agent))
+            return True
+        offer = await self.say(room_id, DISCONNECTED_MORE.format(agent=agent))
+        await self.offer_thumb(room_id, offer, AGAIN)
+        self.seen()[agent] = {**(self.seen().get(agent) or {}), "owner": person, "offer": offer, "dm": room_id}
         return True

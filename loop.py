@@ -36,6 +36,8 @@ from pm_presence import Presence
 from pm_understand import Understanding
 from pm_voice import Voice
 from pm_welcome import Welcome
+from pm_agents import MoreAgents
+import routing
 from status_board import Boards
 from bridge import HOMESERVER, ROOT, SERVER_NAME, is_stale, read_env
 
@@ -54,7 +56,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice, Welcome, Presence):
+class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice, Welcome, Presence, MoreAgents):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -224,8 +226,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
 
     async def pick_reviewer(self, room: MatrixRoom, item: dict, key: str, what: str) -> bool:
         """Choose a DIFFERENT person's agent as the checker; stop the item if there is none."""
-        owner = lambda a: ownership.owner_id(a) or a          # (an unregistered agent is its own owner)
-        others = [a for a in self.agents_in(room) if owner(a) != owner(item["builder"])]   # another PERSON
+        others = routing.checkers_for(routing.available(self.agents_in(room), self.agent_online), item["builder"], ownership.owner_id)
         if not others:
             await self.stop(room.room_id, key, item, f"there's no second person's agent here to {what.split()[0]} it")
             return False

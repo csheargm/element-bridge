@@ -29,36 +29,48 @@ def digest(code: str) -> str:
     return hashlib.sha256(normalize(code).encode()).hexdigest()
 
 
+def _same(entry, person: str, agent: str | None) -> bool:
+    """A code for this agent of this person (agent None: their first; older codes name no agent)."""
+    return isinstance(entry, dict) and entry.get("person") == person and entry.get("agent") == agent
+
+
 class Codes:
-    """hash(code) → {"person", "expires"}, on disk; never the code itself."""
+    """hash(code) → {"person", "agent" (a further agent's localpart; absent: the first), "expires"},
+    on disk; never the code itself."""
     def __init__(self, path: Path) -> None:
         self.codes = SavedDict(path)
 
-    def issue(self, person: str, now: float | None = None) -> str:
-        """A new code for `person`; their older codes (and every expired one) stop working."""
+    def issue(self, person: str, now: float | None = None, agent: str | None = None) -> str:
+        """A new code for this agent of `person`; its older codes (and every expired one) stop working."""
         now = time.time() if now is None else now
         for h, entry in list(self.codes.items()):
-            if not isinstance(entry, dict) or entry.get("person") == person or entry.get("expires", 0) <= now:
+            if not isinstance(entry, dict) or _same(entry, person, agent) or entry.get("expires", 0) <= now:
                 self.codes.pop(h, None)
         raw = "".join(secrets.choice(ALPHABET) for _ in range(CODE_LEN))
-        self.codes[digest(raw)] = {"person": person, "expires": now + CODE_S}
+        self.codes[digest(raw)] = {"person": person, "expires": now + CODE_S, **({"agent": agent} if agent else {})}
         return f"{raw[:5]}-{raw[5:]}"
 
-    def revoke(self, person: str) -> None:
-        """Every code of `person` stops working (their agent was disconnected)."""
+    def revoke(self, person: str, agent: str | None = None) -> None:
+        """Every code of this agent of `person` stops working (it was disconnected)."""
         for h, entry in list(self.codes.items()):
-            if not isinstance(entry, dict) or entry.get("person") == person:
+            if not isinstance(entry, dict) or _same(entry, person, agent):
                 self.codes.pop(h, None)
 
     def redeem(self, code: str, now: float | None = None) -> str | None:
         """The person a fresh code was issued to, or None. The code is gone after this either way."""
+        return self.redeem_agent(code, now)[0]
+
+    def redeem_agent(self, code: str, now: float | None = None) -> tuple[str | None, str | None]:
+        """(person, further agent's localpart or None for their first) for a fresh code, else (None,
+        None). The code is gone after this either way."""
         if not isinstance(code, str) or not code or len(code) > MAX_CODE_CHARS:
-            return None
+            return None, None
         entry = self.codes.pop(digest(code), None)
         now = time.time() if now is None else now
-        if not isinstance(entry, dict) or entry.get("expires", 0) <= now:
-            return None
-        return entry.get("person") or None
+        if not isinstance(entry, dict) or entry.get("expires", 0) <= now or not entry.get("person"):
+            return None, None
+        agent = entry.get("agent")
+        return entry["person"], agent if isinstance(agent, str) and agent else None
 
 
 class Limiter:

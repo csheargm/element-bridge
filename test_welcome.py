@@ -43,6 +43,7 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy, self.lp._welcomes = PM, 0, set(), {}
+        self.lp._add_offers = {}                      # pm_agents.py: never the real data folder
         self.said, self.buttons = [], []
 
         async def say(room_id, body, *a, **k):
@@ -304,7 +305,9 @@ class Asking(Base):
     def test_someone_with_an_agent_is_told(self):
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
         self.run_(self.lp.on_welcome_text(room, text(ANNA, "@pm can I get an agent?")))
-        self.assertEqual(self.said, [("!project", "You already have an agent here: anna-agent.")])
+        self.assertEqual(len(self.said), 1)
+        self.assertTrue(self.said[0][1].startswith("You already have an agent here: anna-agent."))
+        self.assertEqual(self.buttons, [("!project", "$m1", "➕")])          # step 4: add another one
 
     def test_a_same_named_person_from_another_server_gets_their_own_agent_never_ours(self):
         """GPT review 21: @newbie1:evil.org must never get a code for our newbie1's agent. Since

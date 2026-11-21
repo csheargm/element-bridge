@@ -271,7 +271,7 @@ class Disconnect(unittest.TestCase):
         with mock.patch.object(remote_agent, "disconnect") as d:
             self.assertFalse(asyncio.run(lp.disconnect("!dm", f"@anna:{S}")))
             asyncio.run(lp.disconnect("!dm", NEW))
-        d.assert_called_once_with(NEW)
+        d.assert_called_once_with(NEW, AGENT)
         self.assertIn("no agent connected", said[0])
         self.assertIn("Disconnected", said[1])
         self.assertTrue(pm_presence.DISCONNECT_RE.search("@pm disconnect my agent".removeprefix("@pm ")))

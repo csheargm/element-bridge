@@ -8,6 +8,7 @@ import html
 import json
 import logging
 import os
+from pathlib import Path
 
 import markdown
 from aiohttp import web
@@ -22,6 +23,7 @@ import registry
 PORT = console.PORT
 HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
+AGENTS_JS = Path(__file__).resolve().parent / "static" / "panel_agents.js"
 REFRESH_MS = 3000
 HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
@@ -75,6 +77,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:4px 0 8px}
 <div class="wrap"><header><div><h1 id="title">Hagency</h1><div class="sub" id="sub"></div></div><div id="who"></div></header>
 <div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls" class="stack"></div><div id="p" class="stack"></div>
 <footer>Change anything here or by telling @pm in the chat.</footer></div>
+<script src="panel-agents.js"></script>
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
 const ELEMENT = __ELEMENT_ORIGIN__;
@@ -116,8 +119,8 @@ async function start() {
   if (session) return refresh();
   if (!embedded) $("me").innerHTML = 'Say <b>@pm send me my console link</b> in the room to sign in here.';
 }
-async function act(action, value) { $("msg").textContent = "…";
-  const r = await post("/console/action", {room, action, value});
+async function act(action, value, agent) { $("msg").textContent = "…";
+  const r = await post("/console/action", {room, action, value, agent: agent || ""});
   $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
 const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
   assist: "Agents build and review; a person merges each change.",
@@ -127,13 +130,14 @@ function buttons(name, values, current, enabled) {
   return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
     ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
-  if (b) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.v); });
+  if (b) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
+    : b.dataset.v, b.dataset.g); });
 async function refresh() {
   if (!session) return;
   const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
   if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
   const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
-  if (document.activeElement && document.activeElement.id === "repo") return;   // don't wipe what's being typed
+  if (document.activeElement && ["repo", "newagent"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
@@ -147,16 +151,7 @@ async function refresh() {
     <section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
     value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
     ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
-  if (s.agent) h += `<div class="grid"><section class="card"><h2>My agent · ${esc(s.agent)}</h2>
-    <div class="hint">The same in every room.</div>${s.remote ? `<div class="set"><div>On my computer: <span class="chip">${
-      s.online === true ? "Online" : s.online === false ? "Offline" : "Not seen yet"}</span><div class="hint">${s.online === false
-      ? "Run the connect line again on that computer; @pm sends your Connect page with a fresh code." : ""}</div></div>
-      <button data-a="disconnect">Disconnect</button></div>` : ""}
-    <div class="set"><div>Comes along when I join a project room</div>${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
-    <div class="set"><div>Code it runs<div class="hint">${s.version ? `Your own version (${esc(s.version)}), made in your private room.` : "The official version."}</div></div>${s.version ? '<button data-a="goback">Go back to official</button>' : ""}</div></section>
-    <section class="card"><h2>My agent in this room</h2>
-    <div class="hint">Only here; each room has its own.</div>
-    <div class="set"><div>Web research<div class="hint">Each search is listed under your question.</div></div>${buttons("web", ["on", "off"], s.web ? "on" : "off", true)}</div></section></div>`;
+  h += agentCards(s);                        // panel_agents.js: "My agents"
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }
 start(); setInterval(refresh, %d);
@@ -193,7 +188,7 @@ def render(loop, room_id: str) -> str:
         owner = ownership.owner_id(user)
         if owner:
             here = "" if ownership.joined(room, owner) else " <span class=muted>(owner not here: idle)</span>"
-            follow = registry.follow(owner)
+            follow = registry.follow(owner, user.split(":")[0][1:])
             caps = ", ".join(sorted(grants.get(user, {}))) or "project only"
             agents.append(f"<li><div><b>{html.escape(user.split(':')[0][1:])}</b> <span class=muted>· "
                           f"{html.escape(owner.split(':')[0][1:].capitalize())}'s agent{here}</span></div>"
@@ -211,8 +206,13 @@ async def start(loop) -> web.AppRunner | None:
             return web.Response(status=403)
         return web.Response(text=PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(ELEMENT_ORIGIN)),
                             content_type="text/html", headers=HEADERS)
+
+    async def agents_script(request):     # "My agents" (static/panel_agents.js)
+        if not local_host(request):
+            return web.Response(status=403)
+        return web.Response(text=AGENTS_JS.read_text(encoding="utf-8"), content_type="application/javascript", headers=HEADERS)
     app = web.Application()
-    app.add_routes([web.get("/panel", page), web.get("/console", page), *console.routes(loop, render),
+    app.add_routes([web.get("/panel", page), web.get("/console", page), web.get("/panel-agents.js", agents_script), *console.routes(loop, render),
                     *remote_agent.routes()])     # bring-your-own pairing (remote_agent.py)
     runner = web.AppRunner(app, access_log=None)        # the widget polls every 3 s: don't flood the log
     await runner.setup()

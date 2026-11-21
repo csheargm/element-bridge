@@ -22,7 +22,6 @@ import remote_people
 import server_admins
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
-import connect_page
 import intents
 from pm_chat import without_quote
 from pm_presence import DISCONNECT_RE
@@ -46,11 +45,6 @@ POINTER = ("Welcome, {person}! I've sent you a private message with how to get y
            "Invites (top left).")
 HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
                "own: type \"bring my own\" (you need Codex or Claude Code on your computer).")
-BRING_REPLY = ("Your agent is **{agent}**. On the computer where Codex or Claude Code is installed, open "
-               "[your Connect page]({link}): it shows the one line to paste there (Mac, Windows or Linux).\n\n"
-               "Your code: `{code}` (it works once, within 30 minutes). On a Mac or Linux this is the same line:\n\n"
-               "`{line}`\n\nYour agent then runs in the background. It has invited you to a private chat: "
-               "accept it and talk to your agent there.")
 
 
 class Welcome:
@@ -141,7 +135,7 @@ class Welcome:
 
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was a click on my welcome (handled here, used or not), or on "offline" (pm_presence.py)."""
-        if await self.on_offline_reaction(room, event):
+        if await self.on_offline_reaction(room, event) or await self.on_add_reaction(room, event):   # pm_agents.py
             return True
         entry = self.welcomes().get(event.sender)
         if not entry or room.room_id != entry.get("dm") or event.reacts_to != entry.get("offer"):
@@ -154,6 +148,8 @@ class Welcome:
 
     async def on_welcome_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was about getting an agent (answered here)."""
+        if await self.on_add_text(room, event):  # pm_agents.py: another agent, or the name I asked for
+            return True
         entry = self.welcomes().get(event.sender) or {}
         in_dm = room.room_id == entry.get("dm")
         text = without_quote(event.body) if in_dm else self.addressed_text(event)
@@ -165,8 +161,8 @@ class Welcome:
             await self.choose(room.room_id, event.sender, HOUSE)
         elif in_dm and BRING_RE.search(text):
             await self.choose(room.room_id, event.sender, BRING)
-        elif DISCONNECT_RE.search(text):
-            await self.disconnect(room.room_id, event.sender)    # pm_presence.py
+        elif m := DISCONNECT_RE.search(text):
+            await self.disconnect(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_presence.py
         elif WANT_RE.search(text):
             await self.offer_again(room, event.sender)
         else:
@@ -178,8 +174,8 @@ class Welcome:
         if not self.may_have_agent(person):
             await self.say(room.room_id, f"Sorry, {remote_people.OFF}.")
             return
-        if not self.is_newcomer(person) and info.get("agent") != registry.REMOTE:
-            await self.say(room.room_id, f"You already have an agent here: {registry.agent_of(person)}.")
+        if not self.is_newcomer(person) and info.get("agent") != registry.REMOTE:   # pm_agents.py: with ➕
+            await self.say_have_agents(room.room_id, person)
             return
         dm = await self.greet(person)
         if dm and dm != room.room_id:
@@ -231,13 +227,8 @@ class Welcome:
 
     async def bring_own(self, dm: str, person: str) -> None:
         try:
-            agent = await asyncio.to_thread(remote_agent.provision, person)
-            chat = await self.private_room(person)        # re-checked: still just the two of us, or a new chat
-            if chat is None or not await self.only_us(chat, person):
-                raise RuntimeError("I couldn't open a private chat with just you")
-            code = remote_agent.CODES.issue(person)
-            await self.say(chat, BRING_REPLY.format(agent=agent, link=connect_page.page_link(code), code=code,
-                                                    line=remote_agent.install_line(code)))
+            await asyncio.to_thread(remote_agent.provision, person)
+            await self.send_code(person, None)            # pm_agents.py: re-checks it's just the two of us
         except (AccountError, OSError, RuntimeError) as e:   # homeserver refused, .env unwritable, send failed, bad URL
             log.error("bring-your-own failed for %s: %s", person, e)
             try:

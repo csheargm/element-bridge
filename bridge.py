@@ -28,7 +28,7 @@ from redact import room_safe
 import room_state
 import tasks
 
-from bridge_config import HOMESERVER, ROOT, SERVER_NAME, agent_password, read_env  # noqa: F401 (loop.py reads read_env)
+from bridge_config import HOMESERVER, ROOT, SERVER_NAME, agent_handle, agent_password, read_env  # noqa: F401 (loop.py reads read_env)
 TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapses
 TYPING_TIMEOUT_MS = 30_000
 MAX_REPLY_CHARS = 30_000
@@ -42,7 +42,7 @@ class Bridge(BridgeVoice, BridgeCustom):
     def __init__(self, owner: str, backend: str, allow_members: bool = False, buttons_only: bool = False):
         self.backend, self.allow_members, self.buttons_only = backend, allow_members, buttons_only
         self.owner_id = identity.person_id(owner, SERVER_NAME)     # full IDs only: should_ignore compares them
-        self.owner = identity.handle(self.owner_id, SERVER_NAME)   # folders and names: anna, alice-at-...-agent
+        self.owner = agent_handle(self.owner_id)   # folders and names: anna, cx-codex, alice-at-... (one per agent)
         self.owner_name = identity.split(self.owner_id)[0]         # how people call them: anna, alice
         self.user_id = f"@{self.owner}-agent:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id=f"BRIDGE_{self.owner.upper()}")
@@ -188,7 +188,7 @@ class Bridge(BridgeVoice, BridgeCustom):
                                                    room.room_id, self.user_id)
         except OSError:
             web = False                       # can't read the grants: no extra tools
-        prompt = (f"You are {self.owner}'s personal AI agent ({self.user_id}) in the Matrix chat room "
+        prompt = (f"You are {self.owner_name}'s personal AI agent ({self.user_id}) in the Matrix chat room "
                   f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n\n"
                   + room_context.describe(snap)
                   + ("\nThe project's files (default branch) are in ./projects/" + room_context.repo_dir(repo) + ": read them when the question is "
@@ -199,7 +199,7 @@ class Bridge(BridgeVoice, BridgeCustom):
             reply = await agents.run_turn(self.backend, workdir, prompt, web=web)
         except agents.AgentError as e:
             log.error("agent failed in %s: %s", room.room_id, e)
-            reply = f"⚠️ {self.owner}'s agent ({self.backend}) failed: {room_safe(e)}"
+            reply = f"⚠️ {self.owner_name}'s agent ({self.backend}) failed: {room_safe(e)}"
         finally:
             typing.cancel()
             await self.client.room_typing(room.room_id, False)

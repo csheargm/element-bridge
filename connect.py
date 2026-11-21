@@ -3,11 +3,14 @@
   python connect.py CODE [--agent codex|claude]   # once, with the code @pm sent you
   python connect.py                               # later: start it again with the saved sign-in
   python connect.py --stop                        # stop it and remove the background service
+  python connect.py --name cx-codex-agent [--stop] # the same for a further agent of yours
 
 It trades @pm's one-time code for your agent's sign-in (POST <server>/connect), saves it in
 ~/.hagency/credentials.json (mode 600, never in this folder), and runs the bridge (bridge.py) as a
 background service (agent_service.py: launchd on macOS, systemd --user on Linux; --foreground, or
-neither available, runs it here instead). It works on this computer and obeys only you.
+neither available, runs it here instead). It works on this computer and obeys only you. A further
+agent of yours (one @pm made with ➕) keeps its own sign-in, log and service in ~/.hagency/<its name>/,
+so several run side by side.
 connect.sh (served by the Hagency console at /connect.sh) installs this and starts it.
 """
 import argparse
@@ -57,9 +60,23 @@ def redeem(server: str, code: str) -> dict:
     owner = data.get("owner") if isinstance(data, dict) else None
     if not (isinstance(data, dict) and USER_RE.match(str(data.get("user_id", ""))) and safe_url(str(data.get("homeserver", "")))
             and isinstance(owner, str) and (identity.USER_RE.match(owner) or identity.NAME_RE.match(owner))
-            and credentials_match(data["user_id"], owner) and isinstance(data.get("password"), str)):
+            and credentials_match(data["user_id"], owner, data.get("label")) and isinstance(data.get("password"), str)):
         raise SystemExit("✗ the server's answer doesn't look like an agent's sign-in; nothing was saved")
-    return {k: data[k] for k in ("homeserver", "user_id", "password", "owner")}
+    return {k: data[k] for k in ("homeserver", "user_id", "password", "owner", "label") if k in data}
+
+
+def agent_dir(home: Path, creds: dict) -> Path:
+    """Where this agent's sign-in, log and service live: ~/.hagency for a first agent, its own
+    folder for a further one (its name was checked: [a-z0-9-] only)."""
+    return home / agent_name(creds) if creds.get("label") else home
+
+
+def read_saved(path: Path) -> dict:
+    try:
+        saved = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError):
+        saved = {}                            # damaged: a new code replaces it
+    return saved if isinstance(saved, dict) else {}
 
 
 def save(path: Path, data: dict) -> None:
@@ -107,8 +124,12 @@ def background(creds: dict, path: Path) -> bool:
         return False
     print(f"✓ Your agent now runs in the background ({how}): you can close this Terminal. It starts again when\n"
           f"  you log in. Its log: {path.parent / 'logs' / (agent_name(creds) + '.log')}\n"
-          f"  To stop it: {sys.executable} {APP / 'connect.py'} --stop")
+          f"  To stop it: {sys.executable} {APP / 'connect.py'} {name_arg(creds)}--stop")
     return True
+
+
+def name_arg(creds: dict) -> str:
+    return f"--name {agent_name(creds)} " if creds.get("label") else ""
 
 
 def stop(saved: dict, home: Path) -> None:
@@ -130,13 +151,13 @@ def main() -> None:
     ap.add_argument("--pair-only", action="store_true", help="save the sign-in, don't start the agent")
     ap.add_argument("--foreground", action="store_true", help="run here (Ctrl-C stops it), not as a background service")
     ap.add_argument("--stop", action="store_true", help="stop the agent and remove its background service")
+    ap.add_argument("--name", help="a further agent of yours, by its name (e.g. cx-codex-agent)")
     args = ap.parse_args()
-    path = args.home.resolve() / "credentials.json"
-    try:
-        saved = json.loads(path.read_text()) if path.exists() else {}
-    except (OSError, ValueError):
-        saved = {}                            # damaged: a new code replaces it
-    saved = saved if isinstance(saved, dict) else {}
+    if args.name and not USER_RE.match(f"@{args.name}:x"):
+        raise SystemExit(f"✗ {args.name} isn't an agent's name (like cx-codex-agent)")
+    home = args.home.resolve()
+    path = (home / args.name if args.name else home) / "credentials.json"
+    saved = read_saved(path)
     if args.stop:
         stop(saved, path.parent)
         return
@@ -147,10 +168,17 @@ def main() -> None:
         if not safe_url(args.server):
             raise SystemExit(f"✗ {args.server}: use https (plain http only for this computer)")
         saved = redeem(args.server, args.code)
+        path = agent_dir(home, saved) / "credentials.json"       # a further agent: its own folder
+        if saved.get("label") and not args.agent:   # its own last choice, or what it's called ("codex"), if installed
+            backend = next((b for b in (read_saved(path).get("agent"), saved["label"]) if b in BACKENDS and shutil.which(b)),
+                           backend)
     creds = {**saved, "agent": backend}
     save(path, creds)
     print(f"✓ connected as {creds['user_id']} ({creds['agent']}); only {creds['owner']} can direct it")
     if args.pair_only:
+        if creds.get("label") and os.name == "nt":   # connect.ps1 registers only the first agent's task (for now)
+            raise SystemExit(f"✓ saved. On Windows a further agent runs in a window for now: "
+                             f"{sys.executable} {APP / 'connect.py'} --name {agent_name(creds)} --foreground")
         return
     if not args.foreground and background(creds, path):
         return

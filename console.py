@@ -115,6 +115,18 @@ def redeem(code: str) -> tuple[str, str] | None:
     return (user, room) if user and time.time() < expires else None
 
 
+def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
+    """"My agents": each agent registered to exactly `user` (by full ID), the first first."""
+    grants, found = loop.grants_cache.get(room_id, {}), []
+    for a in registry.agents_of(user):
+        if registry.owns(user, a["localpart"]):
+            aid = f"@{a['localpart']}:{SERVER_NAME}"
+            found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
+                          "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
+                          "web": "web" in grants.get(aid, {}), "here": aid in room.users})
+    return found
+
+
 async def view(loop, room_id: str, user: str) -> dict:
     """What this user may see and change in this room."""
     room = loop.client.rooms.get(room_id)
@@ -123,7 +135,8 @@ async def view(loop, room_id: str, user: str) -> dict:
     local = user.split(":")[0].lstrip("@")
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
-    return {"user": local, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    mine = my_agents(loop, room, room_id, user)
+    return {"user": local, "agents": mine, "can_add": bool(mine) and len(registry.agents_of(user)) < registry.per_person(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "follow": registry.follow(user) if agent else None,
@@ -137,8 +150,9 @@ async def view(loop, room_id: str, user: str) -> dict:
             "html": panel_html(loop, room_id) if panel_html else ""}
 
 
-async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
-    """Do one change as `user`, through @pm's own checks (each also posts its usual chat line)."""
+async def act(loop, room_id: str, user: str, action: str, value: str, agent: str = "") -> str:
+    """Do one change as `user`, through @pm's own checks (each also posts its usual chat line);
+    `agent`: which of their agents (empty: their first)."""
     room = loop.client.rooms.get(room_id)
     if room is None or not loop.is_person(room, user):     # a joined human (never an agent or a bot)
         return "you're not in that room"
@@ -149,11 +163,14 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
                        f"Mode changed to {value} by {user.split(':')[0][1:]} (from the console).")
         return "ok"
     if action == "follow" and value in registry.FOLLOW:
-        await loop.set_follow(room, user, value)
+        await loop.set_follow(room, user, value, agent or None)
         return "ok"
     if action == "web" and value in ("on", "off"):
-        await loop.set_grant(room, user, "web", value == "on")
+        await loop.set_grant(room, user, "web", value == "on", agent or None)
         return "ok"
+    if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
+        dm = await loop.private_room(user)
+        return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"
     if action == "repo":
         return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
     if action == "check":
@@ -165,7 +182,7 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
         customize.go_back(local)
         return "ok"
     if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
-        done = await loop.disconnect(await loop.private_room(user) or room_id, user)
+        done = await loop.disconnect(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't disconnect it (see my message)"
     if action == "approve":
         if loop.pending.get(room_id, {}).get("event_id") != value:
@@ -245,7 +262,7 @@ def routes(loop, panel_html_fn) -> list:
         if not user:
             return reply({"error": "sign in"}, 401)
         return reply({"result": await act(loop, str(body.get("room", "")), user, str(body.get("action", "")),
-                                          str(body.get("value", "")))})
+                                          str(body.get("value", "")), str(body.get("agent", ""))[:120])})
     return [web.post("/auth/openid", auth_openid), web.post("/auth/link", auth_link),
             web.get("/console/state", state), web.post("/console/action", action),
             *connect_page.routes()]                # the Connect page and the Windows installer

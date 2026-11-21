@@ -6,8 +6,9 @@ account is made here, named from their full Matrix ID (identity.py), and obeys o
 
 Limits, since anyone on any server can ask:
   - HAGENCY_ALLOW_REMOTE=0 turns it off (default on);
-  - one agent per full Matrix ID (the name is derived from it, registry.py records it);
-  - at most HAGENCY_REMOTE_PER_HOUR new ones per hour, for everyone together (default 10);
+  - at most HAGENCY_AGENTS_PER_PERSON agents per full Matrix ID (registry.py; names derived from it);
+  - at most HAGENCY_REMOTE_PER_HOUR new ones per hour, for everyone together (default 10), a
+    person's further agents included;
   - @pm joins at most DM_JOINS_PER_HOUR private chats people from other servers open with it
     (DM_JOINS_PER_PERSON from any one of them), and leaves one that isn't just the two of them.
 """
@@ -38,16 +39,25 @@ def now() -> float:
     return time.time()
 
 
-def check_new(people: dict, person: str, at: float | None = None) -> None:
+def created_times(people: dict) -> list[float]:
+    """When each agent in `people` (registry.load()) was made, first agents and further ones alike."""
+    times = []
+    for v in people.values():
+        more = v.get("more") if isinstance(v.get("more"), list) else []
+        times += [e.get("created") for e in [v, *more] if isinstance(e, dict)]
+    return [t for t in times if isinstance(t, (int, float))]
+
+
+def check_new(people: dict, person: str, at: float | None = None, further: bool = False) -> None:
     """Raise AccountError unless `person` (from another server) may get or keep setting up an agent
-    now. `people` is registry.load(): each remote agent records when it was "created"."""
+    now; `further`: one more agent besides theirs. `people` is registry.load(): each remote agent
+    records when it was "created"."""
     if not allowed():
         raise AccountError(OFF)
-    if person in people:                      # theirs already: one agent per full ID, never counted twice
+    if person in people and not further:      # theirs already: never counted twice
         return
     at = now() if at is None else at
-    recent = [v for v in people.values() if isinstance(v.get("created"), (int, float)) and v["created"] > at - HOUR_S]
-    if len(recent) >= per_hour():
+    if sum(t > at - HOUR_S for t in created_times(people)) >= per_hour():
         raise AccountError(FULL)
 
 

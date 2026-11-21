@@ -26,6 +26,10 @@ class Watchdog(unittest.TestCase):
         self.lp.say = mock.AsyncMock()
         self.lp.open_issues = {}
         self.lp.boards, self.lp.save_boards = {}, lambda: None
+        owners = mock.patch("ownership.owner_id", lambda a: a.replace("-agent", ""))   # each agent: its own person
+        owners.start()
+        self.addCleanup(owners.stop)
+        self.lp._seen = {}                            # nobody known offline
 
     def item(self, stage, age_s, **kw):
         sent = time.time() - age_s

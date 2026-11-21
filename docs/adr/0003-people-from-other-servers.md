@@ -21,7 +21,7 @@ matrix.org and other servers, though federation works.
   any room @pm is in): they never registered here, so there is no Welcome for them. @pm joins
   their chat, sends the offer in a chat it makes itself (theirs may be encrypted, which @pm
   can't read) and says where to find it.
-- **Limits** (remote_people.py): `HAGENCY_ALLOW_REMOTE=0` turns it off; one agent per full ID; at
+- **Limits** (remote_people.py): `HAGENCY_ALLOW_REMOTE=0` turns it off; one agent per full ID (since ADR 0005: up to `HAGENCY_AGENTS_PER_PERSON`); at
   most `HAGENCY_REMOTE_PER_HOUR` (10) new ones an hour for everyone together; @pm joins at most 30
   private chats from other servers an hour.
 

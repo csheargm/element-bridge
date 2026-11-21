@@ -109,13 +109,41 @@ def _provision(person: str) -> str:
     return agent
 
 
-def disconnect(person: str) -> None:
-    """A new password for `person`'s remote agent (saved first, put back if Synapse refuses or can't
-    be asked) and every session signed out: the copy on their computer stops working until a new
-    code. The caller revokes their codes first. Blocking I/O."""
+def provision_more(person: str, label: str) -> str:
+    """A further agent of `person`, called `label` (registry.clean_label), as a remote agent; returns
+    its localpart. Counted against their cap (and, from another server, the hourly cap) BEFORE its
+    account exists. Raises AccountError with a sentence for them. Blocking I/O."""
+    with WRITING:
+        person = registry.person_id(person)
+        first = registry.find(person, None)
+        if first is None or not registry.owns(person, first["localpart"]):
+            raise AccountError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
+        found = registry.find(person, label)
+        if found is None or found["first"]:   # new (an unfinished one with this name is finished instead)
+            if registry.local_name(person) is None:
+                remote_people.check_new(registry.load(), person, further=True)
+            try:
+                found = registry.add_agent(person, label)
+            except ValueError as e:
+                raise AccountError(str(e)) from e
+        agent = found["localpart"]
+        if found["agent"] != registry.REMOTE or registry.claimants(agent) != [person]:
+            raise AccountError("that agent's account name is taken here; choose another name")
+        password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
+        if not found.get("dm"):
+            registry.update(person, agent, dm=open_dm(agent, password, person))
+        return agent
+
+
+def disconnect(person: str, agent: str | None = None) -> None:
+    """A new password for this remote agent of `person` (default: their first; saved first, put back
+    if Synapse refuses or can't be asked) and every session signed out: the copy on their computer
+    stops working until a new code. The caller revokes its codes first. Blocking I/O."""
     with WRITING:
         person, env = registry.person_id(person), load_env()
-        agent = registry.agent_of(person)
+        agent = agent or registry.agent_of(person)
+        if not registry.owns(person, agent):
+            raise AccountError(f"@{agent} isn't your agent")
         key = setup_accounts.password_key(agent)
         old, new = env.get(key), secrets.token_urlsafe(18)
         setup_accounts.save_env({**env, key: new})
@@ -130,27 +158,31 @@ def disconnect(person: str) -> None:
             raise AccountError(f"couldn't give @{agent} a new password: {r.get('errcode')}")
 
 
-def locked_credentials(person: str) -> dict | None:
+def locked_credentials(person: str, agent: str | None = None) -> dict | None:
     """credentials_for, never in the middle of a set-up or a disconnect (.env read-modify-write)."""
     with WRITING:
-        return credentials_for(person)
+        return credentials_for(person, agent)
 
 
-def credentials_for(person: str) -> dict | None:
-    """What connect.py needs to run `person`'s agent, or None if it isn't a remote agent any more."""
+def credentials_for(person: str, agent: str | None = None) -> dict | None:
+    """What connect.py needs to run this agent of `person` (None: their first), or None if it isn't
+    a remote agent of theirs any more."""
     person = registry.person_id(person)       # codes issued before full IDs hold a bare name
-    if registry.load().get(person, {}).get("agent") != registry.REMOTE:
+    found = registry.find(person, agent)
+    if found is None or found["agent"] != registry.REMOTE or (agent and found["localpart"] != agent):
         return None
     if not registry.local_name(person) and not remote_people.allowed():
         return None                           # turned off: no new sign-ins for other servers' people
-    agent = registry.agent_of(person)
-    if agent != identity.agent_localpart(person, SERVER_NAME) or not registry.owns(person, agent):
+    label = None if found["first"] else found["label"]
+    agent = found["localpart"]
+    if agent != identity.agent_localpart(person, SERVER_NAME, label) or not registry.owns(person, agent):
         return None                           # an odd record: connect.py checks the derived name, and only theirs
     password = load_env().get(setup_accounts.password_key(agent))
     if not password:
         return None
     owner = registry.local_name(person) or person   # a bare name here: what an older connect.py accepts
-    return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner}
+    return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner,
+            **({"label": label} if label else {})}
 
 
 def routes() -> list:
@@ -164,8 +196,8 @@ def routes() -> list:
             body = await request.json()
         except ValueError:                    # not JSON: the same answer as a wrong code
             body = {}
-        person = CODES.redeem(body.get("code") if isinstance(body, dict) else None)
-        creds = await asyncio.to_thread(locked_credentials, person) if person else None
+        person, agent = CODES.redeem_agent(body.get("code") if isinstance(body, dict) else None)
+        creds = await asyncio.to_thread(locked_credentials, person, agent) if person else None
         if not creds:
             LIMIT.failed(client)
             return web.json_response({"error": "that code is wrong, used or expired: ask @pm for a new one"},

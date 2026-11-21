@@ -179,6 +179,10 @@ class AlreadyDone(unittest.TestCase):
         self.lp.say = mock.AsyncMock()
         self.lp.agents_in = lambda room: ["@b-agent:x", "@r-agent:x"]
         self.item = self.lp.state["7"]
+        owners = mock.patch("ownership.owner_id", lambda a: a.replace("-agent", ""))   # each agent: its own person
+        owners.start()
+        self.addCleanup(owners.stop)
+        self.lp._seen = {}                            # nobody known offline
 
     def deliver(self, sender, result):
         asyncio.run(self.lp.on_result(SimpleNamespace(room_id="!r"), sender, {"issue": 7, **result}))

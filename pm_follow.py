@@ -66,20 +66,23 @@ class Follow:
     async def bring_agent(self, room: MatrixRoom, person: str) -> None:
         if self.is_welcome_room(room) or pm_settings.is_my_chat(room, self.user_id, getattr(self, "dm_rooms", {})):
             return                            # Welcome (everyone's first room) and my private chats, old or new: no agents
-        agent = ownership.agent_id(person)
         local = person.split(":")[0].lstrip("@")
-        if (not registry.owns(person, agent.split(":")[0][1:]) or agent in room.users
-                or registry.follow(person) == "never"):
-            return                            # not their registered agent, already here, or they said never
-        if registry.follow(person) == "ask":
-            event_id = await self.say(room.room_id, f"Welcome {local}! Bring your agent ({agent.split(':')[0][1:]}) "
-                                                    "into this room? Click 👍 below to bring it.")
-            self.pending[room.room_id] = {"kind": "bring", "agent": agent, "event_id": event_id,
-                                          "until": time.time() + CONFIRM_S, "by": person}
-            await self.offer_thumb(room.room_id, event_id)
-            return
-        await self.invite_agent(room.room_id, agent, f"{local} joined, so their agent came along "
-                                                     "(say \"don't bring my agent\" to change that).")
+        for found in registry.agents_of(person):  # each of their agents by its own setting (ADR 0005)
+            name = found["localpart"]
+            agent = f"@{name}:{SERVER_NAME}"
+            if not registry.owns(person, name) or agent in room.users or found["follow"] == "never":
+                continue                      # not their registered agent, already here, or they said never
+            if found["follow"] == "ask":
+                if not found["first"] and room.room_id in self.pending:
+                    continue                  # one question at a time in a room; they can invite it themselves
+                event_id = await self.say(room.room_id, f"Welcome {local}! Bring your agent ({name}) "
+                                                        "into this room? Click 👍 below to bring it.")
+                self.pending[room.room_id] = {"kind": "bring", "agent": agent, "event_id": event_id,
+                                              "until": time.time() + CONFIRM_S, "by": person}
+                await self.offer_thumb(room.room_id, event_id)
+                continue
+            await self.invite_agent(room.room_id, agent, f"{local} joined, so their agent{'' if found['first'] else ' ' + name} came along "
+                                                         "(say \"don't bring my agent\" to change that).")
 
     async def invite_agent(self, room_id: str, agent: str, note: str) -> None:
         resp = await self.client.room_invite(room_id, agent)
@@ -89,23 +92,28 @@ class Follow:
         await self.say(room_id, note)
 
     async def remove_agent(self, room: MatrixRoom, person: str) -> None:
-        agent = ownership.own_agent_id(person)     # only their own: never someone else's on a bad record
-        if agent and ownership.joined(room, agent):
-            await self.client.room_kick(room.room_id, agent, reason="its owner left the room")
+        for found in registry.agents_of(person):   # only their own: never someone else's on a bad record
+            agent = f"@{found['localpart']}:{SERVER_NAME}"
+            if registry.owns(person, found["localpart"]) and ownership.joined(room, agent):
+                await self.client.room_kick(room.room_id, agent, reason="its owner left the room")
 
-    async def set_follow(self, room: MatrixRoom, sender: str, value: str) -> None:
-        """Only ever the sender's OWN setting (by full ID: from any server, never a same-named other)."""
+    async def set_follow(self, room: MatrixRoom, sender: str, value: str, agent: str | None = None) -> None:
+        """Only ever the sender's OWN setting (by full ID: from any server, never a same-named other),
+        for one agent of theirs (None, as in the chat: their first)."""
         local = sender.lstrip("@").partition(":")[0]
-        if not registry.owns(sender, registry.agent_of(sender)):
-            await self.say(room.room_id, f"{local}, you don't have an agent registered here yet.")
+        found = registry.find(sender, agent)
+        if found is None or not registry.owns(sender, found["localpart"]):
+            await self.say(room.room_id, f"{local}, you don't have {'that agent' if agent else 'an agent'} registered here.")
             return
-        registry.set_follow(sender, value)
-        await self.say(room.room_id, f"OK {local}: {FOLLOW_WORDS[value]}.")
+        registry.set_follow(sender, value, found["localpart"])
+        which = "" if found["first"] else f" ({found['localpart']})"
+        await self.say(room.room_id, f"OK {local}: {FOLLOW_WORDS[value]}{which}.")
 
-    async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool) -> None:
-        """The owner lets their OWN agent use a capability in THIS room (or stops it)."""
+    async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool, agent: str | None = None) -> None:
+        """The owner lets their OWN agent (None: their first) use a capability in THIS room (or stops it)."""
         local = sender.lstrip("@").partition(":")[0]
-        agent_local = registry.agent_of(sender)
+        found = registry.find(sender, agent)
+        agent_local = found["localpart"] if found else registry.agent_of(sender)
         if not registry.owns(sender, agent_local):
             await self.say(room.room_id, "Only people with an agent registered on this server can do that.")
             return

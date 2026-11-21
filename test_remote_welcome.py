@@ -23,6 +23,7 @@ class Joining(unittest.TestCase):
         use_registry(self, {"anna": {"agent": "hermes"}})
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy, self.lp._welcomes = PM, 0, set(), {}
+        self.lp._add_offers = {}                      # pm_agents.py: never the real data folder
         self.said = []
 
         async def say(room_id, body, mention=None, **k):
