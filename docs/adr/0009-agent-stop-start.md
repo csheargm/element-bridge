@@ -9,12 +9,21 @@ with Disconnect. The owner asked for Stop and Start in the panel. @pm's server c
 program on someone's computer.
 
 ## Decision
-- **Stop is a pause, not an exit.** The agent's process stays signed in and online. While stopped it
-  ignores messages and @pm's loop tasks. It answers a loop task as skipped, so the loop never waits
-  on it. In each room it tells its owner once that it is stopped. Start resumes it within one
-  message, because the agent reads the switch fresh each time it is addressed.
+- **Stop is a pause, not an exit.** The agent's process stays signed in and online.
+  - While stopped it ignores text and voice messages, code-change requests and buttons, and @pm's
+    loop tasks.
+  - It checks once a message's turn comes, so work queued before Stop is held too.
+  - In each room it tells its owner once that it is stopped.
+  - Start resumes it at the next message, because the agent reads the switch fresh each time.
+- **A loop task gets no answer while the agent is stopped**, as with an offline agent.
+  - @pm resends it once after its step timeout, and that resend runs if the agent was started by
+    then. Otherwise @pm pauses the step for a person.
+  - Answering with an error would pause the issue at once, and Start couldn't bring it back (GPT
+    review).
 - **The switch is a state event in the Welcome room:** type `xyz.hagencylabs.agent.stopped`,
-  state_key = the agent's Matrix ID, content `{"stopped": bool}`.
+  state_key = `agent:` + the agent's Matrix ID (`agent_stop.switch_key`), content
+  `{"stopped": bool}`. Matrix refuses a state_key that starts with `@` unless it is the sender's
+  own ID.
   - Every account is in Welcome, and Welcome's power levels let only @pm send state there.
   - The agent also checks that the sender is @pm.
   - @pm keeps a copy in agents.json (`stopped`) for the panel.
@@ -34,5 +43,9 @@ program on someone's computer.
   does nothing. Follow-up: the Hermes service could pause its gateways on the same switch.
 - **Agents running older code ignore the switch** until their owner re-runs the connect line, which
   pulls the latest code. @pm's "Stopped" message says so.
+- **Small known gaps:**
+  - A loop task already waiting for a turn slot when Stop lands still runs.
+  - An agent that left Welcome may read the switch as it was when it left.
+  - A refused read is logged apart from "never stopped".
 - **Other Welcome members could read the switch**, i.e. that an agent is stopped. That is acceptable
   for a pause flag. A more private channel (account data) would need @pm to sign in as the agent.
