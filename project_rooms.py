@@ -8,6 +8,7 @@ A room bound to a private GitHub repo can't be open, and a listing never shows a
 Listed and open rooms are in this server's room directory, which other Matrix servers can read too.
 Joining never gives anyone a say in how the room runs: mode, repo and approvals stay with moderators.
 """
+import asyncio
 import json
 import logging
 import re
@@ -115,9 +116,18 @@ async def apply(client: AsyncClient, room_id: str, value: str, current: str = OP
 
     closing = RANK[value] <= RANK.get(current, RANK[OPEN])
     for step in ((rule, directory) if closing else (directory, rule)):
-        if failed := await step():
-            if not closing and step is rule:  # opening stopped halfway: take the listing back down
-                await publish(client, room_id, DIRECTORY[current] == "public" if current in DIRECTORY else False)
+        try:
+            failed = await step()
+        except (OSError, asyncio.TimeoutError) as e:   # the network itself: the same as a refusal
+            failed = f"⚠️ I couldn't reach the server ({type(e).__name__}); please try again."
+        if failed and not closing and step is rule:   # opening stopped halfway: take the listing back down
+            try:
+                undone = await publish(client, room_id, DIRECTORY.get(current) == "public")
+            except (OSError, asyncio.TimeoutError):
+                undone = False
+            if not undone:
+                failed += " It may still show in the room directory: set it to private again to remove it."
+        if failed:
             return failed
     saved = await client.room_put_state(room_id, VISIBILITY_EVENT, {"visibility": value})   # last: what is in force
     return None if hasattr(saved, "event_id") else f"⚠️ I couldn't save the setting: {getattr(saved, 'status_code', saved)}"

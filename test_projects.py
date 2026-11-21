@@ -291,6 +291,16 @@ class Visibility(Base):
         self.assertNotIn(project_rooms.VISIBILITY_EVENT, self.state.get("!a", {}))
         self.assertEqual(json.loads(self.lp.client.send.call_args.args[2]), {"visibility": "private"})   # unlisted again
 
+    def test_a_network_failure_while_opening_is_handled_and_a_failed_rollback_is_said(self):
+        async def broken_rule(rid, kind, content, state_key=""):
+            raise OSError("connection reset")
+        listed = iter([SimpleNamespace(status=200, release=lambda: None), SimpleNamespace(status=500, release=lambda: None)])
+        self.lp.client.send = mock.AsyncMock(side_effect=lambda *a, **k: next(listed))
+        self.lp.client.room_put_state = broken_rule
+        answer = run(self.lp.set_visibility(self.room, ANNA, "listed"))
+        self.assertIn("couldn't reach the server", answer)
+        self.assertIn("set it to private again", answer)
+
     def test_a_private_repos_room_never_has_public_history(self):
         self.bind("!a")
         self.state["!a"]["m.room.history_visibility"] = ({"history_visibility": "world_readable"}, ANNA)

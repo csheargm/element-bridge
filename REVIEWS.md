@@ -834,3 +834,6 @@ Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and w
   the join rule takes the listing back down and records nothing.
   Rejected: migrating rooms that stored "runs_in" in state: that format never left this branch
   (nothing was deployed with it).
+- (last re-check) Adopted: a network error while opening is handled like a refusal, and a listing
+  that couldn't be taken back down is said ("set it to private again"). Not adopted: follow-me's
+  room-name check for my chats (pre-existing, not part of this branch's addressing).
