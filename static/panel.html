@@ -89,21 +89,22 @@ if (embedded) window.addEventListener("message", ev => {
     if (m.action === "capabilities" && !capable) { capable = true; if (!session) setTimeout(askOpenId, 300); }
     if (m.action === "notify_capabilities") canNavigate = ((m.data || {}).approved || []).includes(NAVIGATE);
     if (m.action === "openid_credentials" && openidRequest && m.data && m.data.original_request_id === openidRequest)
-      m.data.state === "allowed" ? gotToken(m.data.access_token) : failed(REFUSED);   // after Element's prompt
+      m.data.state === "allowed" ? gotToken(m.data) : failed(REFUSED);   // after Element's prompt
   } else if (m.api === "fromWidget" && navRequest && m.requestId === navRequest && m.response) {
     navRequest = null;
     if (m.response.error) navFallback();
   } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
     const r = m.response;
-    if (r.state === "allowed") gotToken(r.access_token);
+    if (r.state === "allowed") gotToken(r);
     else if (r.state === "request") failed("Allow Hagency in Element's prompt to sign in.");   // a person's answer: no timeout
     else failed(r.state === "blocked" ? REFUSED : NO_ANSWER);   // an error reply ({error}) included
   }
 });
 function askOpenId() { gotCredentials = false; openidRequest = "openid-" + crypto.randomUUID(); signingIn();
   window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: openidRequest, action: "get_openid", data: {}}, ELEMENT); }
-async function gotToken(t) { if (gotCredentials) return; gotCredentials = true; signingIn();
-  const r = await post("/auth/openid", {access_token: t}); r.session ? signedIn(r.session) : failed(r.error || NO_ANSWER); }
+// The server that issued the token checks it (ours, or theirs over federation: fed_openid.py).
+async function gotToken(c) { if (gotCredentials) return; gotCredentials = true; signingIn();
+  const r = await post("/auth/openid", {access_token: c.access_token, matrix_server_name: c.matrix_server_name}); r.session ? signedIn(r.session) : failed(r.error || NO_ANSWER); }
 async function start() {
   if (linkCode) { const code = linkCode; linkCode = null; signingIn();   // used once: never replayed (GPT review)
     const r = await post("/auth/link", {code});

@@ -3,7 +3,7 @@
 
 Who is looking:
   - in Element: the widget asks Element for an OpenID token (Matrix widget API, one-time "allow"),
-    and we verify it with the homeserver (/_matrix/federation/v1/openid/userinfo);
+    and we verify it with the server that issued it, ours or another over federation (fed_openid.py);
   - anywhere else: "@pm send me my console link" → @pm DMs a one-time link (10 min, single use).
 Either way the page gets a short-lived session bound to that Matrix user.
 
@@ -27,6 +27,7 @@ import pm_kinds
 import console_personal
 import console_repo
 import customize
+import fed_openid
 import github
 import github_link
 import ownership
@@ -42,10 +43,7 @@ _sessions: dict[str, tuple[str, float, str | None]] = {}   # session → (user, 
 _links: dict[str, tuple[str, float, str]] = {}             # one-time code → (user, expires, room)
 USER_RE = re.compile(r"^@[a-z0-9._=/+-]+:" + re.escape(SERVER_NAME) + "$")
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
-# Element's sign-in token is checked with OUR homeserver, which knows only its own people. Someone
-# from another server signs in with a one-time link instead (checking their server's token over
-# federation is future work: it means fetching a URL their server names).
-NOT_VERIFIED = "couldn't verify you here; from another server? Say \"@pm send me my console link\" in the room"
+NOT_VERIFIED = "couldn't verify you with your server; say \"@pm send me my console link\" in the room to sign in"
 PORT = int(os.environ.get("PANEL_PORT", "8650"))
 # Also safe inside sh: it goes into the install line and connect.sh (GPT review 21).
 URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1))(:\d{1,5})?$")
@@ -263,7 +261,10 @@ def routes(loop, panel_html_fn) -> list:
     async def auth_openid(request):
         if not allowed(request, True):
             return reply({"error": "refused"}, 403)
-        user = await asyncio.to_thread(openid_user, (await request.json()).get("access_token", ""))
+        import remote_agent                   # here: it imports this module; client_of: the proxy-aware address
+        body = await request.json()
+        user = await asyncio.to_thread(fed_openid.user_of, *(body.get(k) for k in ("access_token", "matrix_server_name")),
+                                       remote_agent.client_of(request), SERVER_NAME, openid_user)
         return reply({"session": new_session(user)} if user else {"error": NOT_VERIFIED})
 
     async def auth_link(request):

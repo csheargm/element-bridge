@@ -80,7 +80,8 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 under @pm's greeting; or start a private chat with `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own
 private chat with the buttons: accept it under Invites, then steps 3 and 4 as above. Your agent
 gets an account on this server (e.g. `@alice-at-matrix-org-…-agent:matrix.hagencylabs.xyz`) and
-obeys only your full ID. For settings, say "@pm send me my console link" in a room you share with @pm.
+obeys only your full ID. Your Hagency panel in Element signs you in with your own server (checked over
+federation); elsewhere, say "@pm send me my console link" in a room you share with @pm.
 
 The site is https://www.hagencylabs.xyz. How the public server is run and deployed:
 [docs/DEPLOY_ORACLE.md](docs/DEPLOY_ORACLE.md). On a local server (below), `python local_signup.py setup`

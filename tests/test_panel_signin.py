@@ -18,7 +18,7 @@ const vm = require("vm");
 const [script, scenario, element] = [process.argv[2], process.argv[3], process.argv[4]];
 const els = {me: {textContent: "Signing in…", innerHTML: ""}};
 const el = id => els[id] || (els[id] = {textContent: "", innerHTML: "", value: ""});
-let timers = [], listener = null, store = {}, calls = [];
+let timers = [], listener = null, store = {}, calls = [], sent = [];
 const parent = {posted: [], postMessage(m) { this.posted.push(m); }};
 const routes = JSON.parse(process.argv[5]);
 const ctx = {
@@ -31,6 +31,7 @@ const ctx = {
   setInterval() {},
   AbortSignal: {timeout: () => { const c = new AbortController(); timers.push(() => c.abort()); return c.signal; }},
   fetch: async (path, opts) => { const p = path.split("?")[0].replace(/^\/?/, "/"); calls.push(p);
+    if (p === "/auth/openid") sent.push(opts.body);
     let r = routes[p]; if (r === "first_then_hang") r = calls.filter(c => c === p).length > 1 ? "hang" : routes.first;
     if (r === "hang") return new Promise((_, no) => opts && opts.signal && opts.signal.addEventListener("abort", () => no(new Error("aborted"))));
     if (r === undefined || r === "broken") return {status: 500, json: async () => { throw new SyntaxError("<html>"); }};
@@ -56,6 +57,8 @@ const asked = () => parent.posted.filter(m => m.action === "get_openid").pop();
                 data: {state: "blocked", original_request_id: asked().requestId}});
   }
   if (["broken_server", "lobby", "happy", "state_hangs", "poll_stalls"].includes(scenario)) await reply({state: "allowed", access_token: "t"});
+  if (scenario === "other_server") { await reply({state: "allowed", access_token: "t", matrix_server_name: "matrix.org"});
+    process.stdout.write(sent.join("|") + "\n"); }
   if (scenario === "expired") {
     process.stdout.write(els.me.textContent + "|" + (asked() ? "asked" : "not asked") + "\n");
     await send({api: "toWidget", requestId: "c1", action: "capabilities", data: {}});
@@ -141,6 +144,13 @@ class SignIn(unittest.TestCase):
                                                  "/console/state": {"status": 401, "body": {"error": "sign in"}}})
         self.assertEqual(sent, "1")
         self.assert_clear(last)
+
+    def test_the_token_goes_with_the_server_that_issued_it(self):
+        """Screen test: a matrix.org person couldn't sign in; @pm checks the token with THEIR server
+        (fed_openid.py), so the page sends Element's matrix_server_name along."""
+        sent, last = self.run_page("other_server", {"/auth/openid": {"body": {"session": "s"}}, "/console/state": {"body": VIEW}})
+        self.assertEqual(json.loads(sent), {"access_token": "t", "matrix_server_name": "matrix.org"})
+        self.assertEqual(last, "")
 
     def test_an_expired_session_asks_element_again(self):
         """A session from before @pm restarted: 401, then a fresh sign-in, never a stale page."""
