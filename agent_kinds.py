@@ -25,20 +25,20 @@ URL_CHARS_RE = re.compile(r"^[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$")   # no quo
 # What each kind is and needs on the person's computer: the Connect page's checklist, @pm's picker.
 ABOUT = {
     "codex": {"name": "Codex", "program": "codex",
-              "needs": ["Codex (npm i -g @openai/codex), signed in"]},
+              "needs": ["Codex, installed and signed in (npm i -g @openai/codex)"]},
     "claude": {"name": "Claude Code", "program": "claude",
-               "needs": ["Claude Code (npm i -g @anthropic-ai/claude-code), signed in"]},
+               "needs": ["Claude Code, installed and signed in (npm i -g @anthropic-ai/claude-code)"]},
     "hermes": {"name": "Hermes", "program": "hermes",
                "needs": ["Hermes Agent, with a model set up (hermes model)",
                          "Hagency's Matrix invite patch applied to Hermes (docs/hermes-matrix-invite-allowlist.patch)",
                          "macOS or Linux (on Windows: inside WSL)"]},
     "ollama": {"name": "Ollama (a model on your computer)", "program": "codex",
-               "needs": ["Ollama running (ollama.com), with the model pulled (ollama pull <model>)",
-                         "Codex (npm i -g @openai/codex): it drives the model; no OpenAI sign-in needed"]},
+               "needs": ["Ollama, open and running, with a model downloaded that can use tools (ollama.com)",
+                         "Codex (npm i -g @openai/codex): it runs the model as your agent; no OpenAI account needed"]},
     "remote": {"name": "Any OpenAI-compatible service", "program": "codex",
-               "needs": ["The service's address and your API key for it (asked for on your computer only)",
-                         "A service that speaks the OpenAI Responses API (/v1/responses)",
-                         "Codex (npm i -g @openai/codex): it drives the model; no OpenAI sign-in needed"]},
+               "needs": ["The service's address and your API key for it (you type the key on this computer only)",
+                         "A service that supports the OpenAI Responses API (/v1/responses)",
+                         "Codex (npm i -g @openai/codex): it runs the model as your agent; no OpenAI account needed"]},
 }
 
 

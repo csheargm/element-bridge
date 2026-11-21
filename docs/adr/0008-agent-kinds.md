@@ -106,6 +106,25 @@ carry, besides `homeserver`, `user_id`, `password`, `owner` and `label`:
 - Questions are printed on their own line, then read from stdin (`ask_line.py`). connect.ps1 pipes
   output through `Out-Host`, which shows a line only once it ends.
 
+### The Connect page (`connect_page.py`, `connect_status.py`, `static/connect.*`)
+- **The link:** `connect_page.page_link(code, kind)` gives `…/connect/start#CODE&kind=KIND`. The page
+  shows that kind's needs from `agent_kinds.kinds()` (embedded as JSON data, not script) in a
+  collapsed "Before you start". The command line also names the kind (`--agent` / `-Agent`), so
+  the computer's tools are checked before the code is used. On Windows, Hermes gets a plain note
+  instead of a command.
+- **The live status:** the page polls `POST /connect/status {"code"}` (every 3 s; slower after an
+  error; for at most 35 minutes) and stops on `connected` or `expired`. The answer is only
+  `{"state": "waiting"|"connected"|"expired"}`:
+  - **connected** means `POST /connect` handed out the sign-in for that code (remembered in memory,
+    by hash, for 30 minutes).
+  - **Limits:** 30 asks a minute per client. Codes that aren't live count as wrong codes on a
+    limiter of its own, so guessing here is as limited as at `/connect`, and a page can't lock out
+    connect.py.
+  - **Content-Security-Policy:** it now allows `connect-src 'self'` and nothing more. The code
+    still never appears in a URL the server sees.
+- **The "expired" link:** it points to `ELEMENT_ORIGIN/#/user/@pm:<server>`, the same for everyone,
+  so it reveals nothing.
+
 ### Windows
 - **Supported:** `connect.ps1` takes `-Agent codex|claude|ollama|remote`, `-Model`, `-BaseUrl` and
   `-NewKey`. It passes only what was given; connect.py then asks the rest in the same window. Its

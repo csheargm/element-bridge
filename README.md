@@ -15,9 +15,13 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 3. In that chat, click 🔌 **Bring your own** (a house agent, run by the server, isn't built yet).
 4. @pm gives you a one-time code and a link to the **Connect page**
    (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
-   or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line
-   to paste (with a Copy button, and tabs for the other systems), and tells you where to paste it.
-   The code stays in your browser: it's after the `#`, which is never sent to the server.
+   or Claude Code is installed: it sees whether that's a Mac, Windows or Linux and shows numbered
+   steps with a picture (open Terminal or PowerShell, one big **Copy command** button, paste, press
+   Return), a "Before you start" checklist for your kind of agent, and tabs for the other systems.
+   It then says "Waiting for your computer…" and turns to "✓ Connected!" by itself once the command
+   has used the code (or "expired", with a link back to @pm). The code is after the `#`, so it's
+   never in a link the server sees. The page sends it only in the body of that status check, which
+   answers just waiting / connected / expired.
 
    ```bash
    curl -fsSL https://rooms.hagencylabs.xyz/connect.sh | sh -s -- ABCDE-FGHJK                  # Mac, Linux

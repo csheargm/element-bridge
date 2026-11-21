@@ -17,6 +17,7 @@ import urllib.parse
 
 from aiohttp import web
 
+import connect_status
 import console
 import identity
 import local_signup
@@ -221,6 +222,7 @@ def routes() -> list:
             LIMIT.failed(client)
             return web.json_response({"error": "that code is wrong, used or expired: ask @pm for a new one"},
                                      status=400, headers=NO_STORE)
+        connect_status.mark_used(body["code"])   # the Connect page may now say "connected" (only that)
         return web.json_response(creds, headers=NO_STORE)
 
     async def installer(request):

@@ -37,8 +37,9 @@ class Routes(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f'<meta name="hagency-console" content="{PUBLIC}">', page)
         self.assertNotIn(connect_page.CONSOLE_MARK, page)
         csp = r.headers["Content-Security-Policy"]
-        self.assertIn("default-src 'none'", csp)        # so no connect-src: the script can't send the code
-        self.assertNotIn("connect-src", csp)
+        self.assertIn("default-src 'none'", csp)
+        self.assertEqual(re.findall(r"connect-src [^;]*", csp), ["connect-src 'self'"])   # the status, nowhere else
+        self.assertNotIn("unsafe", csp)
         self.assertEqual((r.headers["Referrer-Policy"], r.headers["Cache-Control"]), ("no-referrer", "no-store"))
         self.assertIn('src="/connect/start.js"', page)
         self.assertIn('href="/connect/start.css"', page)
@@ -80,13 +81,28 @@ class Routes(unittest.IsolatedAsyncioTestCase):
 
     def test_page_link_puts_the_code_in_the_fragment(self):
         self.assertEqual(connect_page.page_link("ABCDE-FGHJK"), f"{PUBLIC}/connect/start#ABCDE-FGHJK")
+        self.assertEqual(connect_page.page_link("ABCDE-FGHJK", "ollama"), f"{PUBLIC}/connect/start#ABCDE-FGHJK&kind=ollama")
+        self.assertEqual(connect_page.page_link("ABCDE-FGHJK", "x&y"), f"{PUBLIC}/connect/start#ABCDE-FGHJK")
 
 
 class Script(unittest.TestCase):
-    def test_it_never_makes_a_request(self):
+    def test_its_only_request_is_the_status_post_with_the_code_in_the_body(self):
         text = JS.read_text()
-        for word in ("fetch(", "XMLHttpRequest", "sendBeacon", "WebSocket", "EventSource", ".src =", "location.href ="):
+        self.assertEqual(re.findall(r"fetch\(([^,]*),", text), ["STATUS_PATH"])
+        self.assertIn('const STATUS_PATH = "/connect/status";', text)
+        self.assertIn('method: "POST"', text)
+        self.assertIn("body: JSON.stringify({ code })", text)
+        self.assertIn('credentials: "omit"', text)
+        for word in ("XMLHttpRequest", "sendBeacon", "WebSocket", "EventSource", ".src =", "location.href =", "innerHTML", "?code="):
             self.assertNotIn(word, text)
+
+    def test_the_page_carries_the_kinds_as_data_and_a_link_to_pm(self):
+        page = connect_page._page()
+        raw = re.search(r'<script id="kinds" type="application/json">(.*?)</script>', page, re.S).group(1)
+        self.assertEqual([k["kind"] for k in json.loads(raw)], list(connect_page.agent_kinds.KINDS))
+        self.assertNotIn(connect_page.KINDS_MARK, page)
+        self.assertIn(f'<meta name="hagency-pm" content="{connect_page.ELEMENT_ORIGIN}/#/user/@pm:', page)
+        self.assertEqual(page.count("<script"), 2)                         # the data block and our own file
 
 
 NODE = shutil.which("node")
@@ -134,6 +150,13 @@ class ScriptUnderNode(unittest.TestCase):
         got = self.run_js("['mac', 'linux', 'windows'].map(os => m.commandFor(os, data, 'ABCDE-FGHJK'))", PUBLIC)
         self.assertEqual(got, [f"curl -fsSL {PUBLIC}/connect.sh | sh -s -- ABCDE-FGHJK"] * 2 +
                          [f"& ([scriptblock]::Create((irm -UseBasicParsing {PUBLIC}/connect.ps1))) -Code ABCDE-FGHJK"])
+        kinded = self.run_js("['mac', 'windows'].map(os => m.commandFor(os, data, 'ABCDE-FGHJK', 'ollama'))", PUBLIC)
+        self.assertEqual(kinded, [f"curl -fsSL {PUBLIC}/connect.sh | sh -s -- ABCDE-FGHJK --agent ollama",
+                                  f"& ([scriptblock]::Create((irm -UseBasicParsing {PUBLIC}/connect.ps1))) -Code ABCDE-FGHJK -Agent ollama"])
+        for line in got + kinded:                                   # copied whole: no prompt sign, no line break
+            self.assertEqual(line, line.strip())
+            self.assertFalse(line.startswith(("$", ">", "PS")))
+            self.assertNotIn("\n", line)
 
 
 class WindowsInstaller(unittest.TestCase):
