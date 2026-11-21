@@ -125,6 +125,14 @@ def open_log(path: Path):
     return open(path, "ab")
 
 
+def open_log_or_nothing(path: Path):
+    """A log that can't be opened (full disk, no permission) must not keep the agent from running."""
+    try:
+        return open_log(path)
+    except OSError:
+        return open(os.devnull, "ab")
+
+
 def keep_running(home: Path, runs: int | None = None, spawn=subprocess.Popen, sleep=time.sleep,
                  clock=time.monotonic) -> None:
     """Run the bridge, and again each time it fails (`runs` limits it, for tests)."""
@@ -134,7 +142,7 @@ def keep_running(home: Path, runs: int | None = None, spawn=subprocess.Popen, sl
         creds = bridge_config.load_credentials(str(creds_path))   # each time: a new code may have replaced it
         argv, env = bridge_command(creds, creds_path)
         started = clock()
-        with open_log(home / "logs" / f"{agent_name(creds)}.log") as log:
+        with open_log_or_nothing(home / "logs" / f"{agent_name(creds)}.log") as log:
             proc = spawn(argv, cwd=str(APP), env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                          creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
             (home / "agent.pid").write_text(f"{os.getpid()}\n{proc.pid}\n")
@@ -169,9 +177,11 @@ def main() -> None:
                 tie_or_say(home)
             keep_running(home)
         except (SystemExit, OSError) as e:    # pythonw has no console: say why in the log, then stop
-            with open_log(home / "logs" / "connect_win.log") as log:
+            with open_log_or_nothing(home / "logs" / "connect_win.log") as log:
                 log.write(f"[connect_win] {e}\n".encode())
             raise SystemExit(1) from e
+        finally:
+            (home / "agent.pid").unlink(missing_ok=True)   # no stale numbers for a later stop
 
 
 if __name__ == "__main__":

@@ -88,6 +88,12 @@ class KeepRunning(unittest.TestCase):
         connect_win.tie_or_say(home, tie=refuse)
         self.assertIn("no job for the agent", (home / "logs" / "connect_win.log").read_text())
 
+    def test_an_unwritable_log_never_stops_the_agent(self):
+        home = home_with()
+        (home / "logs").write_text("not a folder")              # the log can't be opened
+        calls, _ = self.run_it(home, 1, [10])
+        self.assertEqual(len(calls), 1)
+
     def test_the_job_layout_matches_windows(self):
         """JOBOBJECT_EXTENDED_LIMIT_INFORMATION is 144 bytes on 64-bit Windows (112 on 32-bit)."""
         self.assertEqual(ctypes.sizeof(connect_win._JobLimits), 144 if ctypes.sizeof(ctypes.c_void_p) == 8 else 112)

@@ -123,9 +123,17 @@ def install(app: Path, owner: str, backend: str, agent: str, creds: Path, run=su
     return how
 
 
-def _stop_windows(agent: str, home: Path, run) -> bool:
-    """End and remove the task and the Startup shortcut; end a keeper started from Startup (only a
-    Python: agent.pid may name a process that has ended and whose number is reused)."""
+def _ours(pid: str, app: Path, run) -> bool:
+    """Is this PID still a Python running this installation's keeper or bridge? (A stale agent.pid
+    may name a reused number: only a command line naming our own files counts.)"""
+    ask = f"(Get-CimInstance Win32_Process -Filter 'ProcessId = {int(pid)}').CommandLine"
+    line = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ask],
+               capture_output=True, text=True).stdout.strip().lower()
+    return "python" in line and any(str(app / f).lower() in line for f in ("connect_win.py", "bridge.py"))
+
+
+def _stop_windows(agent: str, home: Path, run, app: Path) -> bool:
+    """End and remove the task and the Startup shortcut; end a keeper started from Startup."""
     task = windows_task(agent)
     existed = run(["schtasks", "/Query", "/TN", task], capture_output=True).returncode == 0
     if existed:
@@ -137,21 +145,21 @@ def _stop_windows(agent: str, home: Path, run) -> bool:
     link.unlink(missing_ok=True)
     pids = home / "agent.pid"
     for pid in (pids.read_text().split() if pids.exists() else []):
-        if not pid.isdigit():
-            continue
-        found = run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True)
-        if found.stdout.strip().lower().startswith('"python'):
+        if pid.isdigit() and _ours(pid, app, run):
             run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True)
+    pids.unlink(missing_ok=True)
     return existed
 
 
-def stop(agent: str, run=subprocess.run, home: Path | None = None) -> bool:
-    """Stop and remove the service; True if there was one. `home`: the sign-in folder (Windows)."""
+def stop(agent: str, run=subprocess.run, home: Path | None = None, app: Path | None = None) -> bool:
+    """Stop and remove the service; True if there was one. Windows: `home` is the sign-in folder,
+    `app` the installation whose keeper may be ended."""
     how = kind()
     if how is None:
         return False
     if how == WINDOWS:
-        return _stop_windows(agent, home or Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")), run)
+        return _stop_windows(agent, home or Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")), run,
+                             app or Path(__file__).resolve().parent)
     path = service_file(how, agent)
     if how == "launchd":
         run(["launchctl", "bootout", f"gui/{os.getuid()}/{label(agent)}"], capture_output=True)

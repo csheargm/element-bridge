@@ -68,7 +68,8 @@ function Stop-OldAgent {
     # Before updating: stop the running agent (connect_win.py's job ends the bridge with it), so its
     # files and Python aren't in use. agent.pid is the fallback for one started from Startup.
     $ErrorActionPreference = 'Continue'          # nothing to stop is not an error
-    Get-OurTasks | Stop-ScheduledTask -ErrorAction SilentlyContinue
+    $script:Stopped = @(Get-OurTasks)            # started again if this run fails before replacing them
+    $script:Stopped | Stop-ScheduledTask -ErrorAction SilentlyContinue
     $pidFile = Join-Path $HagencyHome 'agent.pid'
     if (-not (Test-Path $pidFile)) { return }
     $ours = @((Join-Path $App 'connect_win.py'), (Join-Path $App 'bridge.py'))
@@ -207,6 +208,7 @@ function Register-Agent([string]$VenvPy) {
 }
 
 $savedEncoding = $env:PYTHONIOENCODING
+$script:Stopped = @()
 try {
     $env:PYTHONIOENCODING = 'utf-8'              # Python's piped output on a cp1252 PC: no crash on its check marks
     if ($Code -notmatch $CodePattern) { throw 'that does not look like a code from @pm (like ABCDE-FGHJK)' }
@@ -224,9 +226,14 @@ try {
         & $venvPy (Join-Path $App 'connect.py') --server $Console --home $HagencyHome $Code --agent $backend --pair-only
     }
     Register-Agent $venvPy
+    $script:Stopped = @()
 } catch {
     # Not `exit`: this runs inside the person's own PowerShell window, which must stay open.
     Write-Host "x $($_.Exception.Message)" -ForegroundColor Red
+    if ($script:Stopped.Count) {                 # a failed rerun (expired code, no network): the old agent comes back
+        $script:Stopped | Start-ScheduledTask -ErrorAction SilentlyContinue
+        Write-Host 'Your agent was started again as it was.'
+    }
 } finally {
     $env:PYTHONIOENCODING = $savedEncoding       # this window's own setting, as it was
 }

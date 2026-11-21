@@ -624,3 +624,14 @@ Connect page and the Windows installer (GPT re-check), adopted with tests:
 Rejected or deferred:
 - A CLI reachable only through a PowerShell profile's PATH: the hint says it must be on the PATH.
 - README describes the link @pm will send: it lands with the @pm change (PR notes).
+
+Connect page, Windows service case and @pm's link (GPT, whole branch after the rebase), adopted with tests:
+- `connect.py --stop` on Windows ended any Python with a stale PID: only a command line naming this
+  installation's connect_win.py or bridge.py counts, and the keeper removes agent.pid when it ends.
+- A failed rerun (expired code, no network) left the old agent stopped: its tasks start again.
+- A bridge log that can't be opened no longer keeps the agent from running.
+Rejected or deferred:
+- Two sign-in folders with the same agent name on one PC share a task name (not a real setup).
+- Pairing with connect.py directly on Windows (not through connect.ps1) relies on the profile
+  folder's own private ACL; Startup resolved from %APPDATA% (a redirected Startup folder is rare);
+  stop doesn't report schtasks/taskkill failures.

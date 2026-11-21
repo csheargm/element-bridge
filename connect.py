@@ -115,7 +115,7 @@ def stop(saved: dict, home: Path) -> None:
     name = agent_name(saved)
     if not name:
         raise SystemExit("✗ not connected on this computer: nothing to stop")
-    print(f"✓ stopped {name} and removed its background service" if agent_service.stop(name, home=home)
+    print(f"✓ stopped {name} and removed its background service" if agent_service.stop(name, home=home, app=APP)
           else f"✓ {name} had no background service here (if it runs in a Terminal, press Ctrl-C there)")
 
 

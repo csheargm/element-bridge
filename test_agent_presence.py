@@ -72,7 +72,7 @@ class WindowsTask(unittest.TestCase):
         def run(args, **k):
             runs.append(args)
             code = 0 if args[:2] != ["schtasks", "/Query"] or exists else 1
-            return SimpleNamespace(returncode=code, stdout=tasklist if args[0] == "tasklist" else "", stderr="")
+            return SimpleNamespace(returncode=code, stdout=tasklist if args[0] == "powershell" else "", stderr="")
         return runs, run
 
     def test_start_runs_the_task_connect_ps1_made_or_runs_here(self):
@@ -83,7 +83,7 @@ class WindowsTask(unittest.TestCase):
             runs, run = self.run_with(False)
             self.assertIsNone(agent_service.install(Path("/app"), NEW, "claude", AGENT, CREDS, run=run))
 
-    def test_stop_ends_and_removes_the_task_the_shortcut_and_only_a_python_keeper(self):
+    def test_stop_ends_and_removes_the_task_the_shortcut_and_only_our_keeper(self):
         home, appdata = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
         startup = appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
         startup.mkdir(parents=True)
@@ -91,14 +91,19 @@ class WindowsTask(unittest.TestCase):
         (home / "agent.pid").write_text("101\n202\n")
         with mock.patch.object(agent_service, "kind", return_value=agent_service.WINDOWS), \
                 mock.patch.dict("os.environ", {"APPDATA": str(appdata)}):
-            runs, run = self.run_with(True, tasklist='"pythonw.exe","101","Console","1","20,000 K"')
-            self.assertTrue(agent_service.stop(AGENT, run=run, home=home))
+            ours = f'"C:\\py\\pythonw.exe" "{Path("/app") / "connect_win.py"}" --home "{home}"'
+            runs, run = self.run_with(True, tasklist=ours)
+            self.assertTrue(agent_service.stop(AGENT, run=run, home=home, app=Path("/app")))
             self.assertIn(["schtasks", "/Delete", "/TN", "Hagency agent newbie1", "/F"], runs)
             self.assertIn(["taskkill", "/PID", "101", "/T", "/F"], runs)
             self.assertFalse((startup / "Hagency agent newbie1.lnk").exists())
-            runs, run = self.run_with(False, tasklist='"notepad.exe","101","Console","1","9,000 K"')
-            self.assertFalse(agent_service.stop(AGENT, run=run, home=home))   # nothing left; a reused PID is spared
-            self.assertFalse(any(r[0] == "taskkill" for r in runs))
+            self.assertFalse((home / "agent.pid").exists())         # no stale numbers left behind
+            (home / "agent.pid").write_text("101\n")
+            for other in ('"C:\\py\\python.exe" "C:\\work\\train.py"', "notepad.exe /app/connect_win.py", ""):
+                runs, run = self.run_with(False, tasklist=other)
+                self.assertFalse(agent_service.stop(AGENT, run=run, home=home, app=Path("/app")))
+                self.assertFalse(any(r[0] == "taskkill" for r in runs), other)   # a reused PID is spared
+                (home / "agent.pid").write_text("101\n")
 
     def test_one_name_for_the_task_everywhere(self):
         import connect_win

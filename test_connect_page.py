@@ -175,6 +175,10 @@ class WindowsInstaller(unittest.TestCase):
         """GPT review: ~/.hagency must not match ~/.hagency-test: the quoted folder is matched whole."""
         self.assertIn("""('--home "{0}"' -f $HagencyHome)""", self.text)
 
+    def test_a_failed_rerun_starts_the_old_agent_again(self):
+        """GPT review: an expired code or no network must not leave a working agent stopped."""
+        self.assertIn("$script:Stopped | Start-ScheduledTask", self.text)
+
     def test_the_task_restarts_and_runs_as_the_person(self):
         for piece in ("New-ScheduledTaskTrigger -AtLogOn", "-RestartCount 255", "-RunLevel Limited", "-LogonType Interactive"):
             self.assertIn(piece, self.text)                       # 255: Task Scheduler's most restarts
