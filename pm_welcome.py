@@ -19,6 +19,7 @@ from nio import InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, Room
 
 import identity
 import matrix_calls
+import project_rooms
 import registry
 import remote_agent
 import remote_people
@@ -99,6 +100,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
                 log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
             await self.ensure_lobby()         # pm_lobby.py: the public front door
             return
+        project_rooms.FRONT_DOOR_IDS.add(welcome)
         await self.ensure_welcome_topic(welcome)
         await self.ensure_lobby()
         room = self.client.rooms.get(welcome)

@@ -87,11 +87,34 @@ class NoPanelAtTheFrontDoor(unittest.TestCase):
         self.assertEqual(self.widget("!lobby"), {})
 
 
+    def test_a_leftover_layout_place_is_cleaned_too(self):
+        """GPT review: the widget gone but its layout place left (a failed write) was never repaired."""
+        self.client.state[("!lobby", panel.LAYOUT_KIND, "")] = {"widgets": {panel.WIDGET_ID: {}, "other": {}}}
+        self.client.state[("!lobby", panel.WIDGET_KIND, panel.WIDGET_ID)] = {}
+        self.assertTrue(asyncio.run(panel.remove_from_room(self.client, "!lobby")))
+        self.assertEqual(self.client.state[("!lobby", panel.LAYOUT_KIND, "")], {"widgets": {"other": {}}})
+
+    def test_known_by_the_room_its_alias_points_to_even_if_its_main_address_changed(self):
+        """GPT review: the main address alone can be changed; the room #lobby resolves to counts."""
+        self.client.rooms["!lobby"].canonical_alias = None
+        with mock.patch.object(project_rooms, "FRONT_DOOR_IDS", {"!lobby"}):
+            asyncio.run(self.b.refresh_boards())
+        self.assertIsNone(self.widget("!lobby"))
+
+
 class PanelOpenedInTheLobby(unittest.TestCase):
-    def test_says_it_works_in_project_rooms_only(self):
+    def setUp(self):
         lobby = room("!lobby", project_rooms.LOBBY_ALIAS)
-        loop = SimpleNamespace(client=SimpleNamespace(rooms={"!lobby": lobby}), is_person=lambda r, u: u in r.users)
-        self.assertEqual(asyncio.run(console.view(loop, "!lobby", NEW)), {"error": project_rooms.NOT_A_PROJECT})
+        self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!lobby": lobby}), is_person=lambda r, u: u in r.users)
+
+    def test_says_it_works_in_project_rooms_only(self):
+        self.assertEqual(asyncio.run(console.view(self.loop, "!lobby", NEW)), {"error": project_rooms.NOT_A_PROJECT})
+
+    def test_and_changes_nothing_there(self):
+        """GPT review: only the reads were refused; "mode off" (no moderator check) still went through."""
+        self.loop.change_level = mock.AsyncMock()
+        self.assertEqual(asyncio.run(console.act(self.loop, "!lobby", NEW, "mode", "off")), project_rooms.NOT_A_PROJECT)
+        self.loop.change_level.assert_not_called()
 
 
 if __name__ == "__main__":

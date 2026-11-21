@@ -40,6 +40,7 @@ class Lobby:
         """The Lobby exists: public, in the room directory, joinable from any server."""
         try:
             if lobby := await matrix_calls.room_of_alias(self.client, LOBBY_ALIAS):
+                project_rooms.FRONT_DOOR_IDS.add(lobby)
                 await self.publish_lobby(lobby)
                 return
         except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:   # unknown: never a second Lobby

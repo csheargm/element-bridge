@@ -39,9 +39,13 @@ WORDS = {PRIVATE: "private: people join by invite, or by asking me with the exac
 NOT_OPEN = "This room works on a private repo, so it can't be open to anyone; it can be listed (people ask to join)."
 
 
+FRONT_DOOR_IDS: set[str] = set()              # what FRONT_DOORS point to, looked up at each start (pm_welcome, pm_lobby)
+
+
 def is_front_door(room) -> bool:
-    """The Welcome room or the Lobby (by its address): no project settings, no Hagency panel."""
-    return getattr(room, "canonical_alias", None) in FRONT_DOORS
+    """The Welcome room or the Lobby: no project settings, no Hagency panel. By the room the aliases
+    point to, and by its own main address (GPT review: a main address alone can be changed)."""
+    return getattr(room, "room_id", None) in FRONT_DOOR_IDS or getattr(room, "canonical_alias", None) in FRONT_DOORS
 
 
 async def join_rule(client: AsyncClient, room_id: str) -> str:

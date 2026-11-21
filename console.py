@@ -176,6 +176,8 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     room = loop.client.rooms.get(room_id)
     if room is None or not loop.is_person(room, user):     # a joined human (never an agent or a bot)
         return "you're not in that room"
+    if project_rooms.is_front_door(room):     # GPT review: no changes there either, only the reads refused
+        return project_rooms.NOT_A_PROJECT
     if action == "mode" and value in github.LEVELS:
         if value != "off" and not await room_state.is_moderator(loop.client, room, user):
             return "only the room owner or a maintainer can change the mode"

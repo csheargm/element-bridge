@@ -18,18 +18,19 @@ const vm = require("vm");
 const [script, scenario, element] = [process.argv[2], process.argv[3], process.argv[4]];
 const els = {me: {textContent: "Signing in…", innerHTML: ""}};
 const el = id => els[id] || (els[id] = {textContent: "", innerHTML: "", value: ""});
-let timers = [], listener = null, store = {};
+let timers = [], listener = null, store = {}, calls = [];
 const parent = {posted: [], postMessage(m) { this.posted.push(m); }};
 const routes = JSON.parse(process.argv[5]);
 const ctx = {
   console, URLSearchParams, JSON, String, Promise, encodeURIComponent, crypto: globalThis.crypto,
-  location: {search: "?room=%21r&widgetId=hagency", hash: "", pathname: "/panel"},
+  location: {search: "?room=%21r&widgetId=hagency", hash: scenario === "link_once" ? "#login=abc" : "", pathname: "/panel"},
   history: {replaceState() {}},
   document: {getElementById: el, addEventListener() {}, activeElement: null},
   sessionStorage: {getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: k => { delete store[k]; }},
   setTimeout: (f) => { timers.push(f); return f; }, clearTimeout: (f) => { timers = timers.filter(t => t !== f); },
   setInterval() {},
-  fetch: async (path) => { const r = routes[path.split("?")[0].replace(/^\/?/, "/")];
+  fetch: async (path) => { const p = path.split("?")[0].replace(/^\/?/, "/"), r = routes[p]; calls.push(p);
+    if (r === "hang") return new Promise(() => {});
     if (r === undefined || r === "broken") return {status: 500, json: async () => { throw new SyntaxError("<html>"); }};
     return {status: r.status || 200, json: async () => r.body}; },
 };
@@ -52,13 +53,15 @@ const asked = () => parent.posted.filter(m => m.action === "get_openid").pop();
     await send({api: "toWidget", requestId: "c2", action: "openid_credentials",
                 data: {state: "blocked", original_request_id: asked().requestId}});
   }
-  if (["broken_server", "lobby", "happy"].includes(scenario)) await reply({state: "allowed", access_token: "t"});
+  if (["broken_server", "lobby", "happy", "state_hangs"].includes(scenario)) await reply({state: "allowed", access_token: "t"});
   if (scenario === "expired") {
     process.stdout.write(els.me.textContent + "|" + (asked() ? "asked" : "not asked") + "\n");
     await send({api: "toWidget", requestId: "c1", action: "capabilities", data: {}});
     await fire();
     process.stdout.write((asked() ? "asked" : "not asked") + "\n");
   }
+  if (["state_hangs", "link_once"].includes(scenario)) { await fire(); await fire(); }
+  if (scenario === "link_once") process.stdout.write(calls.filter(c => c === "/auth/link").length + "\n");
   process.stdout.write(els.me.textContent);
 })();
 """
@@ -114,6 +117,18 @@ class SignIn(unittest.TestCase):
     def test_signed_in_clears_the_line(self):
         routes = {"/auth/openid": {"body": {"session": "s"}}, "/console/state": {"body": VIEW}}
         self.assertEqual(self.run_page("happy", routes)[-1], "")
+
+    def test_a_view_that_never_comes_still_ends_in_a_clear_line(self):
+        """GPT review: a good token then a /console/state that never answered cleared the watchdog."""
+        last = self.run_page("state_hangs", {"/auth/openid": {"body": {"session": "s"}}, "/console/state": "hang"})[-1]
+        self.assertIn("Element didn't answer", last)
+
+    def test_a_one_time_link_is_never_sent_twice(self):
+        """GPT review: an expired link session replayed the used code ("that link expired or was used")."""
+        sent, last = self.run_page("link_once", {"/auth/link": {"body": {"session": "s"}},
+                                                 "/console/state": {"status": 401, "body": {"error": "sign in"}}})
+        self.assertEqual(sent, "1")
+        self.assert_clear(last)
 
     def test_an_expired_session_asks_element_again(self):
         """A session from before @pm restarted: 401, then a fresh sign-in, never a stale page."""

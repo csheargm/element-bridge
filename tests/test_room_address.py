@@ -173,6 +173,20 @@ class Address(Base):
         self.assertEqual(self.canonical(), f"#final-project:{S}")
         self.assertEqual(sorted(self.aliases.values()), ["!a", "!l"])           # !l: only its own #lobby
 
+    def test_at_start_one_rooms_failure_never_stops_the_others(self):
+        """GPT review: a gh failure in one room escaped and could stop @pm's start."""
+        self.lp.client.rooms = {"!z": project("!z", "broken"), "!a": self.room}
+        self.listed_before()
+        real = project_rooms.visibility
+
+        async def visibility(client, room_id, strict=False):
+            if room_id == "!z":
+                raise OSError("connection reset")
+            return await real(client, room_id, strict)
+        with mock.patch("project_rooms.visibility", visibility), self.assertLogs("loop", "ERROR"):
+            run(self.lp.give_addresses())
+        self.assertEqual(self.canonical(), f"#final-project:{S}")
+
     def test_at_start_a_private_repos_name_never_shows(self):
         self.room.display_name = "Secret One tracker"
         self.bind("!a", "a/secret-one")

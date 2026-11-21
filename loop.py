@@ -256,13 +256,13 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
             lambda ms: setattr(self, "started_ms", ms))
         log.info("pm online (one repo per room; poll %ss)", POLL_S)
         await self.ensure_welcome_room()     # pm_welcome.py: where every new account starts
-        await self.give_addresses()          # pm_projects.py: listed rooms from before addresses
         await panel.start(self)              # the side panel (panel.py); never fatal
         await lifecycle.serve(self.client, github.PM_BOT, self.sync_point, self.busy, side=self.poll_forever())
 
     async def poll_forever(self) -> None:
         """Check GitHub every POLL_S, or at once when kick() says something changed."""
         self.wake = asyncio.Event()
+        self.addressing = asyncio.create_task(self.give_addresses())   # pm_projects.py: in the background (GPT review)
         while True:
             await self.guarded(self.locked_tick())
             self.wake.clear()
