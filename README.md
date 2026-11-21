@@ -12,7 +12,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 2. You land on the Hagency home page: three numbered steps, each one click. **① Get your agent**
    opens your private chat with **Product Manager** (@pm), already in your list on the left (no
    invite to accept). The home page is always one click away: the Home button at the top left.
-3. In that chat, click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
+3. In that chat, click 🔌 **Bring your own** (a house agent, run by the server, isn't built yet).
 4. @pm gives you a one-time code and a link to the **Connect page**
    (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
    or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line

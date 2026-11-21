@@ -1,4 +1,5 @@
 """Unit tests: @pm welcomes a newcomer and offers them an agent. Run: .venv/bin/python -m unittest test_welcome"""
+# TODO(R4, 375 lines): split on its classes: Greeting / Buttons (and what follows) into test_welcome_buttons.py.
 import asyncio
 import json
 import re
@@ -65,12 +66,12 @@ class Base(unittest.TestCase):
 
 
 class Greeting(Base):
-    def test_a_newcomer_joining_welcome_gets_one_private_offer_with_two_buttons(self):
+    def test_a_newcomer_joining_welcome_gets_one_private_offer_with_one_button(self):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
         self.lp.private_room.assert_awaited_once_with(NEW)
         self.assertEqual(self.said[0][0], "!dm")
         self.assertIn("Get your agent", self.said[0][1])
-        self.assertEqual([b[2] for b in self.buttons], ["🏠", "🔌"])
+        self.assertEqual([b[2] for b in self.buttons], ["🔌"])
         self.assertEqual(self.lp._welcomes[NEW], {"dm": "!dm", "offer": "$offer", "done": [], "pointed": True})
 
     def test_my_private_chat_is_named_product_manager_and_direct(self):
@@ -224,7 +225,18 @@ class Buttons(Base):
             return handled
         return self.run_(go())
 
-    def test_house_agent_is_coming_and_offers_bring_your_own(self):
+    def test_the_offer_never_promises_the_house_agent(self):
+        """Screen test: the offer listed a 🏠 House agent "with free daily credit", and typing "house
+        agent" said it isn't here yet. Not offered until it exists; typing it still gets an answer."""
+        self.run_(self.lp.greet(NEW))
+        offer = self.said[0][1]
+        self.assertNotIn("🏠", offer)
+        self.assertNotIn("house agent", offer.lower())
+        self.assertNotIn("🏠", [b[2] for b in self.buttons])
+        self.run_(self.lp.on_welcome_text(DM, text(NEW, "house agent please")))
+        self.assertIn("isn't here yet", self.said[-1][1])
+
+    def test_an_old_offers_house_button_still_gets_the_answer(self):
         self.assertTrue(self.click("🏠"))
         self.assertIn("comes with the public server", self.said[0][1])
         self.assertIn("bring my own", self.said[0][1])
