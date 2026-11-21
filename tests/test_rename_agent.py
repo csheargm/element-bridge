@@ -131,6 +131,12 @@ class Rename(unittest.TestCase):
         self.assertIn("couldn't rename it", asyncio.run(self.lp.rename_agent("!dm", BETTY, None, "Helper")))
         self.assertEqual([c[0] for c in self.calls], ["GET"])                  # update only: no PUT
 
+    def test_a_name_another_of_their_agents_has_is_refused(self):
+        """GPT review: one name, one agent, so "remove my agent codex" never picks the wrong one."""
+        answer = asyncio.run(self.lp.rename_agent("!dm", CX, "main", "codex"))
+        self.assertIn("already have an agent called codex", answer)
+        self.assertEqual(self.calls, [])
+
     def test_nothing_sets_an_agents_name_back_on_a_restart(self):
         """Only @pm's own name is ever set at start (setup_accounts), and only this module and that one
         write display names at all: no bridge, connect script or set-up names an agent."""

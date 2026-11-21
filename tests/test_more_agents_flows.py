@@ -69,15 +69,17 @@ class Base(unittest.TestCase):
         return asyncio.run(go())
 
 
-class AddInChat(Base):
+class Provisioning(Base):
+    """remote_agent's set-up faked (the account and the code): what the add flows need (test_agent_picker too)."""
+    real_provision = staticmethod(remote_agent.provision_more)          # before setUp fakes it
     def setUp(self):
         super().setUp()
         self.made = []
 
-        def provision_more(person, label):
+        def provision_more(person, label, picked=None):
             self.made.append((person, label))
             found = registry.find(person, label)              # as remote_agent: an unfinished one is finished
-            return (found if found and not found["first"] else registry.add_agent(person, label))["localpart"]
+            return (found if found and not found["first"] else registry.add_agent(person, label, picked=picked))["localpart"]
         p = mock.patch.object(remote_agent, "provision_more", provision_more)
         p.start()
         self.addCleanup(p.stop)
@@ -86,6 +88,8 @@ class AddInChat(Base):
         p2.start()
         self.addCleanup(p2.stop)
 
+
+class AddInChat(Provisioning):
     def test_plus_asks_one_question_then_sends_that_agents_connect_page(self):
         self.lp._add_offers = {"$plus": {"person": CX, "dm": "!dm"}}
         self.lp._seen = {"cx-agent": {"online": True, "ever": True}}   # ➕ is only offered once one connected
@@ -161,7 +165,7 @@ class AddInChat(Base):
         loop.client = SimpleNamespace(rooms={"!r": SimpleNamespace(users={CX: 0}, invited_users={})})
         loop.is_person = lambda r, u: True
         answer = self.run_(console.act(loop, "!r", CX, "add", "codex"))
-        self.assertIn("cx-codex-agent", answer)
+        self.assertIn("Setting up codex:", answer)                    # its name; the account name comes with the code
         self.assertEqual(self.made, [(CX, "codex")])
 
 

@@ -47,8 +47,13 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
    any time); **Remove** (click twice, or "@pm remove my agent codex" and ✅) closes its account for
-   good and frees its place, and the first agent goes last. A removed agent's name can't be used
-   again. **Rename** changes only the name people see (its ID stays; "@pm call my agent NAME" or
+   good and frees its place, and the first agent goes last. Its name can be used again: the new
+   agent gets a new account (`<you>-codex2-agent`). **Add an agent** also picks the AI it runs
+   (Codex, Claude Code, Hermes, a local Ollama model, or a remote OpenAI-compatible model by base URL
+   and model; "@pm add another agent called pi using claude"); a remote model's API key is entered
+   only on your computer when it connects, never in a chat. All of this is also in **My Hagency**,
+   the panel at the top of your chat with Product Manager (the home page's **⚙ My agents &
+   settings**). **Rename** changes only the name people see (its ID stays; "@pm call my agent NAME" or
    "@pm rename my agent codex to NAME" works too), even while its computer is off. @pm never lets two of your agents review each other: a review always needs a different
    person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's

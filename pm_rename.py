@@ -106,7 +106,7 @@ class Renaming:
         """(their agent, or why not): only their own agents are ever looked at or named."""
         mine = [a for a in registry.agents_of(person) if ours(registry.person_id(person), a)]
         if which:
-            found = [a for a in mine if which.lower() in (a["localpart"], a["label"])]
+            found = [a for a in mine if registry.called(a, which)]
             return (found[0], None) if found else (None, f"You have no agent called {plain(which)}.")
         if len(mine) == 1:
             return mine[0], None
@@ -121,6 +121,8 @@ class Renaming:
         name = clean_name(typed)
         if agent and name is None:
             answer = BAD_NAME
+        elif agent and any(registry.called(a, name) for a in registry.agents_of(person) if a["localpart"] != agent["localpart"]):
+            answer = f"You already have an agent called {plain(name)}; choose another name."   # one name, one agent
         elif agent and not self.renames_left(person):
             answer = "That's several renames this hour; please try again later."
         elif agent:
