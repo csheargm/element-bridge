@@ -45,7 +45,9 @@ services:
     logging: *logs
     restart: unless-stopped
   element:
-    image: vectorim/element-web:v1.12.35
+    # The same release with Element's own modules in /modules, loaded at start; only widget-lifecycle
+    # is configured (element_home.py: our panel opens without two permission prompts).
+    image: ghcr.io/element-hq/element-web/modules:v1.12.35
     volumes: ["./element-config.json:/app/config.json:ro"]
     networks: [edge]
     logging: *logs

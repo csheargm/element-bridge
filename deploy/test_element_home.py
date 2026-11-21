@@ -66,6 +66,20 @@ class ElementConfig(unittest.TestCase):
             self.assertIn(url.rsplit("/", 1)[1], element_home.files(VALUES))      # each one is a file we write
 
 
+class PanelTrusted(unittest.TestCase):
+    """Screen test: in a new room Element asked twice ("Widget added by Product Manager... may share
+    data", then "Allow this widget to verify your identity") before the Hagency panel appeared."""
+    def test_only_our_exact_panel_url_skips_both_prompts(self):
+        rules = element_home.element_config(VALUES)[element_home.WIDGET_LIFECYCLE]["widget_permissions"]
+        self.assertEqual(rules, {"https://rooms.example.org/panel?room=$matrix_room_id":
+                                 {"preload_approved": True, "identity_approved": True}})
+        self.assertFalse(any(pattern.endswith("*") for pattern in rules))   # Element: "*" would match by prefix
+
+    def test_element_runs_the_image_that_carries_its_widget_lifecycle_module(self):
+        """vectorim/element-web has no /modules: that config would do nothing there."""
+        self.assertIn("image: ghcr.io/element-hq/element-web/modules:v1.12.35", (HERE / "docker-compose.yml").read_text())
+
+
 class HomePage(unittest.TestCase):
     def setUp(self):
         self.text = element_home.home_page(VALUES["SERVER_NAME"])

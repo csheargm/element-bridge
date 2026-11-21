@@ -134,6 +134,15 @@ class Widget(unittest.TestCase):
             self.assertEqual(panel.widget_url(), "https://rooms.example.org/panel?room=$matrix_room_id")
         self.assertEqual(layout["widgets"]["hagency"]["container"], "top")
 
+    def test_element_pre_approves_exactly_the_url_pm_adds(self):
+        """deploy/element_home.py trusts one widget URL: it must be the one @pm puts in each room."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "deploy"))
+        self.addCleanup(sys.path.remove, sys.path[0])
+        import element_home
+        with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": "https://rooms.example.org"}):
+            self.assertEqual(panel.widget_url(), element_home.panel_url({"ROOMS_DOMAIN": "rooms.example.org"}))
+
 
 if __name__ == "__main__":
     unittest.main()
