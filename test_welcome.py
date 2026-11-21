@@ -1,6 +1,7 @@
 """Unit tests: @pm welcomes a newcomer and offers them an agent. Run: .venv/bin/python -m unittest test_welcome"""
 import asyncio
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -229,6 +230,15 @@ class Buttons(Base):
         self.assertEqual(room_id, "!dm")
         self.assertRegex(body, r"curl -fsSL http://localhost:8650/connect\.sh \| sh -s -- [A-Z2-9]{5}-[A-Z2-9]{5}")
         self.assertEqual(len(remote_agent.CODES.codes), 1)
+
+    def test_bring_your_own_links_the_connect_page_with_the_same_code(self):
+        """The Connect page (any OS) first; the code in its fragment, as text, and in the Mac/Linux line."""
+        self.click("🔌")
+        body = self.said[0][1]
+        code = re.search(r"\(http://localhost:8650/connect/start#([A-Z2-9]{5}-[A-Z2-9]{5})\)", body).group(1)
+        self.assertIn(f"Your code: `{code}`", body)
+        self.assertIn(f"sh -s -- {code}`", body)
+        self.assertLess(body.index("/connect/start#"), body.index("curl -fsSL"))
 
     def test_each_button_counts_once(self):
         self.click("🔌")

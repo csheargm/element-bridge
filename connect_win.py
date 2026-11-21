@@ -20,6 +20,7 @@ import sys
 import time
 from pathlib import Path
 
+import agent_service
 import bridge_config
 
 APP = Path(__file__).resolve().parent
@@ -92,7 +93,7 @@ def agent_name(creds: dict) -> str:
 
 
 def task_name(creds: dict) -> str:
-    return f"Hagency agent {agent_name(creds).removesuffix('-agent')}"
+    return agent_service.windows_task(agent_name(creds))
 
 
 def child_python() -> str:

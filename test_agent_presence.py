@@ -64,6 +64,47 @@ class Service(unittest.TestCase):
                 agent_service.install(Path("/app"), NEW, "codex", AGENT, Path(tempfile.mkdtemp()) / "c.json", run=run)
 
 
+class WindowsTask(unittest.TestCase):
+    """connect.ps1 registers the task; connect.py starts it again and --stop ends and removes it."""
+    def run_with(self, exists: bool, tasklist: str = ""):
+        runs = []
+
+        def run(args, **k):
+            runs.append(args)
+            code = 0 if args[:2] != ["schtasks", "/Query"] or exists else 1
+            return SimpleNamespace(returncode=code, stdout=tasklist if args[0] == "tasklist" else "", stderr="")
+        return runs, run
+
+    def test_start_runs_the_task_connect_ps1_made_or_runs_here(self):
+        with mock.patch.object(agent_service, "kind", return_value=agent_service.WINDOWS):
+            runs, run = self.run_with(True)
+            self.assertEqual(agent_service.install(Path("/app"), NEW, "claude", AGENT, CREDS, run=run), "schtasks")
+            self.assertEqual(runs[-1], ["schtasks", "/Run", "/TN", "Hagency agent newbie1"])
+            runs, run = self.run_with(False)
+            self.assertIsNone(agent_service.install(Path("/app"), NEW, "claude", AGENT, CREDS, run=run))
+
+    def test_stop_ends_and_removes_the_task_the_shortcut_and_only_a_python_keeper(self):
+        home, appdata = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        startup = appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        startup.mkdir(parents=True)
+        (startup / "Hagency agent newbie1.lnk").write_text("")
+        (home / "agent.pid").write_text("101\n202\n")
+        with mock.patch.object(agent_service, "kind", return_value=agent_service.WINDOWS), \
+                mock.patch.dict("os.environ", {"APPDATA": str(appdata)}):
+            runs, run = self.run_with(True, tasklist='"pythonw.exe","101","Console","1","20,000 K"')
+            self.assertTrue(agent_service.stop(AGENT, run=run, home=home))
+            self.assertIn(["schtasks", "/Delete", "/TN", "Hagency agent newbie1", "/F"], runs)
+            self.assertIn(["taskkill", "/PID", "101", "/T", "/F"], runs)
+            self.assertFalse((startup / "Hagency agent newbie1.lnk").exists())
+            runs, run = self.run_with(False, tasklist='"notepad.exe","101","Console","1","9,000 K"')
+            self.assertFalse(agent_service.stop(AGENT, run=run, home=home))   # nothing left; a reused PID is spared
+            self.assertFalse(any(r[0] == "taskkill" for r in runs))
+
+    def test_one_name_for_the_task_everywhere(self):
+        import connect_win
+        self.assertEqual(connect_win.task_name({"user_id": f"@{AGENT}:m.org"}), agent_service.windows_task(AGENT))
+
+
 class Connect(unittest.TestCase):
     def main(self, *argv, saved=None):
         home = Path(tempfile.mkdtemp())
@@ -94,7 +135,8 @@ class Connect(unittest.TestCase):
     def test_stop(self):
         with mock.patch.object(agent_service, "stop", return_value=True) as stop:
             execve, said = self.main("--stop")
-        stop.assert_called_once_with(AGENT)
+        self.assertEqual(stop.call_args.args, (AGENT,))
+        self.assertTrue((stop.call_args.kwargs["home"] / "credentials.json").exists())   # the folder it was given
         execve.assert_not_called()
         self.assertIn("removed its background service", said)
 
@@ -135,7 +177,8 @@ class Offline(unittest.TestCase):
         self.at(1060 + pm_presence.OFFLINE_S)
         self.assertEqual(len(self.said), 1)
         self.assertIn("is offline", self.said[0][1])
-        self.assertIn("run the install line again", self.said[0][1])
+        self.assertIn("run the connect line again", self.said[0][1])
+        self.assertIn("Connect page", self.said[0][1])
         self.assertEqual(self.buttons, ["🔁"])
         self.at(5000)
         self.assertEqual(len(self.said), 1)                    # once

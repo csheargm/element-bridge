@@ -3,7 +3,7 @@
 Every CHECK_S, @pm asks Synapse for each such agent's presence (a syncing bridge is "online"; @pm
 shares Welcome with every agent, so it may see it). An agent that was online and has now been away
 for OFFLINE_S gets ONE private message to its owner, at most once per ALERT_EVERY_S, with a 🔁
-button: the install line again with a fresh code (running it again is safe). The console's
+button: the Connect page again with a fresh code (running it again is safe). The console's
 "My agent" shows Online / Offline from the same view. "@pm disconnect my agent" (or Disconnect in
 the console) gives the agent a new password, so its computer can't sign in until a new code.
 Mixed into loop.Loop (client, say, offer_thumb, private_room, choose: pm_welcome.py).
@@ -26,11 +26,11 @@ log = logging.getLogger("loop")
 CHECK_S, OFFLINE_S, ALERT_EVERY_S = 60, 5 * 60, 24 * 3600
 AGAIN = "🔁"
 OFFLINE = ("Your agent **{agent}** is offline: its computer is off or asleep, or its connector stopped. To bring "
-           "it back, run the install line again on that computer (running it again is safe). Click 🔁 below "
-           "and I'll send you the line with a fresh code.")
+           "it back, run the connect line again on that computer (running it again is safe). Click 🔁 below "
+           "and I'll send you your Connect page with a fresh code.")
 DISCONNECT_RE = re.compile(r"^\W*(please\W+)?disconnect my agent\W*$", re.I)
 DISCONNECTED = ("Disconnected: {agent} can't sign in from its computer any more. To connect it again, type "
-                "\"bring my own\" here for a new install line.")
+                "\"bring my own\" here for a new code and Connect page.")
 
 
 class Presence:

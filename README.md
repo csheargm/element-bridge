@@ -31,8 +31,9 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    in. Accept its chat invite and talk to it; it works on your computer and obeys only you. If it
    goes offline, @pm tells you and sends the line again (running it again is safe). To stop it:
    `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or Disconnect under My agent
-   in the Hagency panel ("@pm disconnect my agent" works too). On Windows, Disconnect stops it, or
-   in PowerShell: `Stop-ScheduledTask "Hagency agent <you>"; Unregister-ScheduledTask "Hagency agent <you>"`.
+   in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
+   with `%LOCALAPPDATA%\Hagency\app\.venv\Scripts\python.exe %LOCALAPPDATA%\Hagency\app\connect.py --stop`
+   (it ends and removes the Scheduled Task).
    Windows needs Claude Code from its installer (`claude.exe`) or a `codex.exe` on the PATH: the
    agent starts the CLI without a shell, so npm's `.cmd` wrappers aren't enough yet.
 

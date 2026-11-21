@@ -150,7 +150,7 @@ async function refresh() {
   if (s.agent) h += `<div class="grid"><section class="card"><h2>My agent · ${esc(s.agent)}</h2>
     <div class="hint">The same in every room.</div>${s.remote ? `<div class="set"><div>On my computer: <span class="chip">${
       s.online === true ? "Online" : s.online === false ? "Offline" : "Not seen yet"}</span><div class="hint">${s.online === false
-      ? "Run the install line again on that computer; @pm sends it with a fresh code." : ""}</div></div>
+      ? "Run the connect line again on that computer; @pm sends your Connect page with a fresh code." : ""}</div></div>
       <button data-a="disconnect">Disconnect</button></div>` : ""}
     <div class="set"><div>Comes along when I join a project room</div>${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
     <div class="set"><div>Code it runs<div class="hint">${s.version ? `Your own version (${esc(s.version)}), made in your private room.` : "The official version."}</div></div>${s.version ? '<button data-a="goback">Go back to official</button>' : ""}</div></section>
