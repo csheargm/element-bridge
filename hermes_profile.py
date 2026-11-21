@@ -59,6 +59,7 @@ ROOM_RULES = ("\n\nIn Hagency rooms: before answering any question about the pro
 
 
 PERSONAL, LOOP = "room", "loop"                 # profile name = person + suffix
+LOOP_ONLY_ENV = "HAGENCY_LOOP_ONLY"              # the loop profile's MCP server: no hagency web tools (mcp_web.py)
 
 
 def profile_names(person: str) -> tuple[str, str]:
@@ -211,7 +212,8 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
     workdirs.hermes_dir(owner).mkdir(parents=True, exist_ok=True)
     model, key_name = profile_model(profile)
     env = {"HAGENCY_AGENT": agent, **repo_env(), "PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
-           **(mcp_env or {})}
+           **(mcp_env or {}), **({LOOP_ONLY_ENV: "1"} if loop else {})}     # loop: no hagency web tools either
+    forget_pairings(profile)
     env_lines = "\n".join(f"      {k}: '{v}'" for k, v in env.items())
     model_lines = "\n".join(f"  {k}: {v}" for k, v in model.items())
     (profile / "config.yaml").write_text(f"""model:
@@ -245,6 +247,13 @@ mcp_servers:
     soul = profile / "SOUL.md"
     soul.write_text(soul.read_text().split("\n\nIn Hagency rooms:")[0] + ROOM_RULES)
     return profile
+
+
+def forget_pairings(profile: Path) -> None:
+    """Hermes also lets in users paired earlier: none are kept, so the allowlist alone decides."""
+    for folder in (profile / "platforms" / "pairing", profile / "pairing"):
+        for name in ("matrix-approved.json", "matrix-pending.json"):
+            (folder / name).unlink(missing_ok=True)
 
 
 def configure_both(person: str, *, owner: str, agent: str, password: str, home_room: str | None,

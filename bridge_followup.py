@@ -17,6 +17,7 @@ MAX_CANDIDATES = 5
 NO_REPLY = "NO_REPLY"
 NO_REPLY_RE = re.compile(rf"^\W*{NO_REPLY}\W*$")
 QUESTION_RE = re.compile(r"\?(?=\s|$|[)\"'*_])")            # a "?" ending a sentence (not "?q=" in a URL)
+AGENT_NAME_RE = re.compile(r"(?<![\w-])@?([a-z0-9][a-z0-9._-]*-agent)\b", re.I)
 CODE_RE = re.compile(r"```.*?```|`[^`\n]*`", re.S)
 FOLLOW_UP_PROMPT = (
     "\nYou recently asked your owner a question in this room, and this message from them was not "
@@ -46,25 +47,37 @@ class BridgeFollowUp:
         else:
             self.open_questions.pop(room_id, None)
 
-    def may_answer(self, room, event) -> bool:
-        """The owner's un-addressed message while my question is open: offer it (counted)."""
+    def open_question(self, room_id: str) -> str | None:
+        """My open question's event id in the room (None: none, or its window has passed)."""
+        q = self.open_questions.get(room_id)
+        if q is not None and time.time() - q["at"] > OPEN_QUESTION_S:
+            self.open_questions.pop(room_id, None)
+            return None
+        return q and q["event"]
+
+    def may_answer(self, room, event) -> str | None:
+        """The owner's un-addressed message while my question is open: offer it (counted). Returns
+        the question it may answer, so a queued turn can check that question is still the open one."""
         q = self.open_questions.get(room.room_id)
-        if event.sender != self.owner_id or q is None:
-            return False
-        if time.time() - q["at"] > OPEN_QUESTION_S or q["left"] <= 0:
+        if event.sender != self.owner_id or self.open_question(room.room_id) is None:
+            return None
+        if q["left"] <= 0:
             self.open_questions.pop(room.room_id, None)
-            return False
+            return None
+        names = {n.lower() for n in AGENT_NAME_RE.findall(event.body or "")}
+        if names - {self.user_id.lstrip("@").partition(":")[0].lower()}:
+            return None                       # names another agent in plain text: not for me
         content = event.source.get("content", {})
         mentions = content.get("m.mentions")
         user_ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
         if isinstance(user_ids, list) and [u for u in user_ids if u != self.user_id]:
-            return False                      # talking to someone else
+            return None                       # talking to someone else
         rel = content.get("m.relates_to")
         if isinstance(rel, dict):
             if rel.get("rel_type") == "m.replace":
-                return False                  # an edit isn't a new message
+                return None                   # an edit isn't a new message
             target = (rel.get("m.in_reply_to") or {}).get("event_id") if isinstance(rel.get("m.in_reply_to"), dict) else None
             if target and target != q["event"]:
-                return False                  # a reply to someone else's message
+                return None                   # a reply to someone else's message
         q["left"] -= 1
-        return True
+        return q["event"]

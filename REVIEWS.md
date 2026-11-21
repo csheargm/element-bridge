@@ -722,3 +722,19 @@ Rejected or deferred:
   (retiring grants touches console.py/panel.py, under parallel edit).
 - A symlinked destination parent, and a crash between the move and the transcript copy
   (needs local write access / a crash in a millisecond window; a missing transcript just starts fresh).
+
+Two Hermes profiles per agent, after the rebase onto several agents per person (GPT, whole branch), adopted with tests:
+- Hermes also admits users paired earlier: each profile's Matrix pairing store is cleared when it
+  is written, so its allowlist alone decides (and @pm can never reach the personal profile).
+- The loop profile's hagency MCP server still offered web_search/fetch_page (gated on the owner's
+  room grant, not on who drove the turn): refused there (HAGENCY_LOOP_ONLY).
+- A follow-up was offered when the owner named another agent in plain text ("anna-codex-agent: …"):
+  not any more. A queued follow-up carries the question it was offered for and runs only while
+  that same question is still open and in its window.
+Rejected or deferred:
+- A running supervisor started before re-onboarding doesn't start the new loop profile until it
+  restarts: re-run onboard, then restart ./start.sh (in the PR notes).
+- Hermes onboarding still uses `<person>-agent`, not a registry `agent_user` override (pre-existing).
+- An owner's project-level Codex config disabling web search is overridden by our `-c` default;
+  inherited GATEWAY_ALLOW_ALL_USERS in the supervisor's own environment (not set by us); locked
+  Claude turns load user hooks; an old shared session from an --allow-members run (as before).

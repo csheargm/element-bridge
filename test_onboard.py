@@ -113,6 +113,26 @@ class HermesProfile(unittest.TestCase):
         for cfg in (pcfg, lcfg):
             self.assertIn("unauthorized_dm_behavior: ignore", cfg)                # no pairing replies either
 
+    def test_earlier_pairings_never_let_anyone_in(self):
+        """GPT review 3: Hermes also admits users paired before; the allowlist alone must decide."""
+        approved = hermes_profile.profile_dir("annaroom") / "platforms" / "pairing" / "matrix-approved.json"
+        approved.parent.mkdir(parents=True)
+        approved.write_text('{"@pm:bridge.localhost": {}}')
+        self.both()
+        self.assertFalse(approved.exists())
+
+    def test_the_loop_profiles_hagency_tools_have_no_web(self):
+        """GPT review 3: the loop profile's MCP server must not run web_search/fetch_page either."""
+        import asyncio
+        import os
+        os.environ.setdefault("HAGENCY_AGENT", "anna-agent")     # mcp_core needs it at import
+        import mcp_web
+        _, _, pcfg, lcfg = self.both()
+        self.assertIn(f"{hermes_profile.LOOP_ONLY_ENV}: '1'", lcfg)
+        self.assertNotIn(hermes_profile.LOOP_ONLY_ENV, pcfg)
+        with mock.patch.dict("os.environ", {hermes_profile.LOOP_ONLY_ENV: "1"}):
+            self.assertIn("no web access", asyncio.run(mcp_web.web_search("x"))["error"])
+
     def test_the_loop_profile_keeps_contained_tools_and_the_personal_one_the_owners(self):
         """GPT review: Hermes gives one toolset to every turn, so @pm's tasks (other people's issue
         text) must never get the owner's terminal/file/web tools."""

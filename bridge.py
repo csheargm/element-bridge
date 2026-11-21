@@ -107,14 +107,15 @@ class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
         name = room.user_name(event.sender) or event.sender
         line = f"{name} ({event.sender}): {event.body}"
         addressed = self.is_addressed(room, event)
-        if not addressed and not self.may_answer(room, event):   # bridge_followup.py: my open question
+        asked = None if addressed else self.may_answer(room, event)   # bridge_followup.py: my open question
+        if not addressed and not asked:
             return                            # it's still context: answer() reads the room's conversation
         reason = self.should_ignore(room, event)
         if reason:
             await self.refuse(room, event, reason)   # bridge_voice.py: "I only take requests from Betty"
             return
         work = (self.change_code(room, event) if addressed and self.wants_change(room, event)
-                else self.answer_locked(room, event, line, follow_up=not addressed))
+                else self.answer_locked(room, event, line, follow_up=asked))
         task = asyncio.create_task(work)      # don't block sync; change_code: bridge_custom.py
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -165,15 +166,15 @@ class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
             await self.client.room_typing(room_id, False)
         await self.send(room_id, result["line"], extra={github.RESULT_KEY: result}, source=github.linkify(result["line"], task.get("repo")))
 
-    async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: bool = False) -> None:
+    async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: str | None = None) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
             await self.answer(room, event, line, follow_up)
 
-    async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: bool = False) -> None:
+    async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: str | None = None) -> None:
         """Answer from the room's reality: live project status, everyone's recent conversation, and a
         read-only copy of the project's files (room_context.py) — not just the agent's own memory."""
-        if follow_up and room.room_id not in self.open_questions:
-            return                            # queued, but my question was answered or closed meanwhile
+        if follow_up and self.open_question(room.room_id) != follow_up:
+            return                            # queued, but that question was answered, replaced or expired
         workdir = self.workdir(room.room_id)
         try:
             snap = await asyncio.to_thread(room_context.snapshot, self.client.access_token, room.room_id)

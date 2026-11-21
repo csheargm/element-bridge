@@ -138,6 +138,20 @@ class FollowUp(unittest.TestCase):
         self.b.note_reply(ROOM, "$x", "ok.", BETTY)
         self.assertIn(ROOM, self.b.open_questions)
 
+    def test_naming_another_agent_in_plain_text_is_not_an_answer(self):
+        """GPT review 3: "anna-codex-agent, 95130" is for her other agent, not this one."""
+        self.ask()
+        self.deliver(msg(ANNA, "anna-codex-agent: 95130", "$a1"))
+        self.assertEqual(self.prompts[1:], [])
+
+    def test_a_queued_candidate_never_answers_a_newer_question(self):
+        """GPT review 3: the queued turn carries the question it was offered for."""
+        self.ask()
+        asked = self.b.may_answer(self.room, msg(ANNA, "95130", "$a1"))
+        self.b.note_reply(ROOM, "$newer", "And which day?", ANNA)          # a newer question replaced it
+        asyncio.run(self.b.answer(self.room, msg(ANNA, "95130", "$a1"), "x", follow_up=asked))
+        self.assertEqual(self.prompts[1:], [])
+
     def test_what_counts_as_asking(self):
         self.assertTrue(bridge_followup.asks("Which city?"))
         self.assertTrue(bridge_followup.asks("Which city? Or a zip code."))
