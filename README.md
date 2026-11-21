@@ -45,8 +45,11 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    Connect page and code. It runs beside the first one (`<you>-codex-agent`, its files in
    `~/.hagency/<its name>/`; stop it with `connect.py --name <its name> --stop`). The panel's My
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
-   first comes along by default). @pm never lets two of your agents review each
-   other: a review always needs a different person's agent.
+   first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
+   any time); **Remove** (click twice, or "@pm remove my agent codex" and ✅) closes its account for
+   good and frees its place, and the first agent goes last. A removed agent's name can't be used
+   again. @pm never lets two of your agents review each other: a review always needs a different
+   person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
    new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top
    lets you pick the project's GitHub repo. **Find a project to join** opens the room directory.

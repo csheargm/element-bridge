@@ -10,6 +10,7 @@ from unittest import mock
 
 from nio import PresenceGetResponse, RoomInviteResponse
 
+import agent_removal
 import console
 import pm_agents
 import pm_presence
@@ -40,6 +41,9 @@ class Base(unittest.TestCase):
         p = mock.patch.object(registry, "PATH", path)
         p.start()
         self.addCleanup(p.stop)
+        d = mock.patch.object(agent_removal, "deactivated", return_value=set())   # Synapse's list: nobody
+        d.start()
+        self.addCleanup(d.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy = PM, 0, set()
         self.lp._welcomes, self.lp._add_offers, self.lp._seen, self.lp.dm_rooms = {}, {}, {}, {CX: "!dm"}

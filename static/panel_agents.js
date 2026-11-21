@@ -1,5 +1,5 @@
 // "My agents" in the Hagency panel and console (panel.py serves this as /panel-agents.js).
-// A person may have several agents (ADR 0005): each has its own Online/Offline, Disconnect and
+// A person may have several agents (ADR 0005): each has its own Online/Offline, Disconnect, Remove and
 // "comes along" setting. Every value shown comes from /console/state and is escaped here;
 // every change goes through @pm's own checks (console.act).
 function agentSeg(name, agent, values, current) {
@@ -9,7 +9,22 @@ function agentSeg(name, agent, values, current) {
 function agentStatus(a) {
   if (!a.remote) return `<span class="chip">Runs on this server</span>`;
   const word = a.online === true ? "Online" : a.online === false ? "Offline" : "Not seen yet";
-  return `<span class="chip">${word}</span> <button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>`;
+  return `<span class="chip">${word}</span> <button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>
+    ${removeButton(a)}`;
+}
+// Remove is for good, so it asks twice in the page (Element's widget frame may block confirm()).
+let removeArmed = {agent: "", until: 0};
+function removeButton(a) {
+  const armed = removeArmed.agent === a.name && Date.now() < removeArmed.until;
+  return `<button data-a="remove" data-v="${armed ? "sure" : ""}" data-g="${esc(a.name)}">${
+    armed ? "Click again to remove it for good" : "Remove"}</button>`;
+}
+function confirmed(b) {                // panel.py's click handler: false = this click only armed Remove
+  if (b.dataset.a !== "remove" || b.dataset.v === "sure") return true;
+  removeArmed = {agent: b.dataset.g, until: Date.now() + 8000};
+  b.dataset.v = "sure";
+  b.textContent = "Click again to remove it for good";
+  return false;
 }
 function agentRow(a, version) {
   return `<li><div><b>${esc(a.label)}</b> <span class="muted">· ${esc(a.name)}</span>${a.here ? ' <span class="chip">in this room</span>' : ""}

@@ -27,6 +27,7 @@ import intents
 from pm_chat import without_quote
 from pm_lobby import WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
+from pm_remove import REMOVE_RE
 from redact import room_safe
 from saved_dict import SavedDict
 from setup_accounts import AccountError
@@ -158,6 +159,7 @@ class Welcome(Lobby):
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was a click on my welcome (handled here, used or not), or on "offline" (pm_presence.py)."""
         if (await self.on_offline_reaction(room, event) or await self.on_add_reaction(room, event)   # pm_agents.py
+                or await self.on_removal_reaction(room, event)                                       # pm_remove.py
                 or await self.on_lobby_reaction(room, event) or await self.on_project_reaction(room, event)):
             return True
         entry = self.welcomes().get(event.sender)
@@ -187,6 +189,8 @@ class Welcome(Lobby):
             await self.choose(room.room_id, event.sender, HOUSE)
         elif in_dm and BRING_RE.search(text):
             await self.choose(room.room_id, event.sender, BRING)
+        elif m := REMOVE_RE.search(text):
+            await self.ask_removal(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_remove.py
         elif m := DISCONNECT_RE.search(text):
             await self.disconnect(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_presence.py
         elif WANT_RE.search(text):

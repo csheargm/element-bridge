@@ -19,6 +19,7 @@ from nio import MatrixRoom, PresenceGetResponse, ReactionEvent
 import registry
 import remote_agent
 from bridge import ROOT, SERVER_NAME
+from pm_remove import Removal
 from saved_dict import SavedDict
 from setup_accounts import AccountError
 
@@ -35,7 +36,7 @@ DISCONNECTED_MORE = ("Disconnected: {agent} can't sign in from its computer any 
                      "🔁 below for a new code and its Connect page.")
 
 
-class Presence:
+class Presence(Removal):                # pm_remove.py: Remove, and forgetting deactivated accounts
     def seen(self) -> dict:
         """agent localpart → {"online", "since", "ever", "alerted", "offer", "owner"}, on disk."""
         if "_seen" not in self.__dict__:
@@ -53,10 +54,11 @@ class Presence:
         if now - self.__dict__.get("_checked", 0) < CHECK_S:
             return
         self._checked = now
+        await self.prune_registry(now)        # pm_remove.py: Synapse can't say a deactivated account's presence
         people = registry.load()
         for person in people:                 # each of a person's agents on their own computers
             for found in registry.agents_of(person, people):
-                if found["agent"] == registry.REMOTE:
+                if found["agent"] == registry.REMOTE and not self.is_deactivated(found["localpart"]):
                     await self.check_agent(person, found["localpart"], now)
 
     async def check_agent(self, person: str, agent: str, now: float) -> None:

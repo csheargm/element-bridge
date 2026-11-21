@@ -12,6 +12,7 @@ from unittest import mock
 
 from nio import PresenceGetResponse
 
+import agent_removal
 import agent_service
 import connect
 import pm_presence
@@ -154,6 +155,9 @@ class Offline(unittest.TestCase):
         p = mock.patch.object(registry, "PATH", path)
         p.start()
         self.addCleanup(p.stop)
+        d = mock.patch.object(agent_removal, "deactivated", return_value=set())   # Synapse's list: nobody
+        d.start()
+        self.addCleanup(d.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp._seen, self.said, self.buttons = PM, {}, [], []
         self.presence = "online"

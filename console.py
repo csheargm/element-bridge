@@ -196,6 +196,9 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
             return "only agents this server runs can go back to the official version"
         customize.go_back(local)
         return "ok"
+    if action == "remove" and value == "sure":   # pm_remove.py: for good; the page asked twice first
+        done = await loop.remove_for_good(await loop.private_room(user) or room_id, user, agent or None)
+        return "ok" if done else "couldn't remove it (see my message)"
     if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
         done = await loop.disconnect(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't disconnect it (see my message)"
