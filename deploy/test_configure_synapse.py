@@ -1,8 +1,9 @@
 """Unit tests for configure_synapse.py. Run from deploy/: python3 -m unittest test_configure_synapse"""
+import json
 import unittest
 
 import envfile
-from configure_synapse import configure, set_keys, welcome_settings
+from configure_synapse import configure, pm_moderator_settings, set_keys, welcome_settings
 
 GENERATED = """server_name: "matrix.example.org"
 database:
@@ -50,6 +51,14 @@ class Configure(unittest.TestCase):
         out = configure(GENERATED, ENV)
         self.assertIn("rc_login: {address: {per_second: 0.02, burst_count: 20}}", out)
         self.assertNotIn("account:", out.split("rc_login:")[1].splitlines()[0])
+
+    def test_pm_is_a_moderator_in_new_rooms_through_the_module(self):
+        out = configure(GENERATED, ENV)
+        line = next(ln for ln in out.splitlines() if ln.startswith("modules:"))
+        modules = json.loads(line.split(":", 1)[1])
+        self.assertEqual(modules, [{"module": "hagency_pm_moderator.PmModerator", "config": {"pm": f"@pm:{ENV['SERVER_NAME']}"}}])
+        self.assertIn('default_room_version: "12"', out)                       # what the module relies on
+        self.assertEqual(pm_moderator_settings("x.org")["modules"].count("@pm:x.org"), 1)
 
     def test_set_keys_replaces_in_place_and_appends_once(self):
         text = "a: 1\nb: 2"                                   # no final newline: the new key gets its own line

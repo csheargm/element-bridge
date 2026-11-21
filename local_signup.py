@@ -19,7 +19,7 @@ from bridge_config import ELEMENT_ORIGIN, ROOT, SERVER_NAME
 from setup_accounts import HS, api, load_env
 
 sys.path.append(str(ROOT / "deploy"))           # the public server's settings, shared
-from configure_synapse import WELCOME_LOCALPART, set_keys, welcome_settings  # noqa: E402
+from configure_synapse import WELCOME_LOCALPART, pm_moderator_settings, set_keys, welcome_settings  # noqa: E402
 
 CONFIG = ROOT / "data" / "homeserver.yaml"
 ADMIN = "admin-bot"                    # a -bot: never treated as a person (no welcome, no agent)
@@ -29,7 +29,7 @@ WELCOME_ALIAS = f"#{WELCOME_LOCALPART}:{SERVER_NAME}"
 
 
 def configure(text: str) -> str:
-    return set_keys(text, {**SIGNUP, **welcome_settings(SERVER_NAME)})
+    return set_keys(text, {**SIGNUP, **welcome_settings(SERVER_NAME), **pm_moderator_settings(SERVER_NAME)})
 
 
 def setup() -> bool:

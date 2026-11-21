@@ -5,7 +5,8 @@ running it again changes nothing):
   - every new account joins the private Welcome room, created by @pm, where @pm greets them
     (pm_welcome.py; @pm must exist before the first sign-up, or Synapse can't create the room);
   - the public URL; Synapse's own rate limits, except sign-ins per address (@pm's container signs in often);
-  - Oracle's free limits: uploads up to 20 MB, local media kept 90 days and remote media 30 days.
+  - Oracle's free limits: uploads up to 20 MB, local media kept 90 days and remote media 30 days;
+  - @pm is a moderator in every new room (synapse_modules/hagency_pm_moderator.py, room version 12).
 It refuses a config whose server_name differs from .env (a server's name can never change). The
 new file is written next to the old one and swapped in, so an interruption never leaves half a
 config; synapse/.hagency-configured marks success, and bootstrap won't start Synapse without it.
@@ -33,6 +34,12 @@ def welcome_settings(server_name: str) -> dict:
         "autocreate_auto_join_room_preset": "private_chat",   # invite-only: Synapse invites each new account
         "auto_join_rooms_for_guests": "false",
     }
+
+
+def pm_moderator_settings(server_name: str) -> dict:
+    """@pm at power 50 in new rooms: the module Synapse loads from /modules (it needs room version 12)."""
+    module = {"module": "hagency_pm_moderator.PmModerator", "config": {"pm": f"@{PM_LOCALPART}:{server_name}"}}
+    return {"modules": json.dumps([module]), "default_room_version": '"12"'}
 
 
 def set_keys(text: str, values: dict) -> str:
@@ -69,6 +76,7 @@ def configure(text: str, e: dict) -> str:
         "rc_login": "{address: {per_second: 0.02, burst_count: 20}}",
         "url_preview_enabled": "false",              # previews would fetch arbitrary URLs from the server
         **welcome_settings(e["SERVER_NAME"]),
+        **pm_moderator_settings(e["SERVER_NAME"]),
     }
     return set_keys(text, extra)
 
@@ -90,4 +98,4 @@ if __name__ == "__main__":
     if envfile.validate(values):
         raise SystemExit("✗ run `python3 envfile.py check` first")
     changed = install(Path(sys.argv[1]), values)
-    print(f"✓ homeserver.yaml {'configured' if changed else 'unchanged'}: Postgres, invite-only sign-up, Welcome room")
+    print(f"✓ homeserver.yaml {'configured' if changed else 'unchanged'}: Postgres, invite-only sign-up, Welcome room, @pm moderator")

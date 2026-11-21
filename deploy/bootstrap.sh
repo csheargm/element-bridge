@@ -53,7 +53,7 @@ sudo python3 configure_synapse.py synapse/homeserver.yaml   # every run: idempot
 sudo test -f synapse/.hagency-configured || { echo "✗ Synapse isn't configured; not starting it"; exit 1; }
 # Restart Synapse whenever its config differs from what it last started with (a failed run included).
 loaded=$(cat .synapse-loaded 2>/dev/null || true)
-current=$(sudo sha256sum synapse/homeserver.yaml | cut -d' ' -f1)
+current=$(sudo cat synapse/homeserver.yaml synapse_modules/*.py | sha256sum | cut -d' ' -f1)   # config and its modules
 
 # 4. @pm's copy of the registration secret, in a root-owned folder it gets read-only (it creates its
 #    own account and people's agents). @pm never sees Synapse's config or the database password.

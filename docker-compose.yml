@@ -3,7 +3,9 @@ name: hagency-bridge          # Docker project name kept: renaming it would orph
 services:
   synapse:
     image: matrixdotorg/synapse:latest
-    volumes: ["./data:/data"]
+    volumes: ["./data:/data", "./deploy/synapse_modules:/modules:ro"]   # @pm moderates new rooms
+    environment:
+      PYTHONPATH: /modules
     ports: ["127.0.0.1:8648:8008"]
     restart: unless-stopped
   element:
