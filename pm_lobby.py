@@ -48,6 +48,7 @@ class Lobby:
             return
         made = await self.client.room_create(alias=LOBBY_LOCALPART, name="Lobby", topic=LOBBY_TOPIC,
                                              preset=RoomPreset.public_chat, visibility=RoomVisibility.public)
+        project_rooms.FRONT_DOOR_IDS.update([made.room_id] if hasattr(made, "room_id") else [])   # GPT re-check
         if not hasattr(made, "room_id"):
             log.warning("couldn't create %s: %s", LOBBY_ALIAS, made)
 

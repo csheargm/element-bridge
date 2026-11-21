@@ -96,6 +96,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
         if welcome is None:
             made = await self.client.room_create(alias=WELCOME_LOCALPART, name=WELCOME_NAME, preset=RoomPreset.private_chat,
                                                  topic=WELCOME_TOPIC)
+            project_rooms.FRONT_DOOR_IDS.update([made.room_id] if hasattr(made, "room_id") else [])   # GPT re-check
             if not hasattr(made, "room_id"):
                 log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
             await self.ensure_lobby()         # pm_lobby.py: the public front door

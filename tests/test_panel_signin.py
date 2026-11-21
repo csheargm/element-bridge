@@ -29,8 +29,10 @@ const ctx = {
   sessionStorage: {getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: k => { delete store[k]; }},
   setTimeout: (f) => { timers.push(f); return f; }, clearTimeout: (f) => { timers = timers.filter(t => t !== f); },
   setInterval() {},
-  fetch: async (path) => { const p = path.split("?")[0].replace(/^\/?/, "/"), r = routes[p]; calls.push(p);
-    if (r === "hang") return new Promise(() => {});
+  AbortSignal: {timeout: () => { const c = new AbortController(); timers.push(() => c.abort()); return c.signal; }},
+  fetch: async (path, opts) => { const p = path.split("?")[0].replace(/^\/?/, "/"); calls.push(p);
+    let r = routes[p]; if (r === "first_then_hang") r = calls.filter(c => c === p).length > 1 ? "hang" : routes.first;
+    if (r === "hang") return new Promise((_, no) => opts && opts.signal && opts.signal.addEventListener("abort", () => no(new Error("aborted"))));
     if (r === undefined || r === "broken") return {status: 500, json: async () => { throw new SyntaxError("<html>"); }};
     return {status: r.status || 200, json: async () => r.body}; },
 };
@@ -53,7 +55,7 @@ const asked = () => parent.posted.filter(m => m.action === "get_openid").pop();
     await send({api: "toWidget", requestId: "c2", action: "openid_credentials",
                 data: {state: "blocked", original_request_id: asked().requestId}});
   }
-  if (["broken_server", "lobby", "happy", "state_hangs"].includes(scenario)) await reply({state: "allowed", access_token: "t"});
+  if (["broken_server", "lobby", "happy", "state_hangs", "poll_stalls"].includes(scenario)) await reply({state: "allowed", access_token: "t"});
   if (scenario === "expired") {
     process.stdout.write(els.me.textContent + "|" + (asked() ? "asked" : "not asked") + "\n");
     await send({api: "toWidget", requestId: "c1", action: "capabilities", data: {}});
@@ -61,6 +63,9 @@ const asked = () => parent.posted.filter(m => m.action === "get_openid").pop();
     process.stdout.write((asked() ? "asked" : "not asked") + "\n");
   }
   if (["state_hangs", "link_once"].includes(scenario)) { await fire(); await fire(); }
+  if (scenario === "poll_stalls") { ctx.refresh(); await flush(); await fire();
+    process.stdout.write(els.me.textContent + "\n"); ctx.refresh(); await flush();
+    process.stdout.write(calls.filter(c => c === "/console/state").length + "\n"); }
   if (scenario === "link_once") process.stdout.write(calls.filter(c => c === "/auth/link").length + "\n");
   process.stdout.write(els.me.textContent);
 })();
@@ -121,7 +126,14 @@ class SignIn(unittest.TestCase):
     def test_a_view_that_never_comes_still_ends_in_a_clear_line(self):
         """GPT review: a good token then a /console/state that never answered cleared the watchdog."""
         last = self.run_page("state_hangs", {"/auth/openid": {"body": {"session": "s"}}, "/console/state": "hang"})[-1]
-        self.assertIn("Element didn't answer", last)
+        self.assert_clear(last)
+
+    def test_a_stalled_poll_gives_up_says_so_and_polling_goes_on(self):
+        """GPT re-check: a poll that never answered held the one-at-a-time lock, freezing the panel."""
+        shown, polls, _ = self.run_page("poll_stalls", {"/auth/openid": {"body": {"session": "s"}},
+                                                        "/console/state": "first_then_hang", "first": {"body": VIEW}})
+        self.assertIn("Hagency server", shown)
+        self.assertEqual(polls, "3")                       # the next poll went out
 
     def test_a_one_time_link_is_never_sent_twice(self):
         """GPT review: an expired link session replayed the used code ("that link expired or was used")."""

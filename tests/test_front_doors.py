@@ -102,6 +102,22 @@ class NoPanelAtTheFrontDoor(unittest.TestCase):
         self.assertIsNone(self.widget("!lobby"))
 
 
+class FrontDoorsKnownAtStart(unittest.TestCase):
+    """GPT review: the rooms #lobby resolves to, or that @pm just made, count by ID."""
+    def test_the_lobby_found_or_made_is_known_by_its_id(self):
+        import pm_lobby
+        lobby = pm_lobby.Lobby()
+        lobby.client = SimpleNamespace(room_create=mock.AsyncMock(return_value=SimpleNamespace(room_id="!made")))
+        lobby.publish_lobby = mock.AsyncMock()
+        with mock.patch.object(project_rooms, "FRONT_DOOR_IDS", set()) as ids:
+            with mock.patch("matrix_calls.room_of_alias", mock.AsyncMock(return_value="!found")):
+                asyncio.run(lobby.ensure_lobby())
+            with mock.patch("matrix_calls.room_of_alias", mock.AsyncMock(return_value=None)):
+                asyncio.run(lobby.ensure_lobby())
+            self.assertEqual(ids, {"!found", "!made"})
+            self.assertTrue(project_rooms.is_front_door(SimpleNamespace(room_id="!made", canonical_alias=None)))
+
+
 class PanelOpenedInTheLobby(unittest.TestCase):
     def setUp(self):
         lobby = room("!lobby", project_rooms.LOBBY_ALIAS)

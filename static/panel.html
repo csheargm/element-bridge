@@ -55,9 +55,11 @@ const OFFLINE = "The Hagency server didn't answer properly just now. Reload the 
 let watchdog = null;
 const say = t => { $("me").textContent = t; };
 function failed(t) { clearTimeout(watchdog); say(t); }
-function signingIn() { clearTimeout(watchdog); say("Signing in…"); watchdog = setTimeout(() => failed(NO_ANSWER), __SIGNIN_MS__); }
+function signingIn() { clearTimeout(watchdog); say("Signing in…"); watchdog = setTimeout(() => failed(embedded ? NO_ANSWER : OFFLINE), __SIGNIN_MS__); }
+// Every request gives up in time (GPT re-check: a stalled poll froze the panel on its last view).
+const deadline = () => typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(__SIGNIN_MS__) : undefined;
 async function post(path, body) {
-  try { const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json",
+  try { const r = await fetch(path, {method: "POST", signal: deadline(), headers: {"Content-Type": "application/json",
       "Authorization": "Bearer " + (session || "")}, body: JSON.stringify(body)}); return await r.json(); }
   catch (e) { return {error: OFFLINE}; }    // no network, or a proxy's error page instead of our JSON
 }
@@ -122,7 +124,8 @@ async function refresh() {
 async function show() {
   const sent = session;
   let s;
-  try { const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + sent}});
+  try { const r = await fetch("console/state?room=" + encodeURIComponent(room), {signal: deadline(),
+      headers: {"Authorization": "Bearer " + sent}});
     if (r.status === 401) { if (sent !== session) return;
       session = null; try { sessionStorage.removeItem("hagency-session"); } catch (e) { /* blocked */ }
       return ++expired > 2 ? failed(NO_ANSWER) : start(); }

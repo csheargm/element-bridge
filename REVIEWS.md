@@ -1084,3 +1084,13 @@ Noted: the Element setting test checks the generated config.json, not Element's 
 browser test harness for Element here); the setting's config level was read from v1.12.35's source.
 R4: panel.py would have gone over 300 lines; its page template moved verbatim to static/panel.html
 (panel.PAGE byte-identical, checked).
+Re-check (GPT, the fix commit): six points. Adopted, with tests:
+- **A stalled poll held the one-at-a-time lock and froze the panel.** Every request has a deadline
+  (AbortSignal.timeout) and ends in the clear line. test_panel_signin (test_a_stalled_poll_gives_up_…).
+- **The watchdog blamed Element on the standalone page.** Outside Element it names the server.
+- **Rooms @pm just created weren't registered by ID.** They are now. test_front_doors (test_the_lobby_found_or_made_…).
+- **The backfill task was outside the shutdown lifecycle.** It runs under guarded (in busy), so a
+  restart lets it finish instead of cutting an address update in half.
+Rejected: **a failed Welcome lookup skips the Lobby lookup** and **is_welcome_room checks only the
+main address** (both pre-existing; the address check still guards, the next start retries; out of
+scope, R8).
