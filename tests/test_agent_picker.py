@@ -1,4 +1,4 @@
-"""Which AI a further agent runs, chosen in "Add an agent" (the panel and the chat: agent_kinds.py), and a
+"""Which AI a further agent runs, chosen in "Add an agent" (the panel and the chat: pm_kinds.py), and a
 removed agent's name used again. @pm records the choice and hands it to that agent's computer with its
 sign-in (agent_kind, model, base_url); an API key is never taken here. Run: .venv/bin/python -m unittest tests.test_agent_picker"""
 import json
@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-import agent_kinds
+import pm_kinds
 import console
 import panel
 import registry
@@ -31,19 +31,19 @@ class PickInChat(flows.Provisioning):
                             ("add another agent called cx2 using claude code", {"agent_kind": "claude"}),
                             ("add another agent called lo using ollama llama3.2", {"agent_kind": "ollama", "model": "llama3.2"}),
                             ("add another agent called rm using remote https://openrouter.ai/api/v1 openai/gpt-4o",
-                             {"agent_kind": "openai", "model": "openai/gpt-4o", "base_url": OPENROUTER})):
+                             {"agent_kind": "remote", "model": "openai/gpt-4o", "base_url": OPENROUTER})):
             with mock.patch.dict("os.environ", {"HAGENCY_AGENTS_PER_PERSON": "9"}):
                 self.tell(words)
             label = words.split()[4]
             found = registry.find(CX, label)
-            self.assertEqual({k: found[k] for k in agent_kinds.FIELDS if k in found}, kind, words)
+            self.assertEqual({k: found[k] for k in pm_kinds.FIELDS if k in found}, kind, words)
 
     def test_the_kind_reaches_its_computer_with_the_sign_in(self):
-        registry.add_agent(CX, "rm", picked={"agent_kind": "openai", "model": "openai/gpt-4o", "base_url": OPENROUTER})
+        registry.add_agent(CX, "rm", picked={"agent_kind": "remote", "model": "openai/gpt-4o", "base_url": OPENROUTER})
         registry.update(CX, "rm", ready=True)
         with mock.patch.object(remote_agent, "load_env", return_value={"PW_CX_RM_AGENT": "pw"}):
             creds = remote_agent.credentials_for(CX, "cx-rm-agent")
-        self.assertEqual((creds["agent_kind"], creds["model"], creds["base_url"]), ("openai", "openai/gpt-4o", OPENROUTER))
+        self.assertEqual((creds["agent_kind"], creds["model"], creds["base_url"]), ("remote", "openai/gpt-4o", OPENROUTER))
         self.assertNotIn("api_key", json.dumps(creds))
         registry.add_agent(CX, "plain")
         with mock.patch.object(remote_agent, "load_env", return_value={"PW_CX_PLAIN_AGENT": "pw"}):
@@ -51,14 +51,16 @@ class PickInChat(flows.Provisioning):
 
     def test_an_api_key_typed_in_the_chat_is_refused_and_never_repeated(self):
         answer = self.tell(f"add another agent called rm using remote {OPENROUTER} gpt-4o sk-or-v1-abcdef0123456789abcd")
-        self.assertEqual(answer, agent_kinds.NO_KEYS)
+        self.assertEqual(answer, pm_kinds.NO_KEYS)
         self.assertNotIn("sk-or", json.dumps(self.said))
         self.assertEqual(self.made, [])
 
     def test_unknown_or_unsafe_choices_say_how(self):
         for how in ("gpt5", "remote http://plain.example/v1 m", "remote https://u:p@x.example/v1 m",
-                    "codex o3", "remote https://x.example/v1"):
-            self.assertIsInstance(agent_kinds.from_words(how), str, how)
+                    "codex o3", "remote https://x.example/v1", "ollama ../etc", "remote https://x.example/v1?k=1 m"):
+            self.assertIsInstance(pm_kinds.from_words(how), str, how)
+        self.assertEqual(pm_kinds.from_words("remote http://localhost:1234/v1 qwen3:8b"),        # their own computer
+                         {"agent_kind": "remote", "model": "qwen3:8b", "base_url": "http://localhost:1234/v1"})
         self.tell("add another agent called pi using gpt5")
         self.assertEqual(self.made, [])
 
@@ -74,8 +76,8 @@ class PickInChat(flows.Provisioning):
         picked = json.dumps({"name": "lo", "agent_kind": "ollama", "model": "qwen2.5-coder:7b", "base_url": ""})
         self.assertIn("Setting up lo", self.run_(console.act(loop, "!r", CX, "add", picked)))
         self.assertEqual(registry.find(CX, "lo")["model"], "qwen2.5-coder:7b")
-        keyed = json.dumps({"name": "rm", "agent_kind": "openai", "model": "sk-proj-abcdef0123456789xyz", "base_url": OPENROUTER})
-        self.assertEqual(self.run_(console.act(loop, "!r", CX, "add", keyed)), agent_kinds.NO_KEYS)
+        keyed = json.dumps({"name": "rm", "agent_kind": "remote", "model": "sk-proj-abcdef0123456789xyz", "base_url": OPENROUTER})
+        self.assertEqual(self.run_(console.act(loop, "!r", CX, "add", keyed)), pm_kinds.NO_KEYS)
         mine = console.my_agents(SimpleNamespace(agent_online=lambda a: None, ever_connected=lambda a: False),
                                  SimpleNamespace(users={}, invited_users={}), "!r", CX)
         self.assertEqual([a["runs"] for a in mine], ["", "Local model (Ollama): qwen2.5-coder:7b"])
@@ -102,9 +104,9 @@ class PanelPicker(unittest.TestCase):
 
     def test_the_picker_lists_the_servers_kinds_and_each_agent_shows_what_it_runs(self):
         state = {"agents": [{"name": "cx-agent", "label": "main", "first": True, "follow": "always", "remote": True,
-                             "online": True, "runs": "Remote: m at openrouter.ai"}], "can_add": True, "kinds": agent_kinds.KINDS}
+                             "online": True, "runs": "Remote: m at openrouter.ai"}], "can_add": True, "kinds": pm_kinds.KINDS}
         html = self.node(f"process.stdout.write(agentCards({json.dumps(state)}))")
-        for kind, words in agent_kinds.KINDS.items():
+        for kind, words in pm_kinds.KINDS.items():
             self.assertIn(f'<option value="{kind}">{words}</option>', html)
         self.assertIn('<span class="chip">Remote: m at openrouter.ai</span>', html)
         self.assertIn("API key is asked\n    for on your computer", html)
@@ -116,15 +118,15 @@ class PanelPicker(unittest.TestCase):
         picked, plain = out.split("|")
         self.assertEqual(json.loads(picked), {"name": "lo", "agent_kind": "ollama", "model": "llama3.2", "base_url": ""})
         self.assertEqual(plain, "lo")                                          # no kind: as before
-        self.assertEqual(agent_kinds.from_panel(picked), ("lo", {"agent_kind": "ollama", "model": "llama3.2"}))
+        self.assertEqual(pm_kinds.from_panel(picked), ("lo", {"agent_kind": "ollama", "model": "llama3.2"}))
 
 
 class Describe(unittest.TestCase):
     def test_what_my_agents_shows(self):
-        self.assertEqual(agent_kinds.describe({"agent_kind": "claude"}), "Claude Code")
-        self.assertEqual(agent_kinds.describe({"agent_kind": "openai", "model": "m", "base_url": OPENROUTER}),
+        self.assertEqual(pm_kinds.describe({"agent_kind": "claude"}), "Claude Code")
+        self.assertEqual(pm_kinds.describe({"agent_kind": "remote", "model": "m", "base_url": OPENROUTER}),
                          "Remote: m at openrouter.ai")
-        self.assertEqual(agent_kinds.describe({}), "")
+        self.assertEqual(pm_kinds.describe({}), "")
 
 
 if __name__ == "__main__":

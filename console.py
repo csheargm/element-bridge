@@ -22,7 +22,7 @@ import urllib.request
 
 from aiohttp import web
 
-import agent_kinds
+import pm_kinds
 import console_personal
 import console_repo
 import customize
@@ -122,7 +122,7 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
         if registry.owns(user, a["localpart"]):
             aid = f"@{a['localpart']}:{SERVER_NAME}"
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
-                          "display": a.get("display") or "", "runs": agent_kinds.describe(a),   # pm_rename, agent_kinds
+                          "display": a.get("display") or "", "runs": pm_kinds.describe(a),   # pm_rename, pm_kinds
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
                           "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
                           "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
@@ -149,9 +149,9 @@ async def view(loop, room_id: str, user: str) -> dict:
     mine = my_agents(loop, room, room_id, user)
     if console_personal.owner_of(loop, room):   # My Hagency: their personal cards only
         return console_personal.view(loop, room, user, mine, can_add(user, mine),
-                                     {"kinds": agent_kinds.KINDS, "github": github_link.status(user),
+                                     {"kinds": pm_kinds.KINDS, "github": github_link.status(user),
                                       "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None})
-    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.KINDS, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": pm_kinds.KINDS, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
@@ -199,7 +199,7 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
         return "ok" if done is not False else "that isn't one of your agents"
     if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
         dm = await loop.private_room(user)
-        name, picked = agent_kinds.from_panel(value)     # the picker: the AI it runs (agent_kinds.py)
+        name, picked = pm_kinds.from_panel(value)     # the picker: the AI it runs (pm_kinds.py)
         if isinstance(picked, str):
             return picked
         return await loop.start_add(dm, user, name or None, picked) if dm else "I couldn't open a private chat with you"

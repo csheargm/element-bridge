@@ -47,7 +47,7 @@ function renameRow(a) {
 function agentRow(a, version, several) {
   const called = a.display || (several ? a.label : "");     // the name its person gave it, then its account
   const title = (called ? `<b>${esc(called)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`)
-    + (a.runs ? ` <span class="chip">${esc(a.runs)}</span>` : "");   // the AI it runs (agent_kinds.describe)
+    + (a.runs ? ` <span class="chip">${esc(a.runs)}</span>` : "");   // the AI it runs (pm_kinds.describe)
   const where = a.here ? ' <span class="chip">in this room</span>'
     : a.invited ? ' <span class="chip">invited to this room</span>' : "";
   return `<li><div>${title}${where}${agentHint(a)}</div>
@@ -65,7 +65,7 @@ function agentCards(s) {
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
     <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
 }
-// The AI a new agent runs: s.kinds is agent_kinds.KINDS (the one list); "" = the one its computer finds,
+// The AI a new agent runs: s.kinds is pm_kinds.KINDS (the one list); "" = the one its computer finds,
 // as before. Ollama: the model is picked on that computer (or named here); remote: base URL and model here.
 function kindPicker(kinds) {
   const all = [["", "AI: the one on my computer"], ...Object.entries(kinds || {})];

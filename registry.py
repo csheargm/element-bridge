@@ -16,7 +16,7 @@ import threading
 import time
 from pathlib import Path
 
-import agent_kinds
+import pm_kinds
 import bridge_config
 import identity
 from bridge_config import SERVER_NAME
@@ -168,8 +168,8 @@ def _agents(person: str, info: dict) -> list[dict]:
 
 
 def _picked(entry: dict) -> dict:
-    """The AI a further agent runs (agent_kinds.py), as recorded; a damaged record: none."""
-    found = agent_kinds.choice(*(entry.get(k) if isinstance(entry.get(k), str) else "" for k in agent_kinds.FIELDS))
+    """The AI a further agent runs (pm_kinds.py), as recorded; a damaged record: none."""
+    found = pm_kinds.choice(*(entry.get(k) if isinstance(entry.get(k), str) else "" for k in pm_kinds.FIELDS))
     return found if isinstance(found, dict) else {}
 
 
@@ -230,7 +230,7 @@ def _update(person: str, which: str | None, fields: dict) -> None:
 
 def add_agent(person: str, label: str, kind: str = REMOTE, picked: dict | None = None) -> dict:
     """Reserve a further agent for `person` (counted before its account exists, so a failed set-up
-    can't dodge the cap), called `label` by them; picked: the AI it runs (agent_kinds.choice).
+    can't dodge the cap), called `label` by them; picked: the AI it runs (pm_kinds.choice).
     Raises ValueError with a sentence to show them."""
     with LOCK:
         return _add_agent(person_id(person), label, kind, picked or {})

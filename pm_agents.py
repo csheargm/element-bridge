@@ -16,7 +16,7 @@ import time
 
 from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
-import agent_kinds
+import pm_kinds
 import connect_page
 import registry
 import remote_agent
@@ -104,7 +104,7 @@ class MoreAgents(Renaming):
         if not m:
             return False
         dm = room.room_id if private else await self.private_room(event.sender)
-        picked = agent_kinds.from_words(m.group("how")) if m.group("how") else None   # the AI it runs
+        picked = pm_kinds.from_words(m.group("how")) if m.group("how") else None   # the AI it runs
         if isinstance(picked, str):
             await self.say(room.room_id, picked)      # (an API key typed here is never repeated)
         elif dm is None:
@@ -115,7 +115,7 @@ class MoreAgents(Renaming):
 
     async def start_add(self, dm: str, person: str, typed: str | None = None, picked: dict | None = None) -> str:
         """Ask for a name, or set the agent up (in the background). Returns what was said, for the console.
-        picked: the AI it runs (agent_kinds.choice; None: connect.py picks), kept while I ask its name."""
+        picked: the AI it runs (pm_kinds.choice; None: connect.py picks), kept while I ask its name."""
         naming = self.__dict__.setdefault("_naming", {})
         have = registry.agents_of(person)
         if not registry.may_add_more(person):     # their first agent removed for good: a named one is next

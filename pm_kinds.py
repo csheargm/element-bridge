@@ -1,22 +1,26 @@
-"""Which AI a person's further agent runs (the picker in "Add an agent", the panel and the chat). @pm only
-records the choice and hands it to that agent's computer with its sign-in (remote_agent.credentials_for:
-agent_kind, model, base_url); connect.py on their computer runs it. No kind: as before (connect.py
-picks the CLI it finds). A remote model's API key is never asked for, typed or stored here: the
-person enters it on their own computer during Connect, where it stays.
+"""Which AI a person's further agent runs: @pm's side of the picker in "Add an agent" (the panel and the
+chat). @pm only records the choice and hands it to that agent's computer with its sign-in
+(remote_agent.credentials_for: agent_kind, model, base_url, as ADR 0008's connect info); connect.py
+there runs it. No kind: as before (connect.py picks the CLI it finds). A remote model's API key is
+never asked for, typed or stored here: the person enters it on their own computer during Connect.
+TODO(ADR 0008): once the computer side's agent_kinds.py is in, check with its MODEL_RE and base_url
+rules instead of the copies below (one place, R3); the values here follow them exactly.
 """
 import json
 import re
 import urllib.parse
 
-# kind → what people see. "openai": any OpenAI-compatible endpoint (Ollama Cloud, OpenRouter, ...).
-KINDS = {"codex": "Codex", "claude": "Claude Code", "hermes": "Hermes", "ollama": "Local model (Ollama)",
-         "openai": "Remote model (OpenAI-compatible)"}
+# kind → what people see (ADR 0008's KINDS). "remote": an OpenAI-compatible service (OpenRouter, Ollama
+# Cloud, …); not agents.json's "agent": "remote" (runs on their computer), so it is kept in agent_kind.
+KINDS = {"codex": "Codex", "claude": "Claude Code", "hermes": "Hermes (macOS, Linux)", "ollama": "Local model (Ollama)",
+         "remote": "Remote model (OpenAI-compatible)"}
 FIELDS = ("agent_kind", "model", "base_url")      # the names connect.py reads (its ADR)
 SAID = {"codex": "codex", "claude": "claude", "claude code": "claude", "hermes": "hermes", "ollama": "ollama",
-        "a local model": "ollama", "local model": "ollama", "local": "ollama", "remote": "openai",
-        "a remote model": "openai", "remote model": "openai", "openai": "openai"}
-MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,99}")
-URL_MAX = 200
+        "a local model": "ollama", "local model": "ollama", "local": "ollama", "remote": "remote",
+        "a remote model": "remote", "remote model": "remote", "openai": "remote"}
+MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}")   # ADR 0008 (and never "..")
+URL_MAX = 300
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")   # plain http only to their own computer (ADR 0008)
 KEY_RE = re.compile(r"\b(sk|rk|pk|gsk|xai|hf|or|nvapi)[-_][A-Za-z0-9_-]{12,}|\bbearer\s+\S{12,}", re.I)
 NO_KEYS = ("That looks like an API key: never type one here, in any chat. You enter it on your own computer "
            "when you connect the agent, and it stays there. (If it was a real key, revoke it with its provider.)")
@@ -26,14 +30,16 @@ HOW = ("Say which AI it runs, for example \"add another agent called pi using cl
 
 
 def clean_url(text: str) -> str | None:
-    """An https endpoint (no user, query or fragment), or None."""
+    """An https endpoint, or http on their own computer (no user, query, fragment, quotes, spaces or
+    backslashes), or None."""
     url = str(text).strip().rstrip("/")
     try:
         parts = urllib.parse.urlsplit(url)
     except ValueError:
         return None
-    if (parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.query
-            or parts.fragment or len(url) > URL_MAX or any(c.isspace() for c in url)):
+    local = parts.scheme == "http" and parts.hostname in LOCAL_HOSTS
+    if ((parts.scheme != "https" and not local) or not parts.hostname or parts.username or parts.password
+            or parts.query or parts.fragment or len(url) > URL_MAX or re.search(r"[\s\\\"'<>`]", url)):
         return None
     return url
 
@@ -42,12 +48,12 @@ def choice(kind: str, model: str = "", base_url: str = "") -> dict | str:
     """The recorded choice ({agent_kind, model?, base_url?}), or why not (a sentence)."""
     if kind not in KINDS:
         return HOW
-    if model and not MODEL_RE.fullmatch(model):
+    if model and (not MODEL_RE.fullmatch(model) or ".." in model):
         return "A model's name is letters, digits and . : / @ + - only, for example llama3.2 or openai/gpt-4o."
-    if kind == "openai":
+    if kind == "remote":
         url = clean_url(base_url)
         if not url or not model:
-            return "A remote model needs its https base URL and the model's name, for example https://openrouter.ai/api/v1 openai/gpt-4o."
+            return "A remote model needs its base URL (https) and the model's name, for example https://openrouter.ai/api/v1 openai/gpt-4o."
         return {"agent_kind": kind, "model": model, "base_url": url}
     if base_url:
         return f"Only a remote model takes a base URL; {KINDS[kind]} runs on your computer."
@@ -66,7 +72,7 @@ def from_words(text: str) -> dict | str:
         if said in SAID:
             rest = words[size:]
             kind = SAID[said]
-            if kind == "openai":
+            if kind == "remote":
                 return choice(kind, rest[1] if len(rest) > 1 else "", rest[0] if rest else "") if len(rest) <= 2 else HOW
             return choice(kind, rest[0] if rest else "") if len(rest) <= 1 else HOW
     return HOW
@@ -95,7 +101,7 @@ def describe(agent: dict) -> str:
     kind = agent.get("agent_kind")
     if kind not in KINDS:
         return ""
-    if kind == "openai":
+    if kind == "remote":
         host = urllib.parse.urlsplit(agent.get("base_url") or "").hostname or "?"
         return f"Remote: {agent.get('model') or '?'} at {host}"
     return KINDS[kind] + (f": {agent['model']}" if agent.get("model") else "")

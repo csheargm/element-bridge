@@ -18,7 +18,7 @@ import urllib.parse
 from aiohttp import web
 
 import console
-import agent_kinds
+import pm_kinds
 import identity
 import local_signup
 import pairing
@@ -124,7 +124,7 @@ def provision_more(person: str, label: str, picked: dict | None = None) -> str:
             if registry.local_name(person) is None:
                 remote_people.check_new(registry.from_elsewhere(registry.load()), person, further=True)
             try:
-                found = registry.add_agent(person, label, picked=picked)   # agent_kinds.py: the AI it runs
+                found = registry.add_agent(person, label, picked=picked)   # pm_kinds.py: the AI it runs
             except ValueError as e:
                 raise AccountError(str(e)) from e
         agent = found["localpart"]
@@ -203,7 +203,7 @@ def credentials_for(person: str, agent: str | None = None, issued: float | None 
     owner = registry.local_name(person) or person   # a bare name here: what an older connect.py accepts
     return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner,
             **({"label": label} if label else {}),
-            **{k: found[k] for k in agent_kinds.FIELDS if found.get(k)}}   # the AI it runs (none: connect.py picks)
+            **{k: found[k] for k in pm_kinds.FIELDS if found.get(k)}}   # the AI it runs (none: connect.py picks)
 
 
 def routes() -> list:
