@@ -1,0 +1,118 @@
+"""Your agent as a background service on your own computer, so it doesn't need an open Terminal.
+
+connect.py installs it after pairing: on macOS a launchd LaunchAgent
+(~/Library/LaunchAgents/xyz.hagencylabs.agent.<localpart>.plist), on Linux a systemd --user unit
+(~/.config/systemd/user/hagency-agent-<localpart>.service). It starts at login, restarts if it
+crashes, logs to ~/.hagency/logs/, and reads the sign-in from ~/.hagency/credentials.json: no secret
+is ever on a command line or in the service file. It stays stopped after a clean exit (the server
+disconnected the agent). `connect.py --stop` removes it. Neither available: connect.py runs it in
+the foreground as before.
+"""
+import os
+import platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+LABEL = "xyz.hagencylabs.agent"
+RESTART_S = 30
+
+
+def label(agent_localpart: str) -> str:
+    return f"{LABEL}.{agent_localpart}"
+
+
+def command(app: Path, owner: str, backend: str) -> list[str]:
+    return [sys.executable, str(app / "bridge.py"), owner, "--agent", backend]
+
+
+def plist(app: Path, owner: str, backend: str, agent: str, creds: Path, logs: Path) -> str:
+    args = "".join(f"<string>{escape(a)}</string>" for a in command(app, owner, backend))
+    env = {"HAGENCY_CREDENTIALS": str(creds), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}   # where codex/claude are
+    env_xml = "".join(f"<key>{escape(k)}</key><string>{escape(v)}</string>" for k, v in env.items())
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>'
+            f"<key>Label</key><string>{escape(label(agent))}</string>"
+            f"<key>ProgramArguments</key><array>{args}</array>"
+            f"<key>WorkingDirectory</key><string>{escape(str(app))}</string>"
+            f"<key>EnvironmentVariables</key><dict>{env_xml}</dict>"
+            "<key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>"
+            f"<key>ThrottleInterval</key><integer>{RESTART_S}</integer>"
+            f"<key>StandardOutPath</key><string>{escape(str(logs / f'{agent}.log'))}</string>"
+            f"<key>StandardErrorPath</key><string>{escape(str(logs / f'{agent}.log'))}</string>"
+            "</dict></plist>\n")
+
+
+def unit(app: Path, owner: str, backend: str, agent: str, creds: Path, logs: Path) -> str:
+    quote = lambda a: '"' + a.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return ("[Unit]\nDescription=Hagency Rooms agent " + agent + "\nAfter=network-online.target\n\n[Service]\n"
+            f"ExecStart={' '.join(quote(a) for a in command(app, owner, backend))}\n"
+            f"WorkingDirectory={app}\nEnvironment={quote('HAGENCY_CREDENTIALS=' + str(creds))}\n"
+            f"Environment={quote('PATH=' + os.environ.get('PATH', '/usr/bin:/bin'))}\n"
+            f"Restart=on-failure\nRestartSec={RESTART_S}\nStandardOutput=append:{logs / (agent + '.log')}\n"
+            f"StandardError=append:{logs / (agent + '.log')}\n\n[Install]\nWantedBy=default.target\n")
+
+
+def kind() -> str | None:
+    """"launchd", "systemd" or None (no per-user service manager here)."""
+    if platform.system() == "Darwin" and shutil.which("launchctl"):
+        return "launchd"
+    if platform.system() == "Linux" and shutil.which("systemctl"):
+        ok = subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True, text=True)
+        return "systemd" if ok.stdout.strip() in ("running", "degraded", "starting") else None
+    return None
+
+
+def service_file(how: str, agent: str, home: Path | None = None) -> Path:
+    home = home or Path.home()
+    if how == "launchd":
+        return home / "Library" / "LaunchAgents" / f"{label(agent)}.plist"
+    return home / ".config" / "systemd" / "user" / f"hagency-agent-{agent}.service"
+
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(text)
+    tmp.chmod(0o644)                          # names and paths only, never a secret
+    os.replace(tmp, path)
+
+
+def install(app: Path, owner: str, backend: str, agent: str, creds: Path, run=subprocess.run) -> str | None:
+    """Install (or replace) and start the service; the service manager's name, or None if none."""
+    how = kind()
+    if how is None:
+        return None
+    logs = creds.parent / "logs"
+    logs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = service_file(how, agent)
+    if how == "launchd":
+        domain = f"gui/{os.getuid()}"
+        run(["launchctl", "bootout", f"{domain}/{label(agent)}"], capture_output=True)   # an older one: replaced
+        _write(path, plist(app, owner, backend, agent, creds, logs))
+        r = run(["launchctl", "bootstrap", domain, str(path)], capture_output=True, text=True)
+    else:
+        _write(path, unit(app, owner, backend, agent, creds, logs))
+        run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        r = run(["systemctl", "--user", "enable", "--now", "--", path.name], capture_output=True, text=True)
+        run(["systemctl", "--user", "restart", "--", path.name], capture_output=True)   # new sign-in or CLI
+    if r.returncode != 0:
+        raise RuntimeError(f"{how} wouldn't start it: {(r.stderr or r.stdout or '').strip()[:200]}")
+    return how
+
+
+def stop(agent: str, run=subprocess.run) -> bool:
+    """Stop and remove the service; True if there was one."""
+    how = kind()
+    if how is None:
+        return False
+    path = service_file(how, agent)
+    if how == "launchd":
+        run(["launchctl", "bootout", f"gui/{os.getuid()}/{label(agent)}"], capture_output=True)
+    else:
+        run(["systemctl", "--user", "disable", "--now", "--", path.name], capture_output=True)
+    existed = path.exists()
+    path.unlink(missing_ok=True)
+    return existed

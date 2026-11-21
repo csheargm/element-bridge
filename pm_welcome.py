@@ -24,6 +24,7 @@ from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
 from pm_chat import without_quote
+from pm_presence import DISCONNECT_RE
 from redact import room_safe
 from saved_dict import SavedDict
 from setup_accounts import AccountError
@@ -136,7 +137,9 @@ class Welcome:
         return dm
 
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
-        """True if this was a click on my welcome (handled here, used or not)."""
+        """True if this was a click on my welcome (handled here, used or not), or on "offline" (pm_presence.py)."""
+        if await self.on_offline_reaction(room, event):
+            return True
         entry = self.welcomes().get(event.sender)
         if not entry or room.room_id != entry.get("dm") or event.reacts_to != entry.get("offer"):
             return False
@@ -159,6 +162,8 @@ class Welcome:
             await self.choose(room.room_id, event.sender, HOUSE)
         elif in_dm and BRING_RE.search(text):
             await self.choose(room.room_id, event.sender, BRING)
+        elif DISCONNECT_RE.search(text):
+            await self.disconnect(room.room_id, event.sender)    # pm_presence.py
         elif WANT_RE.search(text):
             await self.offer_again(room, event.sender)
         else:

@@ -44,6 +44,12 @@ class Codes:
         self.codes[digest(raw)] = {"person": person, "expires": now + CODE_S}
         return f"{raw[:5]}-{raw[5:]}"
 
+    def revoke(self, person: str) -> None:
+        """Every code of `person` stops working (their agent was disconnected)."""
+        for h, entry in list(self.codes.items()):
+            if not isinstance(entry, dict) or entry.get("person") == person:
+                self.codes.pop(h, None)
+
     def redeem(self, code: str, now: float | None = None) -> str | None:
         """The person a fresh code was issued to, or None. The code is gone after this either way."""
         if not isinstance(code, str) or not code or len(code) > MAX_CODE_CHARS:

@@ -148,7 +148,10 @@ async function refresh() {
     value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
     ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
   if (s.agent) h += `<div class="grid"><section class="card"><h2>My agent · ${esc(s.agent)}</h2>
-    <div class="hint">The same in every room.</div>
+    <div class="hint">The same in every room.</div>${s.remote ? `<div class="set"><div>On my computer: <span class="chip">${
+      s.online === true ? "Online" : s.online === false ? "Offline" : "Not seen yet"}</span><div class="hint">${s.online === false
+      ? "Run the install line again on that computer; @pm sends it with a fresh code." : ""}</div></div>
+      <button data-a="disconnect">Disconnect</button></div>` : ""}
     <div class="set"><div>Comes along when I join a project room</div>${buttons("follow", ["always", "ask", "never"], s.follow, true)}</div>
     <div class="set"><div>Code it runs<div class="hint">${s.version ? `Your own version (${esc(s.version)}), made in your private room.` : "The official version."}</div></div>${s.version ? '<button data-a="goback">Go back to official</button>' : ""}</div></section>
     <section class="card"><h2>My agent in this room</h2>

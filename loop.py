@@ -32,6 +32,7 @@ from pm_settings import Settings
 from pm_follow import Follow
 from saved_dict import SavedDict
 from pm_plan import Planner
+from pm_presence import Presence
 from pm_understand import Understanding
 from pm_voice import Voice
 from pm_welcome import Welcome
@@ -53,7 +54,7 @@ class SendError(RuntimeError):
     """Matrix refused a message; the item keeps its stage and the watchdog retries later."""
 
 
-class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice, Welcome):
+class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voice, Welcome, Presence):
     def __init__(self) -> None:
         self.user_id = f"@{github.PM_BOT}:{SERVER_NAME}"
         self.client = AsyncClient(HOMESERVER, self.user_id, device_id="PM_BOT")
@@ -281,6 +282,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
             except (github.GitHubError, SendError) as e:
                 log.error("tick failed: %s", e)   # transient gh/network/Matrix errors: retry next tick
             await self.refresh_boards()
+            await self.check_agents()             # pm_presence.py: "your agent is offline"
 
 
 def main() -> None:

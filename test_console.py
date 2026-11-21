@@ -125,6 +125,7 @@ class Actions(unittest.TestCase):
                                     is_person=lambda r, u: u in r.users and not u.split(":")[0].endswith("-agent"),
                                     set_follow=set_follow, set_grant=set_grant, confirm=confirm, pending={},
                                     grants_cache={}, level=lambda rid: asyncio.sleep(0, "off"),
+                                    agent_online=lambda agent: True if agent == "alice-at-matrix-org-a5829e99c7-agent" else None,
                                     user_id="@pm:" + BETTY.partition(":")[2])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
                          ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello"))):
@@ -186,6 +187,7 @@ class Actions(unittest.TestCase):
         v = asyncio.run(console.view(self.loop, "!r", alice))
         self.assertEqual((v["agent"], v["follow"]), (registry.agent_of(alice), "ask"))
         self.assertTrue(v["agent"].startswith("alice-at-matrix-org-"))
+        self.assertEqual((v["remote"], v["online"]), (True, True))             # "My agent": Online
         self.assertIsNone(asyncio.run(console.view(self.loop, "!r", namesake))["agent"])
 
 

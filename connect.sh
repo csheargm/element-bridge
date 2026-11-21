@@ -3,7 +3,8 @@
 #   curl -fsSL __HAGENCY_CONSOLE__/connect.sh | sh -s -- CODE [--agent codex|claude]
 # Installs (or updates) Hagency Rooms in ~/.hagency/app, then runs connect.py with @pm's one-time
 # code. Your agent's sign-in is kept in ~/.hagency/credentials.json (only you can read it).
-# Later, to bring your agent online again: ~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py
+# It then runs in the background (launchd / systemd --user); run this again any time, it's safe.
+# To stop it: ~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop
 set -eu
 CONSOLE="${HAGENCY_CONSOLE:-__HAGENCY_CONSOLE__}"
 REPO="${HAGENCY_REPO:-https://github.com/csheargm/hagency-rooms}"

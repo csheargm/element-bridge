@@ -239,6 +239,9 @@ class Bridge(BridgeVoice, BridgeCustom):
         password = agent_password(f"{self.owner}-agent")   # bridge_config.py: .env, or connect.py's file
         resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
         if not isinstance(resp, LoginResponse):
+            if getattr(resp, "status_code", "") == "M_FORBIDDEN":   # disconnected (a new sign-in is needed):
+                log.error("%s was disconnected: ask @pm for a new code", self.user_id)
+                raise SystemExit(0)           # a clean exit, so the background service doesn't retry
             raise SystemExit(f"login failed for {self.user_id}: {resp}")
         # Pending invites go through the same check as live ones. Messages from before startup are
         # skipped, except those sent while a previous process was restarting (lifecycle hand-off).

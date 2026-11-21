@@ -130,7 +130,7 @@ def main():
     log = open(home / "connect.log", "w")
     backend = os.environ.get("E2E_AGENT", "codex")
     proc = subprocess.Popen([str(ROOT / ".venv/bin/python"), "connect.py", code, "--agent", backend, "--server", CONSOLE,
-                             "--home", str(home)], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+                             "--home", str(home), "--foreground"], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
     try:
         until("the agent online", lambda: "online" in (home / "connect.log").read_text(), timeout=90)
         creds = home / "credentials.json"

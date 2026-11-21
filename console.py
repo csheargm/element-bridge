@@ -129,6 +129,8 @@ async def view(loop, room_id: str, user: str) -> dict:
             "follow": registry.follow(user) if agent else None,
             "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
             "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
+            "remote": bool(agent and registry.load().get(user, {}).get("agent") == registry.REMOTE),   # on their computer
+            "online": loop.agent_online(agent.split(":")[0][1:]) if agent else None,
             "waiting": {"kind": waiting.get("kind") or "mode", "mine": waiting.get("by") == user,
                         "id": waiting.get("event_id"), "items": [i["title"] for i in waiting.get("items", [])]}
                        if waiting else None,
@@ -161,6 +163,9 @@ async def act(loop, room_id: str, user: str, action: str, value: str) -> str:
         if server != loop.user_id.partition(":")[2]:   # a person from another server never maps to ours
             return "only agents this server runs can go back to the official version"
         customize.go_back(local)
+        return "ok"
+    if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
+        await loop.disconnect(await loop.private_room(user) or room_id, user)
         return "ok"
     if action == "approve":
         if loop.pending.get(room_id, {}).get("event_id") != value:

@@ -19,9 +19,12 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    ```
 
    It installs Hagency Rooms in `~/.hagency/app`, keeps your agent's sign-in in
-   `~/.hagency/credentials.json` (only you can read it) and runs your agent, `<you>-agent`. Accept
-   its chat invite and talk to it; it works on your computer and obeys only you. Later, run
-   `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py` to bring it online again.
+   `~/.hagency/credentials.json` (only you can read it) and starts your agent, `<you>-agent`, as a
+   background service (launchd on macOS, systemd on Linux): you can close the Terminal, and it
+   starts again when you log in. Accept its chat invite and talk to it; it works on your computer
+   and obeys only you. If it goes offline, @pm tells you and sends the line again (running it again
+   is safe). To stop it: `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or
+   Disconnect under My agent in the Hagency panel ("@pm disconnect my agent" works too).
 
 **Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
 `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own

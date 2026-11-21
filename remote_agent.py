@@ -8,13 +8,16 @@ computer fetch the agent's sign-in once, from POST /connect on the console serve
 serves the installer. The password is never logged; only the code's hash is stored.
 """
 import os
+import secrets
 import socket
 import threading
+import urllib.parse
 
 from aiohttp import web
 
 import console
 import identity
+import local_signup
 import pairing
 import registry
 import remote_people
@@ -103,6 +106,26 @@ def _provision(person: str) -> str:
     people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm}
     registry.save(people)
     return agent
+
+
+def disconnect(person: str) -> None:
+    """A new password for `person`'s remote agent (saved first, put back if Synapse refuses) and every
+    session signed out: the copy on their computer stops working until a new code. Blocking I/O."""
+    with WRITING:
+        person, env = registry.person_id(person), load_env()
+        agent = registry.agent_of(person)
+        key = setup_accounts.password_key(agent)
+        old = env.get(key)
+        env[key] = secrets.token_urlsafe(18)
+        setup_accounts.save_env(env)
+        r = local_signup.admin_call("POST", f"/_synapse/admin/v1/reset_password/{urllib.parse.quote(f'@{agent}:{SERVER_NAME}')}",
+                                    {"new_password": env[key], "logout_devices": True})
+        if "_status" in r:
+            if old is not None:
+                env[key] = old
+                setup_accounts.save_env(env)
+            raise AccountError(f"couldn't give @{agent} a new password: {r.get('errcode')}")
+        CODES.revoke(person)
 
 
 def credentials_for(person: str) -> dict | None:

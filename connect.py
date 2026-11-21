@@ -1,11 +1,13 @@
 """Connect your own Codex or Claude Code to Hagency Rooms as your agent, from your own computer.
 
-  python connect.py CODE [--agent codex|claude]   # once, with the code @pm sent you; then it runs
-  python connect.py                               # later: run again with the saved sign-in
+  python connect.py CODE [--agent codex|claude]   # once, with the code @pm sent you
+  python connect.py                               # later: start it again with the saved sign-in
+  python connect.py --stop                        # stop it and remove the background service
 
 It trades @pm's one-time code for your agent's sign-in (POST <server>/connect), saves it in
-~/.hagency/credentials.json (mode 600, never in this folder), and runs the bridge (bridge.py) in
-the foreground: your agent is online while this runs, works on this computer, and obeys only you.
+~/.hagency/credentials.json (mode 600, never in this folder), and runs the bridge (bridge.py) as a
+background service (agent_service.py: launchd on macOS, systemd --user on Linux; --foreground, or
+neither available, runs it here instead). It works on this computer and obeys only you.
 connect.sh (served by the Hagency console at /connect.sh) installs this and starts it.
 """
 import argparse
@@ -20,6 +22,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import agent_service
 import identity
 from bridge_config import credentials_match
 
@@ -89,6 +92,33 @@ def pick_backend(given: str | None, saved: str | None, ask=input) -> str:
     return choice
 
 
+def agent_name(creds: dict) -> str:
+    return str(creds.get("user_id", "")).lstrip("@").partition(":")[0]
+
+
+def background(creds: dict, path: Path) -> bool:
+    """Start the agent as a background service; False when this computer has none (run it here)."""
+    try:
+        how = agent_service.install(APP, creds["owner"], creds["agent"], agent_name(creds), path)
+    except (OSError, RuntimeError) as e:     # said plainly, then it runs in the foreground instead
+        print(f"note: couldn't start it in the background ({e}); running it here instead", file=sys.stderr)
+        return False
+    if how is None:
+        return False
+    print(f"✓ Your agent now runs in the background ({how}): you can close this Terminal. It starts again when\n"
+          f"  you log in. Its log: {path.parent / 'logs' / (agent_name(creds) + '.log')}\n"
+          f"  To stop it: {sys.executable} {APP / 'connect.py'} --stop")
+    return True
+
+
+def stop(saved: dict) -> None:
+    name = agent_name(saved)
+    if not name:
+        raise SystemExit("✗ not connected on this computer: nothing to stop")
+    print(f"✓ stopped {name} and removed its background service" if agent_service.stop(name)
+          else f"✓ {name} had no background service here (if it runs in a Terminal, press Ctrl-C there)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("code", nargs="?", help="the one-time code from @pm (not needed once connected)")
@@ -98,13 +128,18 @@ def main() -> None:
     ap.add_argument("--home", type=Path, default=Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")),
                     help="where the sign-in is kept (default ~/.hagency)")
     ap.add_argument("--pair-only", action="store_true", help="save the sign-in, don't start the agent")
+    ap.add_argument("--foreground", action="store_true", help="run here (Ctrl-C stops it), not as a background service")
+    ap.add_argument("--stop", action="store_true", help="stop the agent and remove its background service")
     args = ap.parse_args()
-    path = args.home / "credentials.json"
+    path = args.home.resolve() / "credentials.json"
     try:
         saved = json.loads(path.read_text()) if path.exists() else {}
     except (OSError, ValueError):
         saved = {}                            # damaged: a new code replaces it
     saved = saved if isinstance(saved, dict) else {}
+    if args.stop:
+        stop(saved)
+        return
     if not args.code and not saved:
         raise SystemExit("✗ not connected yet: run this with the code @pm sent you")
     backend = pick_backend(args.agent, saved.get("agent"))      # before the code is used up
@@ -116,6 +151,8 @@ def main() -> None:
     save(path, creds)
     print(f"✓ connected as {creds['user_id']} ({creds['agent']}); only {creds['owner']} can direct it")
     if args.pair_only:
+        return
+    if not args.foreground and background(creds, path):
         return
     print("Your agent is online while this runs (Ctrl-C stops it).", flush=True)
     os.chdir(APP)
