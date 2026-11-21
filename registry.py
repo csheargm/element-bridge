@@ -242,57 +242,5 @@ def _add_agent(person: str, label: str, kind: str) -> dict:
     return find(person, label)
 
 
-# --- removing agents ---
+# --- removing agents (forget_agent, prune: registry_removal.py) ---
 REMOVED = "removed"                  # labels of further agents removed for good (their accounts can't come back)
-
-
-def forget_agent(person: str, localpart: str) -> None:
-    """Drop one agent of the person's from agents.json, freeing its slot: a further one leaves "more"
-    (its label is kept in "removed"); the first one only when it is their last, leaving their line
-    marked FIRST_GONE (GPT review, batch 5+6: else "bring my own" re-registered its closed name)."""
-    with LOCK:
-        person, data = person_id(person), load()
-        have = agents_of(person, data)
-        found = next((a for a in have if a["localpart"] == localpart), None)
-        if found is None:
-            raise ValueError(f"{person} has no agent {localpart}")
-        if found["first"] and len(have) > 1:
-            raise ValueError("remove the other agents first")
-        if found["first"]:
-            data[person] = _tombstone(data[person], have)
-        else:
-            info = data[person]
-            info[MORE] = [e for e in info[MORE] if not (isinstance(e, dict) and e.get("label") == found["label"])]
-            old = info.get(REMOVED) if isinstance(info.get(REMOVED), list) else []
-            info[REMOVED] = sorted({*old, found["label"]})
-        save(data)
-
-
-def _tombstone(info: dict, agents: list[dict]) -> dict:
-    """What stays of a person whose agents are all gone: the names that can't come back. "remote":
-    so the supervisor and setup_accounts never start or make a server-run agent for the line."""
-    old = info.get(REMOVED) if isinstance(info.get(REMOVED), list) else []
-    return {"agent": REMOTE, FIRST_GONE: True, REMOVED: sorted({*old, *(a["label"] for a in agents if not a["first"])})}
-
-
-def prune(dead: set[str]) -> list[str]:
-    """Forget the people whose every account here is deactivated (`dead`: full IDs, from Synapse's own
-    list): all their agents, and the person too when they are from this server. Someone from another
-    server (whose own account may be live) keeps a FIRST_GONE line, so they can add a new agent. Anyone
-    with one account that isn't explicitly deactivated stays as they are. Returns whom it forgot."""
-    with LOCK:
-        data, gone = load(), []
-        for p in list(data):
-            agents = _agents(p, data[p])
-            if not all(f"@{a['localpart']}:{SERVER_NAME}" in dead for a in agents):
-                continue
-            if p in dead:
-                del data[p]
-            elif is_local(p) or not agents:   # a live person here, or nothing left to forget
-                continue
-            else:
-                data[p] = _tombstone(data[p], agents)
-            gone.append(p)
-        if gone:
-            save(data)
-        return gone

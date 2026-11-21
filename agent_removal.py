@@ -6,7 +6,7 @@ every room, never usable again. Then its password leaves .env and its agents.jso
 slot is free. Deactivated account names can't be registered again, so a removed further agent's
 label is kept ("removed") and a new agent needs a new name.
 
-deactivated(): Synapse's own list of deactivated accounts; registry.prune() forgets only people whose
+deactivated(): Synapse's own list of deactivated accounts; registry_removal.prune() forgets only people whose
 every account is on it. If the list can't be read in full, nothing is pruned.
 """
 import logging
@@ -15,6 +15,7 @@ import urllib.parse
 import identity
 import local_signup
 import registry
+import registry_removal
 import setup_accounts
 from bridge_config import SERVER_NAME
 from remote_agent import WRITING, _signs_in
@@ -52,7 +53,7 @@ def remove(person: str, agent: str) -> bool:
         if ours:
             _deactivate(f"@{localpart}:{SERVER_NAME}")
         try:
-            registry.forget_agent(person, localpart)
+            registry_removal.forget_agent(person, localpart)
         except OSError as e:
             if ours:                          # closed already: say so, never "try again" as if nothing happened
                 raise NotForgotten(f"closed {localpart}, but couldn't save agents.json: {e}") from e
@@ -66,9 +67,9 @@ def remove(person: str, agent: str) -> bool:
 
 
 def prune(dead: set[str]) -> list[str]:
-    """registry.prune under the same lock as set-ups and removals (GPT: no race with remove())."""
+    """registry_removal.prune under the same lock as set-ups and removals (GPT: no race with remove())."""
     with WRITING:
-        return registry.prune(dead)
+        return registry_removal.prune(dead)
 
 
 def _exists(user_id: str) -> bool:

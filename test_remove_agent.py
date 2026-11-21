@@ -1,5 +1,5 @@
 """Unit tests: removing an agent for good, and forgetting deactivated accounts (agent_removal.py,
-pm_remove.py, registry.forget_agent/prune, console "remove"). Run: .venv/bin/python -m unittest test_remove_agent"""
+pm_remove.py, registry_removal.forget_agent/prune, console "remove"). Run: .venv/bin/python -m unittest test_remove_agent"""
 import asyncio
 import json
 import tempfile
@@ -12,6 +12,7 @@ import agent_removal
 import console
 import matrix_calls
 import registry
+import registry_removal
 import remote_agent
 import setup_accounts
 from loop import Loop
@@ -40,7 +41,7 @@ class Registry(unittest.TestCase):
         use_registry(self, PEOPLE)
 
     def test_a_further_agent_frees_its_slot_and_its_name_is_never_reused(self):
-        registry.forget_agent(CX, "cx-codex-agent")
+        registry_removal.forget_agent(CX, "cx-codex-agent")
         self.assertEqual([a["localpart"] for a in registry.agents_of(CX)], ["cx-agent"])
         with self.assertRaisesRegex(ValueError, "removed an agent called codex"):
             registry.add_agent(CX, "codex")                    # a deactivated account name can't come back
@@ -48,8 +49,8 @@ class Registry(unittest.TestCase):
 
     def test_the_first_agent_goes_last_with_its_line(self):
         with self.assertRaisesRegex(ValueError, "other agents first"):
-            registry.forget_agent(CX, "cx-agent")
-        registry.forget_agent(BETTY, "betty-agent")
+            registry_removal.forget_agent(CX, "cx-agent")
+        registry_removal.forget_agent(BETTY, "betty-agent")
         self.assertEqual(registry.agents_of(BETTY), [])          # her line stays: betty-agent can't come back
         self.assertTrue(registry.first_removed(BETTY))
         self.assertIn(CX, registry.load())
@@ -60,12 +61,12 @@ class Registry(unittest.TestCase):
         eve = registry.agents_of("@eve:other.example")[0]["localpart"]
         dead = {f"@pubtest1:{S}", f"@pubtest1-agent:{S}", f"@{eve}:{S}",
                 CXC, f"@betty-agent:{S}"}                      # betty herself and cx-agent are live
-        self.assertEqual(sorted(registry.prune(dead)), ["@eve:other.example", f"@pubtest1:{S}"])
+        self.assertEqual(sorted(registry_removal.prune(dead)), ["@eve:other.example", f"@pubtest1:{S}"])
         left = registry.load()
         self.assertEqual(sorted(left), sorted([CX, BETTY, f"@anna:{S}", "@eve:other.example"]))   # never a live person
         self.assertEqual(registry.agents_of("@eve:other.example"), [])   # eve's own account may be live: she may add one
         self.assertEqual(len(registry.agents_of(CX)), 2)
-        self.assertEqual(registry.prune(set()), [])
+        self.assertEqual(registry_removal.prune(set()), [])
 
 
 class Remove(unittest.TestCase):
@@ -145,7 +146,7 @@ class Remove(unittest.TestCase):
 
     def test_gpt_review_prune_waits_for_removals_and_set_ups(self):
         held = []
-        with mock.patch.object(registry, "prune", lambda dead: held.append(agent_removal.WRITING.locked()) or []):
+        with mock.patch.object(registry_removal, "prune", lambda dead: held.append(agent_removal.WRITING.locked()) or []):
             agent_removal.prune(set())
         self.assertEqual(held, [True])
 

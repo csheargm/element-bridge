@@ -6,7 +6,7 @@ in the page instead and calls remove_for_good directly (console.act). Disconnect
 option: it signs the agent out and keeps its slot (pm_presence.py).
 
 Every PRUNE_EVERY_S, @pm reads Synapse's list of deactivated accounts and forgets the people whose
-every account is on it (registry.prune), logging each one; their agents are also skipped by the
+every account is on it (registry_removal.prune), logging each one; their agents are also skipped by the
 presence checks, which Synapse can't answer for a deactivated account.
 Mixed into loop.Loop (client, say, offer_thumb, seen: pm_presence.py).
 """
