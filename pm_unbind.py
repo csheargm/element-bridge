@@ -149,15 +149,20 @@ class RepoRemoval:
         Until all of that is done the board stays marked "unbound" and each poll tries again (GPT review)."""
         import status_board                   # here: it imports pm_settings, which imports this module
         text = status_board.render({}, "off", [], time.time(), "")
-        board, done = {**self.boards.get(rid, {}), "unbound": True}, True
+        board = self.boards[rid] = {**self.boards.get(rid, {}), "unbound": True}
+        self.save_boards()                    # the retry mark first: a failure or restart below keeps it
         if board.get("event_id") and board.get("text") != text:
             event_id = await self.show(rid, board["event_id"], text, "")
+            if event_id and event_id != board["event_id"]:
+                board["old_pin"] = board["event_id"]   # posted anew: its pin replaces the old board's
             if event_id:
-                pinned = event_id == board["event_id"] or await self.pin(rid, event_id, board["event_id"])
-                board.update(event_id=event_id, text=text, pinned=pinned)
-            done = bool(event_id)
+                board.update(event_id=event_id, text=text, pinned=event_id == board["event_id"])
+        if board.get("event_id") and not board.get("pinned"):
+            board["pinned"] = await self.pin(rid, board["event_id"], board.get("old_pin"))
+            if board["pinned"]:
+                board.pop("old_pin", None)
         board["published"] = await self.publish(rid, text, "")
-        if done and board["published"]:
+        if board.get("text", text) == text and board.get("pinned", True) and board["published"]:
             board.pop("unbound")
         self.boards[rid] = board
         self.save_boards()

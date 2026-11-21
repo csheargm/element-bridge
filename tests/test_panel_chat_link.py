@@ -51,7 +51,7 @@ const send = async data => { listener({origin: element, source: ctx.parent, data
   clicker.forEach(f => f({target: a, preventDefault: () => { prevented = true; }}));
   const nav = posted.find(m => m.action === "org.matrix.msc2931.navigate");
   if (scenario === "refused") await send({api: "fromWidget", requestId: nav.requestId, action: nav.action, response: {error: {message: "no"}}});
-  process.stdout.write(JSON.stringify({asked, href, prevented, nav: nav ? nav.data.uri : null, opened}));
+  process.stdout.write(JSON.stringify({asked, href, prevented, nav: nav ? nav.data.uri : null, opened, msg: el("msg").innerHTML}));
 })();
 """
 
@@ -80,9 +80,12 @@ class ChatLink(unittest.TestCase):
         self.assertFalse(got["prevented"])                                       # the link's own target=_blank
         self.assertIsNone(got["nav"])
 
-    def test_a_refused_navigation_falls_back_to_a_new_tab(self):
+    def test_a_refused_navigation_offers_a_link_to_click(self):
+        """GPT re-check: a tab opened after the reply, not by the click itself, is blocked as a pop-up."""
         got = self.run_page("refused")
-        self.assertEqual(got["opened"], [["https://matrix.to/#/!dm%3Aexample", "_blank", "noopener"]])
+        self.assertEqual(got["opened"], [])
+        self.assertIn('<a href="https://matrix.to/#/!dm%3Aexample" target="_blank"', got["msg"])
+        self.assertIn("open your chat with Product Manager</a>", got["msg"])
 
 
 @unittest.skipIf(NODE is None, "node not installed")

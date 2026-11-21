@@ -2,6 +2,7 @@
 the panel's My agents card (console.act) or "@pm call my agent NAME" / "rename my agent LABEL to NAME"
 in the chat (pm_rename.py). Synapse's admin API is the fake here. Run: .venv/bin/python -m unittest tests.test_rename_agent"""
 import asyncio
+import contextlib
 import re
 import unittest
 from pathlib import Path
@@ -35,10 +36,17 @@ class Rename(unittest.TestCase):
         self.calls = []
         self.answer = {}
 
+        self.sessions = 0
+
         def admin_call(method, path, body):
             self.calls.append((method, path, body))
             return self.answer
-        p = mock.patch("local_signup.admin_call", admin_call)
+
+        @contextlib.contextmanager
+        def admin_session():
+            self.sessions += 1                    # one admin sign-in per rename (GPT re-check)
+            yield admin_call
+        p = mock.patch("local_signup.admin_session", admin_session)
         p.start()
         self.addCleanup(p.stop)
 
@@ -57,6 +65,7 @@ class Rename(unittest.TestCase):
         self.assertEqual([c for c in self.calls if c[0] == "PUT"], [("PUT", "/_synapse/admin/v2/users/%40cx-codex-agent%3Abridge.localhost",
                                        {"displayname": "Codex the Builder"})])
         self.assertEqual(self.said[-1], ("!dm", answer))                   # also in our private chat
+        self.assertEqual(self.sessions, 1)
         mine = console.my_agents(self.lp_with_presence(), self.lp.client.rooms["!r"], "!r", CX)
         self.assertEqual([a["display"] for a in mine], ["", "Codex the Builder"])   # after a restart too: agents.json
 

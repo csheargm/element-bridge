@@ -66,6 +66,14 @@ class ProjectRepo(unittest.TestCase):
                   f'repoCard({owner}).includes("Click again")].join(","); }})()')
         self.assertEqual(render("panel-project.js", clicks), "false,sure:a/x,true,true,false")
 
+    def test_a_repo_bound_after_the_first_click_is_never_armed(self):
+        """GPT re-check: the armed state followed a redraw onto a newer repo, whose click then counted."""
+        clicks = ('(() => { const b = {dataset: {a: "unrepo", v: "", g: "a/x"}, textContent: ""}; repoConfirmed(b);'
+                  ' const shown = repoCard({repo: "a/y", moderator: true});'
+                  ' const c = {dataset: {a: "unrepo", v: "", g: "a/y"}, textContent: ""};'
+                  ' return [shown.includes("Click again"), repoConfirmed(c)].join(","); })()')
+        self.assertEqual(render("panel-project.js", clicks), "false,false")
+
     def test_the_page_never_sends_it_without_its_script(self):
         ok = re.search(r"^const ok = .*?; };$", panel.PAGE, re.S | re.M).group(0)
         done = subprocess.run([NODE, "-e", f"const window = {{}}; {ok}\nprocess.stdout.write(String("

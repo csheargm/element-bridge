@@ -10,6 +10,7 @@ A few renames per person per hour. Mixed into loop.Loop (say, addressed_text, in
 import asyncio
 import logging
 import re
+import threading
 import time
 import unicodedata
 import urllib.parse
@@ -29,6 +30,7 @@ log = logging.getLogger("loop")
 NAME_MAX = 40
 RENAMES_PER_HOUR = 5
 HOUR_S = 3600
+RENAMING = threading.Lock()                   # one rename at a time: Synapse and agents.json in one order
 RENAME_RE = re.compile(r"^\W*(please\W+)?(?:call my agent\s+(?P<a>.+?)|rename my agent\s+(?:(?P<label>[a-z0-9]+)\s+)?"
                        r"to\s+(?P<b>.+?)|rename my (?P<label2>[a-z0-9]+) agent to\s+(?P<c>.+?))[\s.!]*$", re.I | re.S)
 DONE = "Your agent is now called {name} (its ID {agent} stays the same)."
@@ -55,23 +57,28 @@ def ours(person: str, agent: dict) -> bool:
 
 def set_display_name(person: str, agent: str, name: str) -> bool:
     """Blocking: Synapse's admin API sets @agent's display name (its member events in rooms follow),
-    then agents.json, under the set-up lock: account changes one at a time, so the two always agree."""
+    then agents.json. Renames go one at a time (RENAMING), so the two always agree; the set-up lock
+    (WRITING) is held only to read and write agents.json, never over a sign-in that may wait (GPT review)."""
     user = f"@{agent}:{SERVER_NAME}"
-    with WRITING:
-        try:
+    path = f"/_synapse/admin/v2/users/{urllib.parse.quote(user)}"
+    with RENAMING:
+        with WRITING:
             found = registry.find(person, agent)
             if found is None or not ours(registry.person_id(person), found):
                 return False
-            if "_status" in local_signup.admin_call("GET", f"/_synapse/admin/v2/users/{urllib.parse.quote(user)}", None):
-                return False                  # missing: a PUT would create it (update only)
-            r = local_signup.admin_call("PUT", f"/_synapse/admin/v2/users/{urllib.parse.quote(user)}", {"displayname": name})
+        try:
+            with local_signup.admin_session() as call:   # one admin sign-in for both calls
+                if "_status" in call("GET", path, None):
+                    return False              # missing: a PUT would create it (update only)
+                r = call("PUT", path, {"displayname": name})
         except (SystemExit, OSError, ValueError, AccountError) as e:   # admin-bot can't sign in, Synapse away
             log.error("couldn't rename %s: %s", user, str(e)[:120])
             return False
         if "_status" in r:
             log.error("couldn't rename %s: %s", user, r.get("errcode"))
             return False
-        registry.update(person, agent, display=name)   # the panel shows it
+        with WRITING:
+            registry.update(person, agent, display=name)   # the panel shows it
     return True
 
 

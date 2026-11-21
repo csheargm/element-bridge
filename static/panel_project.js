@@ -18,9 +18,9 @@ function projectCard(s) {
     <div class="hint">${esc(VISIBILITY[vis] || "")}${s.moderator ? "" : " Only the owner or a maintainer can change it."}</div></section>`;
   return h;
 }
-let unrepoArmed = 0;                     // until when a second click on Remove repo removes it
-function repoCard(s) {
-  const armed = Date.now() < unrepoArmed;
+let unrepoArmed = {repo: "", until: 0};   // the repo a first click armed, until when (GPT review: never
+function repoCard(s) {                    // a repo bound since; a different one shows unarmed)
+  const armed = Date.now() < unrepoArmed.until && unrepoArmed.repo === s.repo;
   const choose = s.moderator ? `<div class="field"><input id=repo placeholder="owner/name" value="${esc(s.repo || "")}">
     <button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`;
   const more = !s.repo ? '<div class="hint">One GitHub repo per room.</div>'
@@ -29,8 +29,9 @@ function repoCard(s) {
   return `<section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${choose}${more}</section>`;
 }
 function repoConfirmed(b) {              // panel.html's click handler: false = this click only armed it
-  if (b.dataset.v.startsWith("sure:") && Date.now() < unrepoArmed) { unrepoArmed = 0; return true; }
-  unrepoArmed = Date.now() + 8000;
+  const same = unrepoArmed.repo === b.dataset.g && b.dataset.v === "sure:" + b.dataset.g;
+  if (same && Date.now() < unrepoArmed.until) { unrepoArmed = {repo: "", until: 0}; return true; }
+  unrepoArmed = {repo: b.dataset.g, until: Date.now() + 8000};
   b.dataset.v = "sure:" + b.dataset.g;   // the repo this card showed: a newer one is never removed by it
   b.textContent = "Click again to remove the repo";
   return false;

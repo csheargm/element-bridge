@@ -71,7 +71,7 @@ let openidRequest = null, gotCredentials = false, capable = false, expired = 0;
 // "Your chat with Product Manager" is a link (pmChatLink): inside Element it opens that chat in place through
 // the widget API's navigate (MSC2931; pre-approved for our panel only: deploy/element_home.py), else (or
 // if Element refuses) a matrix.to link in a new tab.
-const NAVIGATE = "org.matrix.msc2931.navigate";
+const NAVIGATE = "org.matrix.msc2931.navigate", NAV_WAIT_MS = 4000;
 let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
@@ -86,7 +86,7 @@ if (embedded) window.addEventListener("message", ev => {
       m.data.state === "allowed" ? gotToken(m.data.access_token) : failed(REFUSED);   // after Element's prompt
   } else if (m.api === "fromWidget" && navRequest && m.requestId === navRequest && m.response) {
     navRequest = null;
-    if (m.response.error) window.open(navHref, "_blank", "noopener");   // refused: the link's own way
+    if (m.response.error) navFallback();
   } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
     const r = m.response;
     if (r.state === "allowed") gotToken(r.access_token);
@@ -119,8 +119,12 @@ function pmChatLink(text) {
 }
 document.addEventListener("click", e => { const a = e.target.closest && e.target.closest("a[data-pmchat]");
   if (!a || !embedded || !canNavigate) return;      // a new tab, by the link itself
-  e.preventDefault(); navHref = a.href; navRequest = "nav-" + crypto.randomUUID();
-  window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: navRequest, action: NAVIGATE, data: {uri: a.href}}, ELEMENT); });
+  e.preventDefault(); navHref = a.href; const sent = navRequest = "nav-" + crypto.randomUUID();
+  window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: sent, action: NAVIGATE, data: {uri: a.href}}, ELEMENT);
+  setTimeout(() => { if (navRequest === sent) { navRequest = null; navFallback(); } }, NAV_WAIT_MS); });
+// Refused, or no answer: a link to click (GPT review: a tab opened later, not by the click, is blocked).
+function navFallback() { $("msg").innerHTML = `Element didn't open the chat here: <a href="${esc(navHref)}" target="_blank"
+  rel="noopener noreferrer">open your chat with Product Manager</a>.`; }
 // A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
 const card = (name, s) => typeof window[name] === "function" ? window[name](s)
   : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;

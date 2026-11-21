@@ -1124,3 +1124,23 @@ Rejected: **a binding revision for "removed then rebound to the same repo"** (th
 removing that repo, within 10 minutes; the check above covers a different one) and **the layout
 read/write gap** (Element changes a room's layout only on a moderator's drag; the next start
 re-checks).
+Re-check (GPT, the fix commit and the chat links): one blocking, three medium, one low. Adopted,
+with tests:
+- **Blocking: the panel's armed Remove repo followed a redraw onto a newer repo.** The first click
+  stores the repo it armed; another repo shows unarmed and its click only arms. test_panel_cards
+  (test_a_repo_bound_after_the_first_click_is_never_armed).
+- **Medium: a reposted board whose pin failed lost its retry mark** (and the mark was saved only
+  after the network calls). Saved first; dropped only once edited or reposted, pinned in the old
+  board's place, and published. test_remove_repo (test_a_reposted_board_that_couldnt_be_pinned_…).
+- **Medium: the fallback opened a tab from Element's reply, which browsers block as a pop-up, and
+  no reply left nothing.** A refusal or no answer within 4 s shows a link to click.
+  test_panel_chat_link (test_a_refused_navigation_offers_a_link_to_click).
+- **Medium: a rename used two admin sign-ins while holding the set-up lock.** One admin session
+  (local_signup.admin_session) for the read and the write; renames go one at a time on their own
+  lock, and the set-up lock is held only around agents.json. test_rename_agent (one session).
+Rejected: **mark the Connect line only when a code was issued** (Connect shows only without a
+login, so "a login and no code" after it means the person connected meanwhile and the line is stale
+either way; a refusal is still kept while there is no login).
+Noted: navigation inside a running Element v1.12.35 was not exercised here (node stand-in for the
+widget API); the action name, data.uri and the lifecycle module's capabilities_approved were read
+from upstream, and the one screen check at the end covers it.

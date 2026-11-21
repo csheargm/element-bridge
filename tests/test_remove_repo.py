@@ -209,6 +209,19 @@ class ReviewFixes(Setup):
         self.assertNotIn("unbound", self.lp.boards["!a"])
         self.assertIn("no repo yet", self.lp.boards["!a"]["text"])
 
+    def test_a_reposted_board_that_couldnt_be_pinned_is_retried(self):
+        """GPT re-check: the repost succeeded, the pin didn't, and the retry mark was dropped."""
+        self.lp.boards["!a"] = {"event_id": "$old", "text": "📋 board", "pinned": True}
+        self.lp.show = mock.AsyncMock(return_value="$new")                 # the edit failed: posted anew
+        self.lp.pin = mock.AsyncMock(return_value=False)
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
+        self.assertTrue(self.lp.boards["!a"]["unbound"])
+        self.lp.pin = mock.AsyncMock(return_value=True)
+        run(self.lp.blank_board("!a"))
+        self.assertNotIn("unbound", self.lp.boards["!a"])
+        self.assertEqual(self.lp.boards["!a"]["event_id"], "$new")
+        self.lp.pin.assert_awaited_once_with("!a", "$new", "$old")              # in the old board's place
+
 
 if __name__ == "__main__":
     import unittest
