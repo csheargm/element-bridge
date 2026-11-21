@@ -25,7 +25,7 @@ button{font:inherit;padding:5px 12px;border:1px solid var(--line);border-radius:
 button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .field{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:8px;
-background:var(--bg);color:var(--ink);flex:1;min-width:12em}
+background:var(--bg);color:var(--ink);flex:1;min-width:12em}input.code{flex:0;min-width:0;font-family:ui-monospace,Menlo,monospace}
 #msg:empty{display:none}#msg{padding:8px 12px;border-radius:8px;background:var(--accent-soft);color:var(--accent);white-space:pre-line}
 .board{font-size:13.5px}.board p{margin:4px 0}.board ul{margin:4px 0;padding-left:18px}.board a{color:var(--accent)}
 .agents{list-style:none;margin:0;padding:0}.agents li{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 0}
@@ -97,9 +97,11 @@ async function start() {
   if (!embedded) return void ($("me").innerHTML = 'Say <b>@pm send me my console link</b> in the room to sign in here.');
   capable ? askOpenId() : signingIn();      // a session that expired: ask Element again
 }
+let msgMark = "";                         // the line came from Connect GitHub: githubMsgAfter (panel_github.js)
 async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
-  $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
+  $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error);
+  msgMark = action === "github" && value === "connect" ? "pending" : ""; refresh(); }
 // A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
 const card = (name, s) => typeof window[name] === "function" ? window[name](s)
   : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;
@@ -134,7 +136,8 @@ async function show() {
     s = await r.json(); } catch (e) { return failed(OFFLINE); }
   if (s.error) return failed(s.error);
   expired = 0; clearTimeout(watchdog);
-  if (document.activeElement && ["repo", "newagent"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
+  if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
+  if (document.activeElement && ["repo", "newagent", "ghcode"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
