@@ -82,15 +82,15 @@ def parse(data: bytes, qid: int, name: str = "") -> list[tuple[int, int, int, st
     rid, flags, qd, an = struct.unpack(">HHHH", data[:8])
     if rid != qid or not flags & 0x8000 or flags & 0x0200:   # not our answer, not an answer, or truncated
         raise Malformed("not the answer to our question")
-    if flags & 0xF == NO_SUCH_NAME:
-        return []
-    if flags & 0xF:
-        raise Malformed("the resolver failed")
     if qd != 1:
         raise Malformed("not one question")
     asked, pos = read_name(data, 12)
     if want and asked.lower() != want or data[pos:pos + 4] != struct.pack(">HH", TYPE_SRV, CLASS_IN):
-        raise Malformed("an answer to another question")
+        raise Malformed("an answer to another question")   # checked before "no such name" too (GPT re-check)
+    if flags & 0xF == NO_SUCH_NAME:
+        return []
+    if flags & 0xF:
+        raise Malformed("the resolver failed")
     pos += 4
     found = []
     for _ in range(min(an, MAX_RECORDS)):

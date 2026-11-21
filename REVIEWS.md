@@ -1421,3 +1421,16 @@ Deferred / rejected:
   servers use the one-time link.
 - A full cancellable transport and a maintained DNS library: the watchdog and the strict parser
   cover the cases found without a new dependency.
+
+### GPT re-check of the review fixes
+Six points; adopted, with tests in test_fed_openid_review (ReCheck, SrvChecks):
+- **High: cache eviction reused the variable `key`**, so at capacity one server's discovery result
+  was filed under another's name. Fixed (its own loop variable).
+- **High: the watchdog couldn't cut a TLS read:** wrapping detaches the TCP socket. The TLS socket
+  is set before the handshake (do_handshake_on_connect=False) and abort() shuts its descriptor
+  down; tested over a real socket with a silent server (the old abort fails that test).
+- **Medium: lookups a deadline gave up on** each hold one of 8 resolver slots until they really end.
+- **Medium: an own-name lookup failure** keeps that name's last known addresses on the deny list.
+- **Low: NXDOMAIN** counts only after the echoed question matches ours.
+Rejected: charging the per-client "any sign-in" budget before a federation slot is free (60 per
+10 minutes is generous, and charging it up front is what bounds the local branch).

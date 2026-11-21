@@ -38,6 +38,9 @@ PORT_RE = re.compile(r"[0-9]{1,5}")
 LENGTH_RE = re.compile(r"[0-9]{1,12}")
 OWN_S = 600                                   # this server's own addresses: looked up again this often
 _own: list = [0.0, ()]
+_own_by_name: dict[str, list] = {}            # the last addresses each own name had (a failed lookup keeps them)
+RESOLVING_AT_ONCE = 8                         # lookups a deadline gave up on still hold one of these until they end
+_resolving = threading.BoundedSemaphore(RESOLVING_AT_ONCE)
 Refused = safe_fetch.Refused
 _cache: dict[str, tuple[float, tuple | None]] = {}   # server name → (expires, target or None)
 
@@ -89,15 +92,19 @@ class _Pinned(http.client.HTTPSConnection):
         self._raw = socket.create_connection((self._ip, self.port), self.timeout)
         if self._aborted:
             raise OSError("deadline")
-        self.sock = self._context.wrap_socket(self._raw, server_hostname=self.host)
+        # The TLS socket takes over the descriptor (the TCP one is detached): set it BEFORE the
+        # handshake, so abort() reaches a blocked handshake too (GPT re-check).
+        self.sock = self._context.wrap_socket(self._raw, server_hostname=self.host, do_handshake_on_connect=False)
+        self.sock.do_handshake()
 
     def abort(self):
         self._aborted = True
-        if self._raw is not None:
-            try:
-                self._raw.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass                          # already closed: nothing left to cut
+        target = self.sock if self.sock is not None else self._raw
+        try:
+            if target is not None:
+                socket.socket.shutdown(target, socket.SHUT_RDWR)   # the descriptor itself, under TLS
+        except OSError:
+            pass                              # already closed: nothing left to cut
 
 
 def denied() -> tuple:
@@ -115,11 +122,14 @@ def denied() -> tuple:
             continue                          # a typo in one entry: the others still count
     import setup_accounts                     # here: only on the server, where it is configured
     for name in {setup_accounts.SERVER_NAME, urllib.parse.urlsplit(os.environ.get("HAGENCY_PUBLIC_CONSOLE", "")).hostname}:
+        if not name:
+            continue
         try:
-            nets += [ipaddress.ip_network(safe_fetch.public_ip(i[4][0]) or i[4][0].split("%")[0])
-                     for i in socket.getaddrinfo(name, None)] if name else []
+            _own_by_name[name] = [ipaddress.ip_network(safe_fetch.public_ip(i[4][0]) or i[4][0].split("%")[0])
+                                  for i in socket.getaddrinfo(name, None)]
         except (OSError, ValueError):
-            continue                          # not resolvable here: nothing of it to refuse
+            pass                              # not resolvable now: its last known addresses still count
+        nets += _own_by_name.get(name, [])
     _own[:] = [now, tuple(nets)]
     return _own[1]
 
@@ -127,12 +137,16 @@ def denied() -> tuple:
 def _resolve_by(host: str, port: int, deadline: float) -> str:
     """safe_fetch.resolve, given up at the deadline (getaddrinfo can't be cancelled; it ends on its own)."""
     out: list = []
+    if not _resolving.acquire(blocking=False):
+        raise Refused("too many lookups underway")
 
     def run():
         try:
             out.append(safe_fetch.resolve(host, port, denied()))
         except Refused as e:
             out.append(e)
+        finally:
+            _resolving.release()              # only when the lookup has really ended
     worker = threading.Thread(target=run, daemon=True)
     worker.start()
     worker.join(remaining(deadline))
@@ -258,8 +272,8 @@ def cached_resolve(server_name: str, deadline: float) -> tuple[str, int, str, st
             raise Refused("couldn't find that server (recently)")
         return hit[1]
     if len(_cache) >= MAX_CACHED:
-        for key in [k for k, (until, _) in _cache.items() if until <= now] or list(_cache)[:MAX_CACHED // 2]:
-            _cache.pop(key, None)
+        for old in [k for k, (until, _) in _cache.items() if until <= now] or list(_cache)[:MAX_CACHED // 2]:
+            _cache.pop(old, None)             # GPT re-check: reusing `key` here cached one server under another
     try:
         found = resolve(server_name, deadline)
     except Refused:

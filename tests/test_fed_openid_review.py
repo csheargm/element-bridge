@@ -146,6 +146,60 @@ class SrvChecks(unittest.TestCase):
             self.assertEqual(fed_dns.lookup("_matrix-fed._tcp." + "a" * 250), [])
             self.assertEqual(fed_dns.lookup("_matrix-fed._tcp." + "a" * 64 + ".org"), [])
 
+    def test_no_such_name_counts_only_for_our_question(self):
+        """GPT re-check: an NXDOMAIN for another name ended the lookup."""
+        name = "_matrix-fed._tcp.example.org"
+        data = bytearray(fed_dns.question(7, "_matrix-fed._tcp.other.org"))
+        data[2:4] = b"\x81\x83"                                     # an answer, "no such name"
+        with self.assertRaises(fed_dns.Malformed):
+            fed_dns.parse(bytes(data), 7, name)
+        ours = bytearray(fed_dns.question(7, name))
+        ours[2:4] = b"\x81\x83"
+        self.assertEqual(fed_dns.parse(bytes(ours), 7, name), [])
+
+
+class ReCheck(Base):
+    """GPT re-check of the review fixes."""
+    def test_a_full_cache_never_files_one_server_under_another(self):
+        fed_https._cache.update({f"s{n}.example": (time.monotonic() + 999, ("1.1.1.1", 8448, "x", "x"))
+                                 for n in range(fed_https.MAX_CACHED)})
+        with World():
+            found = fed_https.cached_resolve("matrix.org", time.monotonic() + 5)
+        self.assertEqual(fed_https._cache["matrix.org"][1], found)
+        self.assertEqual(found[0], "matrix.org")
+
+    def test_abort_cuts_a_real_tls_handshake_that_never_answers(self):
+        """Over a real socket: the TLS socket takes over the descriptor, so abort must reach it."""
+        import socket
+        server = socket.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        self.addCleanup(server.close)
+        conn = fed_https._Pinned("localhost", "127.0.0.1", server.getsockname()[1], 10)
+        failed = []
+
+        def go():
+            try:
+                conn.connect()                                      # the server accepts and says nothing
+            except (OSError, ValueError) as e:
+                failed.append(e)
+        worker = threading.Thread(target=go, daemon=True)
+        started = time.monotonic()
+        worker.start()
+        time.sleep(0.3)
+        conn.abort()
+        worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(failed)
+        self.assertLess(time.monotonic() - started, 3)
+
+    def test_an_own_name_that_fails_to_resolve_keeps_its_last_addresses(self):
+        with World(addresses={"bridge.localhost": "45.33.32.156"}):
+            first = fed_https.denied()
+        fed_https._own[0] = 0.0
+        with World():                                               # now bridge.localhost doesn't resolve
+            self.assertEqual(fed_https.denied(), first)
+
 
 if __name__ == "__main__":
     unittest.main()
