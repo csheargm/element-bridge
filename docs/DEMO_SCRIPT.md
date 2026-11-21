@@ -15,7 +15,7 @@ built too.
   no AI and no GitHub write access of its own.
 
 Automated rehearsal of steps 5–9 (no Element, fake GitHub, Codex agents):
-`.venv/bin/python test_demo_e2e.py`. It finishes in about a minute.
+`.venv/bin/python -m tests.test_demo_e2e`. It finishes in about a minute.
 
 ---
 

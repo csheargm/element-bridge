@@ -161,11 +161,11 @@ moves on to the next one.
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest test_rules test_agents test_loop_rules test_loop_watchdog test_lifecycle test_github_setup test_pm_chat test_hagency_mcp test_status_board
+.venv/bin/python -m unittest tests.test_rules tests.test_agents tests.test_loop_rules tests.test_loop_watchdog tests.test_lifecycle tests.test_github_setup tests.test_pm_chat tests.test_hagency_mcp tests.test_status_board
 ```
 
 ```bash
-.venv/bin/python test_e2e.py
+.venv/bin/python -m tests.test_e2e
 ```
 
 `test_rules`/`test_agents` cover who gets answered (owner-only, mentions, DMs, invitees,
@@ -174,10 +174,10 @@ drives the real flow over the Matrix API with the bridges running: anna and bett
 agents, checks replies, typing, per-room memory across turns, that the other agent stays quiet,
 that anna's agent ignores betty, and the encrypted-room warning.
 
-`test_pm_e2e.py` (stop `start.sh` first) talks to @pm in plain words: anyone can stop, a
+`tests/test_pm_e2e.py` (stop `start.sh` first) talks to @pm in plain words: anyone can stop, a
 contributor can't switch to autonomous, and the owner can, just by saying so.
 
-`test_restart_e2e.py` (stop `start.sh` first) saves a code file between two questions and checks
+`tests/test_restart_e2e.py` (stop `start.sh` first) saves a code file between two questions and checks
 both are answered exactly once, then kills the builder's bridge mid-step and checks the loop
 resends the step and the issue is still merged.
 
@@ -303,7 +303,7 @@ loop stops on that issue.
 ### Loop tests
 
 ```bash
-.venv/bin/python -m unittest test_loop_rules
+.venv/bin/python -m unittest tests.test_loop_rules
 ```
 
 The full loop test below runs real Codex agents against a fake GitHub (`tests/fake_gh.py` plus a
@@ -311,7 +311,7 @@ local bare repo, with the same rules: you can't approve your own PR, and reviews
 Stop `start.sh`'s bridges first, because the test starts its own:
 
 ```bash
-.venv/bin/python test_loop_e2e.py
+.venv/bin/python -m tests.test_loop_e2e
 ```
 
 ## License and contributing

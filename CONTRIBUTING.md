@@ -16,8 +16,9 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m unittest discover -p 'test_*.py'
 ```
 
-The `test_*_e2e.py` files are scripts that drive a live local server (`./start.sh`); run them by
-hand when you change chat behaviour.
+The tests live in `tests/`. Run one file with `.venv/bin/python -m unittest tests.test_rules`.
+The `tests/test_*_e2e.py` files are scripts that drive a live local server (`./start.sh`); run them
+by hand when you change chat behaviour, e.g. `.venv/bin/python -m tests.test_e2e`.
 
 ## What a good pull request has
 
