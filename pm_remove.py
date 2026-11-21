@@ -79,8 +79,10 @@ class Removal:
 
     async def remove_for_good(self, room_id: str, person: str, agent: str | None) -> bool:
         """Remove it now (the person already confirmed): codes revoked first, then the account closed
-        and its entry freed (agent_removal.py). Says what happened in `room_id`."""
-        found = self.removable(person, agent)
+        and its entry freed (agent_removal.py). Says what happened in `room_id`. `agent` is an account
+        name (localpart or slot), never a display name: those can change or be taken by another agent
+        after the question was asked (GPT review, batch 12-14)."""
+        found = [a for a in self.removable(person, None) if agent is None or agent in (a["localpart"], a["label"])]
         if len(found) != 1:
             await self.say(room_id, "That isn't one of your agents on your own computer.")
             return False

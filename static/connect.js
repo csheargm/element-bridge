@@ -98,6 +98,11 @@ function runsOn(os, kind, kinds) {
   return !(os === "windows" && k && !k.windows);
 }
 
+/** The line shown to copy: none where the kind can't run (GPT review: the plain line would use the code up). */
+function shownCommand(os, consoleUrl, code, kind, kinds) {
+  return runsOn(os, kind, kinds) ? commandFor(os, consoleUrl, code, kind) : "";
+}
+
 function copyText(text, button, key) {
   selectCommand();                            // selected first: Ctrl/Cmd-C works even if the clipboard says no
   const done = () => { button.textContent = "Copied ✓"; setTimeout(() => { button.textContent = "Copy command"; }, 2500); };
@@ -199,7 +204,7 @@ function start() {
     const note = document.getElementById("no-windows");
     note.hidden = fits;
     note.textContent = fits ? "" : "This agent needs a Mac or a Linux computer: open this page there.";
-    document.getElementById("command").textContent = commandFor(os, consoleUrl, code, fits ? kind : "");
+    document.getElementById("command").textContent = shownCommand(os, consoleUrl, code, kind, kinds);
     copy.disabled = !code || !fits;
   }
 
@@ -228,7 +233,7 @@ function start() {
 }
 
 if (typeof module === "object" && module.exports) {   // test_connect_page.py runs these under node
-  module.exports = { detectOS, cleanCode, parseFragment, commandFor, needsFor, runsOn, makePoller, pollable, STEPS, STATUS, CODE_RE };
+  module.exports = { detectOS, cleanCode, parseFragment, commandFor, needsFor, runsOn, shownCommand, makePoller, pollable, STEPS, STATUS, CODE_RE };
 } else {
   document.addEventListener("DOMContentLoaded", start);
 }

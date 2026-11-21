@@ -224,7 +224,13 @@ def routes() -> list:
         except ValueError:                    # not JSON: the same answer as a wrong code
             body = {}
         person, agent, issued = CODES.redeem_agent(body.get("code") if isinstance(body, dict) else None)
-        creds = await asyncio.to_thread(locked_credentials, person, agent, issued) if person else None
+        if person:                            # the code is gone now: the page keeps "waiting" until the answer
+            connect_status.redeeming(body["code"])   # (no await in between; GPT review, batch 12-14)
+        try:
+            creds = await asyncio.to_thread(locked_credentials, person, agent, issued) if person else None
+        finally:
+            if person:
+                connect_status.redeemed(body["code"])
         if not creds:
             LIMIT.failed(client)
             return web.json_response({"error": "that code is wrong, used or expired: ask @pm for a new one"},

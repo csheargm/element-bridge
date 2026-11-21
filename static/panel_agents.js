@@ -35,8 +35,14 @@ function agentHint(a) {
   if (!a.remote || a.online === true) return "";
   if (a.connected) return '<div class="hint">Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁).</div>';
   // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
+  // A further one: @pm resends by the name its person calls it (pm_agents.start_add), never its slot
+  // ("codex2" for one renamed or called "codex" again: GPT review, batch 12-14); a name of several words
+  // (or longer than 9) can't be typed in that line, so then: remove and add it again.
+  const called = a.display || a.label;
   const steps = a.first ? 'follow the 🔌 steps (type "resend me the code" there for a fresh one)'
-    : `follow its Connect message (for a fresh code, type "add another agent called ${esc(a.label)}" there)`;
+    : /^[A-Za-z][A-Za-z0-9]{0,8}$/.test(called)   // identity.LABEL_RE, any case
+      ? `follow its Connect message (for a fresh code, type "add another agent called ${esc(called)}" there)`
+      : "follow its Connect message (for a fresh code, Remove it here and add it again)";
   return `<div class="hint">Not connected yet: open ${chatLink("your chat with Product Manager")} and ${steps}.</div>`;
 }
 // Rename: only the name people see (pm_rename.py); its Matrix ID stays. Plain text, up to 40 characters.

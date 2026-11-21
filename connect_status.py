@@ -37,6 +37,17 @@ class ClientLimiter(pairing.Limiter):
 LIMIT = ClientLimiter()                      # wrong codes asked about here; not connect.py's limiter
 _used: dict[str, float] = {}                 # hash(code) → when connect.py used it
 _asks: dict[str, list[float]] = {}           # client → recent asks
+_redeeming: set[str] = set()                 # hash(code) of codes POST /connect is answering right now
+
+
+def redeeming(code: str) -> None:
+    """POST /connect took this code and is looking up the sign-in: still "waiting", never "expired"."""
+    _redeeming.add(pairing.digest(code))
+
+
+def redeemed(code: str) -> None:
+    """That lookup ended (mark_used follows when it gave the sign-in)."""
+    _redeeming.discard(pairing.digest(code))
 
 
 def mark_used(code: str, now: float | None = None) -> None:
@@ -56,7 +67,7 @@ def state(codes: pairing.Codes, code: object, now: float | None = None) -> str:
     used = _used.get(pairing.digest(code))
     if used is not None and used > now - USED_KEEP_S:
         return "connected"
-    return "waiting" if codes.live(code, now) else "expired"
+    return "waiting" if pairing.digest(code) in _redeeming or codes.live(code, now) else "expired"
 
 
 def too_many(client: str, now: float | None = None) -> bool:

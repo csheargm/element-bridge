@@ -1268,3 +1268,49 @@ Not adopted:
   The Hermes dotenv quoting is unchanged from the server set-up.
 - **A hard-link swap of a profile's `.env`:** it needs another local account to write in the
   owner's own `~/.hermes`. Symlinks are already refused (`O_NOFOLLOW`) and the mode forced to 0600.
+
+## GPT review: batch 12–14 combined (remove repo, rename, picker, agent kinds, Connect page, R15)
+GPT (Codex) on the whole diff origin/master..integ/batch-12-14, after the wiring (pm_kinds on
+agent_kinds, the kind in credentials_for, page_link(code, kind) and `--agent` in every Connect
+message, the picker from agent_kinds.kinds()). One blocking, ten medium, four low. It found no
+shell, flag, TOML or HTML injection in the new paths, and the navigate handler's checks held.
+Each point was checked in the code. Adopted, each with a test in tests/test_batch_review.py:
+- **Blocking: a stale ✅ could remove another agent.** remove_for_good matched by any name, so once
+  the asked-about account was gone, another agent *displayed* as that account matched. It now
+  takes an account name only (localpart or slot), never a display name.
+- **"expired" while connecting.** POST /connect used the code before looking up the sign-in, so a
+  status ask in that gap said expired and the page stopped. The code is marked "redeeming" (no
+  await in between) and reads "waiting" until the answer.
+- **Concurrent status asks passed the wrong-code budget.** The check now runs after the body is
+  read, with no await between check, state and charge.
+- **"remove the repo" couldn't end a pending GitHub App wait** in a room with no repo yet: it ends
+  the wait now and says so.
+- **A private repo's room, unbound, could later open its past** to new joiners ("shared" history,
+  and Open/Listed allowed once the repo is gone): unbinding a private repo sets history to "joined",
+  and says so if it couldn't.
+- **"@pm …" typed in our private chat** wasn't understood by Add, Rename, GitHub or the welcome
+  commands (the address was stripped only in rooms): pm_address.unaddressed for all four. (Found by
+  the flow test for Add first; GPT named Rename.)
+- **Hermes on the Windows tab still showed a line** to copy by hand, which would use the code up:
+  no line there now (connect.js shownCommand).
+- **The panel's resend hint named the slot** ("add another agent called codex2"), which @pm refuses
+  for an agent called "codex": it names the agent's own name, or says to remove and add it again
+  when that name can't be typed in one word.
+
+Not adopted:
+- **A provider echoing the key into Codex's local history:** the provider already holds the key,
+  and the file is the person's own (ADR 0008's accepted same-user risk).
+- **The key check runs on @pm's side:** the panel never asks for a key; a key pasted into the model
+  field is refused, and catching every short key was rejected before (#13).
+- **Panel framing by an allowlisted Element:** by design (#12); every listed origin is an Element
+  the owner chose, and PANEL_EMBEDDERS is one list, never `*`.
+- **Two renames racing past the name check:** a person against themselves, 5 per hour (#13).
+- **"Connected" should say "code redeemed":** the page already says the agent is starting and to
+  wait for the Terminal.
+
+Deferred (the on-screen check covers them):
+- **Windows ACL when connect.py runs directly with its own `--home`:** connect.ps1 sets it; a
+  direct run on Windows with an existing folder keeps that folder's ACL.
+- **Ollama's /api/tags may list no capabilities,** and then every model counts as able to use
+  tools (a non-tool model fails at its first turn, not at Connect).
+- **The home button can open a DM the person made** (no My Hagency there), as deferred in #13.

@@ -22,7 +22,7 @@ import local_signup
 import registry
 from bridge_config import SERVER_NAME
 from identity import plain
-from pm_chat import without_quote
+from pm_address import unaddressed
 from remote_agent import WRITING
 from setup_accounts import AccountError
 
@@ -85,7 +85,7 @@ def set_display_name(person: str, agent: str, name: str) -> bool:
 class Renaming:
     async def on_rename_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message asked to rename one of the sender's agents (answered here)."""
-        text = without_quote(event.body) if self.in_private(room, event.sender) else self.addressed_text(event, room)
+        text = unaddressed(event.body) if self.in_private(room, event.sender) else self.addressed_text(event, room)
         m = RENAME_RE.match(text) if text is not None else None
         if not m:
             return False

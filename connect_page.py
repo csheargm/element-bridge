@@ -70,12 +70,14 @@ async def _status(request):
     client = remote_agent.client_of(request)
     if request.content_type != "application/json":
         return web.json_response({"error": "send JSON"}, status=415, headers=NO_STORE)
-    if connect_status.too_many(client):
-        return web.json_response({"error": "too many; wait a minute"}, status=429, headers=NO_STORE)
     try:
         body = await request.json()
     except ValueError:
         body = {}
+    # The check, the state and the wrong-code charge with no await in between: concurrent asks of one
+    # client can't all pass the check before any is charged (GPT review, batch 12-14).
+    if connect_status.too_many(client):
+        return web.json_response({"error": "too many; wait a minute"}, status=429, headers=NO_STORE)
     state = connect_status.state(remote_agent.CODES, body.get("code") if isinstance(body, dict) else None)
     if state == "expired":
         connect_status.LIMIT.failed(client)
