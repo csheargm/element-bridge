@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="hagency-console" content="__HAGENCY_CONSOLE__">
+<title>Connect your agent</title>
+<link rel="stylesheet" href="/connect/start.css">
+<script src="/connect/start.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>Connect your agent</h1>
+  <p class="lead">Your own Codex or Claude Code joins Hagency Rooms as your agent. It works on this
+    computer and obeys only you.</p>
+
+  <p id="other-device" class="note" hidden>This looks like a phone or tablet. Open this page on the
+    computer where your agent will run.</p>
+
+  <div id="code-box" hidden>
+    <label for="code">Your code from @pm</label>
+    <input id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHJK">
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Your computer">
+    <button role="tab" id="tab-mac" data-os="mac" aria-controls="panel" aria-selected="false">macOS</button>
+    <button role="tab" id="tab-windows" data-os="windows" aria-controls="panel" aria-selected="false">Windows</button>
+    <button role="tab" id="tab-linux" data-os="linux" aria-controls="panel" aria-selected="false">Linux</button>
+  </div>
+
+  <section id="panel" role="tabpanel">
+    <ol>
+      <li id="step-open"></li>
+      <li>Paste this line and press <span id="enter-key">Enter</span>:</li>
+    </ol>
+    <div class="command">
+      <pre><code id="command"></code></pre>
+      <button id="copy" type="button">Copy</button>
+    </div>
+    <p id="needs" class="small"></p>
+  </section>
+
+  <p class="after">When it says you're connected, your agent keeps running in the background and
+    starts again when you sign in to this computer. You can close the window.</p>
+  <p class="small">The code works once, for 30 minutes. If it has expired, ask @pm for a new one.
+    It stays on this page: nothing you see here is sent anywhere.</p>
+</main>
+</body>
+</html>

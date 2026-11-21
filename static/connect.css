@@ -1,0 +1,54 @@
+:root {
+  --bg: #ffffff; --fg: #1d1f23; --muted: #5d636e; --line: #d9dce1; --accent: #0b6bcb;
+  --accent-fg: #ffffff; --code-bg: #f3f4f6; --note-bg: #fff6db;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a; --fg: #e8eaed; --muted: #a2a8b3; --line: #343841; --accent: #5aa7f0;
+    --accent-fg: #0b1220; --code-bg: #20232a; --note-bg: #3a3220;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 1.6rem; margin: 0 0 8px; }
+.lead { margin: 0 0 24px; color: var(--muted); }
+.small { font-size: 0.9rem; color: var(--muted); }
+.note { background: var(--note-bg); padding: 12px; border-radius: 8px; }
+label { display: block; font-weight: 600; margin-bottom: 4px; }
+input {
+  width: 100%; max-width: 280px; padding: 8px 10px; font: inherit; letter-spacing: 0.05em;
+  color: var(--fg); background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+}
+#code-box { margin-bottom: 20px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  font: inherit; padding: 8px 14px; cursor: pointer; color: var(--muted); background: none;
+  border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; margin-bottom: -1px;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--fg); font-weight: 600; background: var(--bg); border-color: var(--line);
+}
+section { padding: 8px 0; }
+ol { padding-left: 1.4em; }
+li { margin: 6px 0; }
+.command { display: flex; gap: 8px; align-items: stretch; }
+pre {
+  flex: 1; min-width: 0; margin: 0; padding: 12px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+code { font: 0.9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+#copy {
+  font: inherit; padding: 0 16px; cursor: pointer; border: none; border-radius: 8px;
+  background: var(--accent); color: var(--accent-fg); font-weight: 600;
+}
+#copy:disabled { opacity: 0.5; cursor: default; }
+.after { margin-top: 24px; }
+@media (max-width: 420px) {
+  .command { flex-direction: column; }
+  #copy { padding: 10px; }
+}

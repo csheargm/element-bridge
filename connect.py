@@ -65,7 +65,7 @@ def redeem(server: str, code: str) -> dict:
 def save(path: Path, data: dict) -> None:
     """Written as 0600 (in a 0700 folder, whatever the umask made it) and swapped in whole."""
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.parent.stat().st_mode & 0o077:
+    if os.name != "nt" and path.parent.stat().st_mode & 0o077:   # Windows: no mode bits; connect.ps1 sets the ACL
         print(f"note: {path.parent} can be read by others; the sign-in file itself is only yours", file=sys.stderr)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".credentials-")   # 0600, a new file: no symlink games
     with os.fdopen(fd, "w") as f:
@@ -111,11 +111,11 @@ def background(creds: dict, path: Path) -> bool:
     return True
 
 
-def stop(saved: dict) -> None:
+def stop(saved: dict, home: Path) -> None:
     name = agent_name(saved)
     if not name:
         raise SystemExit("✗ not connected on this computer: nothing to stop")
-    print(f"✓ stopped {name} and removed its background service" if agent_service.stop(name)
+    print(f"✓ stopped {name} and removed its background service" if agent_service.stop(name, home=home, app=APP)
           else f"✓ {name} had no background service here (if it runs in a Terminal, press Ctrl-C there)")
 
 
@@ -138,7 +138,7 @@ def main() -> None:
         saved = {}                            # damaged: a new code replaces it
     saved = saved if isinstance(saved, dict) else {}
     if args.stop:
-        stop(saved)
+        stop(saved, path.parent)
         return
     if not args.code and not saved:
         raise SystemExit("✗ not connected yet: run this with the code @pm sent you")

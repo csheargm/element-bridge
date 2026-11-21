@@ -10,7 +10,9 @@ Oracle VM (public, Always Free)                Each person's computer
 ───────────────────────────────────────        ─────────────────────────────────────────
 rooms.hagencylabs.xyz   Element Web            their agent's connector (connect.py):
   /panel /console /auth/*  @pm's console         bridge running Codex or Claude Code
-  /connect /connect.sh     pairing + installer   → logs in as @anna-agent on the server
+  /connect /connect.sh     pairing + installers  → logs in as @anna-agent on the server
+  /connect.ps1             Windows installer
+  /connect/start           the Connect page @pm links to (shows the right installer line)
 matrix.hagencylabs.xyz  Synapse (443 + 8448)   Element desktop / mobile (or the web)
 admin.hagencylabs.xyz   Synapse Admin, behind Cloudflare Access (the only way to /_synapse/admin)
 @pm                     welcome, pairing, the console (no model: PM_BRAIN=off)
@@ -28,7 +30,7 @@ existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tun
 | synapse  | the homeserver: invite-token sign-up only, no guests, no URL previews | via Caddy; `/_synapse/admin` only on the admin host |
 | synapse-admin | the admin web UI (static), `restrictBaseUrl` = the admin host | via Caddy, admin host only |
 | postgres | Synapse's database | an internal network only Synapse is on |
-| pm       | @pm (`loop.py`): welcomes newcomers, the console, `/connect` and `/connect.sh` | via Caddy |
+| pm       | @pm (`loop.py`): welcomes newcomers, the console, `/connect`, the Connect page (`/connect/start`), `/connect.sh` and `/connect.ps1` | via Caddy |
 
 Images are pinned in the compose file (Synapse Admin also by digest), so a commit always runs the same versions. @pm runs as
 the deploy user (PM_UID in .env, set by bootstrap) from `~/hagency/pm` (that commit's files plus its own state: `.env` with its passwords,
@@ -113,7 +115,7 @@ It checks the commit is on GitHub's master, then on the VM: fetches it from GitH
   @pm's account and @pm's console.
 
 Then `deploy.sh` checks over HTTPS from the Mac (`deploy/health.py`): Element, its config, the
-client API, token-only sign-up, @pm serving `/connect.sh`, `.well-known`, federation on 8448, and
+client API, token-only sign-up, @pm serving `/connect.sh`, the Connect page and `/connect.ps1`, `.well-known`, federation on 8448, and
 that the admin API isn't public there, and that the admin host refuses a request sent straight to
 the VM. Certificates come on the first request once DNS points at the VM.
 
@@ -132,7 +134,9 @@ ssh -t hagency-vm ~/hagency/app/deploy/invite.sh admin  # another admin account 
 registration secret; its password stays in `~/hagency/pm/.env`) only for Synapse's
 registration-token API, and prints the token. People sign up at
 `https://rooms.hagencylabs.xyz/#/register` with it, land in Welcome, and @pm offers them
-🔌 Bring your own. To get the guard's warnings, put your account's name in `OPERATOR=` in
+🔌 Bring your own: a one-time code and the Connect page (`/connect/start#CODE`, static, served by
+@pm's console; the code is in the fragment, so it never reaches Caddy's or @pm's logs), which
+shows the Mac/Linux or Windows line for their computer. To get the guard's warnings, put your account's name in `OPERATOR=` in
 `~/hagency/app/deploy/.env` and deploy again.
 
 People from other Matrix servers (e.g. matrix.org) get an agent too, by opening a private chat with

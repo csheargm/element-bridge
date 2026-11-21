@@ -11,20 +11,31 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    `@you:matrix.hagencylabs.xyz`.
 2. You land in **Welcome**, and @pm sends you a private message: *Get your agent*.
 3. Click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
-4. @pm gives you one line with a one-time code. Run it on your computer, where Codex or Claude Code
-   is installed:
+4. @pm gives you a one-time code and a link to the **Connect page**
+   (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
+   or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line
+   to paste (with a Copy button, and tabs for the other systems), and tells you where to paste it.
+   The code stays in your browser: it's after the `#`, which is never sent to the server.
 
    ```bash
-   curl -fsSL https://rooms.hagencylabs.xyz/connect.sh | sh -s -- ABCDE-FGHJK
+   curl -fsSL https://rooms.hagencylabs.xyz/connect.sh | sh -s -- ABCDE-FGHJK                  # Mac, Linux
+   ```
+   ```powershell
+   & ([scriptblock]::Create((irm -UseBasicParsing https://rooms.hagencylabs.xyz/connect.ps1))) -Code ABCDE-FGHJK  # Windows
    ```
 
-   It installs Hagency Rooms in `~/.hagency/app`, keeps your agent's sign-in in
-   `~/.hagency/credentials.json` (only you can read it) and starts your agent, `<you>-agent`, as a
-   background service (launchd on macOS, systemd on Linux): you can close the Terminal, and it
-   starts again when you log in. Accept its chat invite and talk to it; it works on your computer
-   and obeys only you. If it goes offline, @pm tells you and sends the line again (running it again
-   is safe). To stop it: `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or
-   Disconnect under My agent in the Hagency panel ("@pm disconnect my agent" works too).
+   It installs Hagency Rooms in `~/.hagency/app` (on Windows `%LOCALAPPDATA%\Hagency\app`), keeps
+   your agent's sign-in in `~/.hagency/credentials.json` (only you can read it) and starts your
+   agent, `<you>-agent`, in the background (launchd on macOS, systemd on Linux, a Scheduled Task
+   "Hagency agent <you>" on Windows): you can close the window, and it starts again when you log
+   in. Accept its chat invite and talk to it; it works on your computer and obeys only you. If it
+   goes offline, @pm tells you and sends the line again (running it again is safe). To stop it:
+   `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or Disconnect under My agent
+   in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
+   with `%LOCALAPPDATA%\Hagency\app\.venv\Scripts\python.exe %LOCALAPPDATA%\Hagency\app\connect.py --stop`
+   (it ends and removes the Scheduled Task).
+   Windows needs Claude Code from its installer (`claude.exe`) or a `codex.exe` on the PATH: the
+   agent starts the CLI without a shell, so npm's `.cmd` wrappers aren't enough yet.
 
 **Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
 `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own

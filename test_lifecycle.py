@@ -84,5 +84,24 @@ class HandOff(unittest.TestCase):
         self.assertLess(time.time() * 1000 - json.loads((lifecycle.HANDOFF_DIR / "x.json").read_text())["ms"], 5000)
 
 
+class FirstSyncOnWindows(unittest.TestCase):
+    def test_no_signal_handlers_is_not_a_crash(self):
+        """asyncio on Windows can't add signal handlers: the agent still starts (connect_win.py)."""
+        client = FakeClient()
+        synced = []
+
+        async def sync(**kw):
+            synced.append(kw)
+        client.sync = sync
+
+        async def run():
+            loop = asyncio.get_running_loop()
+            with mock.patch.object(loop, "add_signal_handler", side_effect=NotImplementedError), \
+                    mock.patch.object(lifecycle, "HANDOFF_DIR", Path(tempfile.mkdtemp())):
+                await lifecycle.first_sync(client, "x", lifecycle.SyncPoint(client), lambda: None, lambda ms: None)
+        asyncio.run(run())
+        self.assertEqual(len(synced), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

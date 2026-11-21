@@ -6,18 +6,26 @@ connect.py installs it after pairing: on macOS a launchd LaunchAgent
 crashes, logs to ~/.hagency/logs/, and reads the sign-in from ~/.hagency/credentials.json: no secret
 is ever on a command line or in the service file. It stays stopped after a clean exit (the server
 disconnected the agent). `connect.py --stop` removes it. Neither available: connect.py runs it in
-the foreground as before.
+the foreground as before. On Windows, connect.ps1 registers the Scheduled Task "Hagency agent
+<name>" (running connect_win.py; it needs PowerShell's task cmdlets): here it is only started again
+and, on --stop, ended and removed, with its Startup-folder fallback.
 """
 import os
 import platform
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from xml.sax.saxutils import escape
 
 LABEL = "xyz.hagencylabs.agent"
 RESTART_S = 30
+WINDOWS = "schtasks"
+
+
+def windows_task(agent_localpart: str) -> str:
+    """The Scheduled Task (and Startup shortcut) name: "Hagency agent anna" for anna-agent."""
+    return f"Hagency agent {agent_localpart.removesuffix('-agent')}"
 
 
 def label(agent_localpart: str) -> str:
@@ -57,7 +65,9 @@ def unit(app: Path, owner: str, backend: str, agent: str, creds: Path, logs: Pat
 
 
 def kind() -> str | None:
-    """"launchd", "systemd" or None (no per-user service manager here)."""
+    """"launchd", "systemd", "schtasks" or None (no per-user service manager here)."""
+    if platform.system() == "Windows" and shutil.which("schtasks"):
+        return WINDOWS
     if platform.system() == "Darwin" and shutil.which("launchctl"):
         return "launchd"
     if platform.system() == "Linux" and shutil.which("systemctl"):
@@ -86,6 +96,14 @@ def install(app: Path, owner: str, backend: str, agent: str, creds: Path, run=su
     how = kind()
     if how is None:
         return None
+    if how == WINDOWS:                        # made by connect.ps1; none yet: run it here
+        task = windows_task(agent)
+        if run(["schtasks", "/Query", "/TN", task], capture_output=True).returncode != 0:
+            return None
+        r = run(["schtasks", "/Run", "/TN", task], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"Task Scheduler wouldn't start it: {(r.stderr or r.stdout or '').strip()[:200]}")
+        return how
     logs = creds.parent / "logs"
     logs.mkdir(mode=0o700, parents=True, exist_ok=True)
     path = service_file(how, agent)
@@ -105,11 +123,49 @@ def install(app: Path, owner: str, backend: str, agent: str, creds: Path, run=su
     return how
 
 
-def stop(agent: str, run=subprocess.run) -> bool:
-    """Stop and remove the service; True if there was one."""
+def _ours(pid: str, app: Path, run) -> bool:
+    """Is this PID still a Python running this installation's keeper or bridge? (A stale agent.pid
+    may name a reused number: only a command line naming our own files counts.)"""
+    ask = (f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId = {int(pid)}'; "
+           '"$($p.ExecutablePath)|$($p.CommandLine)"')
+    out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ask], capture_output=True, text=True).stdout
+    exe, _, line = out.strip().lower().partition("|")
+    return (PureWindowsPath(exe).name.startswith("python")      # the program itself, not text in its arguments
+            and any(str(app / f).lower() in line for f in ("connect_win.py", "bridge.py")))
+
+
+def _stop_windows(agent: str, home: Path, run, app: Path) -> bool:
+    """End and remove the task and the Startup shortcut; end a keeper started from Startup."""
+    task = windows_task(agent)
+    existed = run(["schtasks", "/Query", "/TN", task], capture_output=True).returncode == 0
+    if existed:
+        run(["schtasks", "/End", "/TN", task], capture_output=True)
+        run(["schtasks", "/Delete", "/TN", task, "/F"], capture_output=True)
+    startup = Path(os.environ.get("APPDATA", home)) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    link = startup / f"{task}.lnk"
+    existed |= link.exists()
+    link.unlink(missing_ok=True)
+    pids = home / "agent.pid"
+    try:
+        numbers = pids.read_text().split()
+    except OSError:                           # none, or the keeper just removed it on its way out
+        numbers = []
+    ended = [run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True).returncode == 0
+             for pid in numbers if pid.isdigit() and _ours(pid, app, run)]
+    if all(ended):                            # kept while one of ours survived, for the next stop
+        pids.unlink(missing_ok=True)
+    return existed
+
+
+def stop(agent: str, run=subprocess.run, home: Path | None = None, app: Path | None = None) -> bool:
+    """Stop and remove the service; True if there was one. Windows: `home` is the sign-in folder,
+    `app` the installation whose keeper may be ended."""
     how = kind()
     if how is None:
         return False
+    if how == WINDOWS:
+        return _stop_windows(agent, home or Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")), run,
+                             app or Path(__file__).resolve().parent)
     path = service_file(how, agent)
     if how == "launchd":
         run(["launchctl", "bootout", f"gui/{os.getuid()}/{label(agent)}"], capture_output=True)

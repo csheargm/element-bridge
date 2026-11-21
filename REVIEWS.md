@@ -587,3 +587,56 @@ Outage (2026-11-21, ~00:13–00:33 UTC) and its fix (GPT, 22b502e..HEAD), adopte
   first fix still fell through to re-registering after the wait).
 Deferred: matrix-nio's own unlimited 429 retry inside client.login makes lifecycle.login's cap
   soft; set-up holds WRITING while a remote agent's sign-in waits, delaying /connect meanwhile.
+
+Connect page and the Windows installer (GPT, the feature commit), adopted with tests:
+- Two keepers could run one agent (a Startup entry beside a task, a task left under an old name):
+  connect_win.py holds agent.lock, ties the bridge and its CLI to itself with a Windows job, and
+  connect.ps1 removes earlier tasks and Startup entries of this installation first.
+- Stopping the old agent could hit an unrelated process with a reused PID: only a command line
+  naming this installation's connect_win.py or bridge.py, killed with its children.
+- The ACL could protect another folder than the one holding the sign-in: one absolute folder
+  (HAGENCY_DIR honoured), passed to connect.py and the task; `icacls /reset` first, so no other
+  grants survive.
+- An npm `codex.cmd` passed the CLI check but the bridge (no shell) can't start it: only a real
+  `.exe` counts, with a plain hint. A clean bridge exit (Disconnect) now stays stopped, as with
+  launchd/systemd; logs go to ~/.hagency/logs/ like agent_service.py.
+- `irm -UseBasicParsing` in the line shown (Windows PowerShell 5.1); native stderr no longer
+  stops the installer before its exit code is checked; a changed fragment refreshes the code box.
+Rejected or deferred:
+- @pm still sends the raw curl line: pm_welcome.py/remote_agent.py belong to the other change;
+  `connect_page.page_link(code)` is ready for it.
+- The code in shell history / process arguments: it works once, for 30 minutes, and is used
+  within seconds, as with connect.sh. TLS 1.2 before the first `irm`: Windows 10/11 default to it.
+- X11/BSD shown as Linux, and the installer reporting failure only on screen (it must not close
+  the person's window): the tabs and the red message cover them.
+
+Connect page and the Windows installer (GPT re-check), adopted with tests:
+- connect.py's check mark crashed Python's piped output on a cp1252 PC after the code was used:
+  PYTHONIOENCODING=utf-8 for the installer's Python calls (restored after) and for the bridge.
+- `icacls /reset` briefly let the folder's contents inherit the parent's access: the folder's
+  whole access list is replaced first (only you), then its contents reset to inherit just that.
+- -RestartCount 255 (Task Scheduler's maximum). Old tasks and Startup entries are matched by
+  this installation's keeper AND sign-in folder, case-insensitively; a PID is stopped only if it
+  is a Python running our keeper or bridge. A refused Windows job is logged, not fatal.
+- (third pass) Set-Acl also writes the audit list, which needs admin on a rerun: the folder's
+  DACL is set with SetAccessControl. `--home "<folder>"` is matched whole, so ~/.hagency never
+  matches ~/.hagency-test. A log that can't be written never stops the agent from starting.
+Rejected or deferred:
+- A CLI reachable only through a PowerShell profile's PATH: the hint says it must be on the PATH.
+- README describes the link @pm will send: it lands with the @pm change (PR notes).
+
+Connect page, Windows service case and @pm's link (GPT, whole branch after the rebase), adopted with tests:
+- `connect.py --stop` on Windows ended any Python with a stale PID: only a command line naming this
+  installation's connect_win.py or bridge.py counts, and the keeper removes agent.pid when it ends.
+- A failed rerun (expired code, no network) left the old agent stopped: its tasks start again.
+- A bridge log that can't be opened no longer keeps the agent from running.
+Rejected or deferred:
+- Two sign-in folders with the same agent name on one PC share a task name (not a real setup).
+- Pairing with connect.py directly on Windows (not through connect.ps1) relies on the profile
+  folder's own private ACL; Startup resolved from %APPDATA% (a redirected Startup folder is rare);
+  stop doesn't report schtasks/taskkill failures.
+- (re-check) The PID check now reads the process's own program (a Python) and its command line
+  separately, so text in another program's arguments can't pass; a vanished agent.pid is no error;
+  it is kept while one of ours survived. A failed rerun also relaunches a Startup-folder agent and
+  says honestly whether anything came back; that state lives in a local hashtable, never in the
+  person's own session scope.

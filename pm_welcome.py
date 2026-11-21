@@ -22,6 +22,7 @@ import remote_people
 import server_admins
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
+import connect_page
 import intents
 from pm_chat import without_quote
 from pm_presence import DISCONNECT_RE
@@ -45,9 +46,11 @@ POINTER = ("Welcome, {person}! I've sent you a private message with how to get y
            "Invites (top left).")
 HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
                "own: type \"bring my own\" (you need Codex or Claude Code on your computer).")
-BRING_REPLY = ("Your agent is **{agent}**. On your computer, with Codex or Claude Code installed, run:\n\n"
-               "`{line}`\n\nThe code works once, within 30 minutes. Your agent has invited you to a private "
-               "chat: accept it and talk to your agent there while that command runs.")
+BRING_REPLY = ("Your agent is **{agent}**. On the computer where Codex or Claude Code is installed, open "
+               "[your Connect page]({link}): it shows the one line to paste there (Mac, Windows or Linux).\n\n"
+               "Your code: `{code}` (it works once, within 30 minutes). On a Mac or Linux this is the same line:\n\n"
+               "`{line}`\n\nYour agent then runs in the background. It has invited you to a private chat: "
+               "accept it and talk to your agent there.")
 
 
 class Welcome:
@@ -233,7 +236,8 @@ class Welcome:
             if chat is None or not await self.only_us(chat, person):
                 raise RuntimeError("I couldn't open a private chat with just you")
             code = remote_agent.CODES.issue(person)
-            await self.say(chat, BRING_REPLY.format(agent=agent, line=remote_agent.install_line(code)))
+            await self.say(chat, BRING_REPLY.format(agent=agent, link=connect_page.page_link(code), code=code,
+                                                    line=remote_agent.install_line(code)))
         except (AccountError, OSError, RuntimeError) as e:   # homeserver refused, .env unwritable, send failed, bad URL
             log.error("bring-your-own failed for %s: %s", person, e)
             try:

@@ -70,6 +70,15 @@ class Connect(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["credentials.json"])
         self.assertEqual(json.loads(path.read_text()), {**CREDS, "agent": "codex"})
 
+    def test_open_folder_note_only_where_mode_bits_mean_something(self):
+        """Windows has no mode bits (connect.ps1 sets the folder's ACL): no misleading note there."""
+        folder = Path(tempfile.mkdtemp())
+        folder.chmod(0o755)
+        for name, noted in (("posix", True), ("nt", False)):
+            with mock.patch.object(connect.os, "name", name), mock.patch("builtins.print") as out:
+                connect.save(folder / "credentials.json", CREDS)
+            self.assertEqual(any("can be read by others" in str(c.args[0]) for c in out.call_args_list), noted)
+
     def test_which_cli(self):
         with mock.patch.object(connect.shutil, "which", lambda b: True):
             self.assertEqual(connect.pick_backend("claude", "codex"), "claude")
