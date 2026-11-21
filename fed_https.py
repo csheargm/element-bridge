@@ -112,7 +112,7 @@ def denied() -> tuple:
     and its public console) and HAGENCY_FED_DENY (comma-separated CIDRs, e.g. a cloud's internal
     public ranges). GPT review: "public" alone still reached this host's own public interface."""
     now = time.monotonic()
-    if now - _own[0] < OWN_S:
+    if _own[0] and now - _own[0] < OWN_S:    # 0: never looked up (monotonic can be small after a boot)
         return _own[1]
     nets = []
     for text in filter(None, (t.strip() for t in os.environ.get("HAGENCY_FED_DENY", "").split(","))):

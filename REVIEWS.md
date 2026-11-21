@@ -1434,3 +1434,6 @@ Six points; adopted, with tests in test_fed_openid_review (ReCheck, SrvChecks):
 - **Low: NXDOMAIN** counts only after the echoed question matches ours.
 Rejected: charging the per-client "any sign-in" budget before a federation slot is free (60 per
 10 minutes is generous, and charging it up front is what bounds the local branch).
+- **Found by CI, after the re-check:** the deny list's "never looked up" (0) read as fresh while
+  `time.monotonic()` was under 10 minutes, as on a freshly booted server: no own addresses refused
+  for its first ten minutes. Fixed, with a test.

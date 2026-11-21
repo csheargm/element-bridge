@@ -199,6 +199,11 @@ class ReCheck(Base):
         self.assertTrue(failed)
         self.assertLess(time.monotonic() - started, 3)
 
+    def test_the_deny_list_is_looked_up_even_just_after_a_boot(self):
+        """CI caught it: time.monotonic() under OWN_S (a fresh machine) read "never looked up" as fresh."""
+        with World(addresses={"bridge.localhost": "45.33.32.156"}), mock.patch.object(fed_https.time, "monotonic", lambda: 5.0):
+            self.assertTrue(fed_https.denied())
+
     def test_an_own_name_that_fails_to_resolve_keeps_its_last_addresses(self):
         with World(addresses={"bridge.localhost": "45.33.32.156"}):
             first = fed_https.denied()
