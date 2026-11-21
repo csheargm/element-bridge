@@ -14,6 +14,7 @@ from nio import MatrixRoom, ReactionEvent, RoomPreset, RoomVisibility
 
 import identity
 import matrix_calls
+import project_rooms
 import server_admins
 from bridge import ROOT, SERVER_NAME
 from project_rooms import LOBBY_ALIAS, LOBBY_LOCALPART
@@ -38,15 +39,25 @@ class Lobby:
     async def ensure_lobby(self) -> None:
         """The Lobby exists: public, in the room directory, joinable from any server."""
         try:
-            if await matrix_calls.room_of_alias(self.client, LOBBY_ALIAS):
+            if lobby := await matrix_calls.room_of_alias(self.client, LOBBY_ALIAS):
+                await self.publish_lobby(lobby)
                 return
         except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:   # unknown: never a second Lobby
-            log.warning("couldn't check for the Lobby: %s", e)
+            log.warning("couldn't check for the Lobby: %s", e)   # it still works; the next start tries again
             return
         made = await self.client.room_create(alias=LOBBY_LOCALPART, name="Lobby", topic=LOBBY_TOPIC,
                                              preset=RoomPreset.public_chat, visibility=RoomVisibility.public)
         if not hasattr(made, "room_id"):
             log.warning("couldn't create %s: %s", LOBBY_ALIAS, made)
+
+    async def publish_lobby(self, room_id: str) -> None:
+        """An existing Lobby is in the room directory. Screen test: one made while Synapse still refused
+        publishing (room_list_publication_rules now allow @pm) was missing from Explore rooms."""
+        if await matrix_calls.in_directory(self.client, room_id):
+            return
+        if not await project_rooms.publish(self.client, room_id, True):
+            raise RuntimeError(f"the room directory refused to list {LOBBY_ALIAS}")
+        log.info("listed %s in the room directory", LOBBY_ALIAS)
 
     async def ensure_welcome_topic(self, room_id: str) -> None:
         """Welcome's name and topic. Synapse's auto-created room has no name, so Element showed

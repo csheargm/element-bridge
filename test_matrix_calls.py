@@ -61,6 +61,17 @@ class Quiet(unittest.TestCase):
             client, _ = client_answering(200, body)
             self.assertEqual(call(matrix_calls.presence, client, "@a-agent:x"), online)
 
+    def test_directory_listing(self):
+        for body, listed in (({"visibility": "public"}, True), ({"visibility": "private"}, False)):
+            client, resp = client_answering(200, body)
+            self.assertEqual(call(matrix_calls.in_directory, client, "!l:x"), listed)
+            self.assertEqual(client.send.call_args.args[:2], ("GET", "/_matrix/client/v3/directory/list/room/%21l%3Ax"))
+        for status, body in ((200, {}), (404, {"errcode": "M_NOT_FOUND"}), (502, "<html>bad gateway</html>")):
+            client, resp = client_answering(status, body)
+            with self.assertRaisesRegex(RuntimeError, f"HTTP {status}"):              # unknown: never a guess
+                asyncio.run(matrix_calls.in_directory(client, "!l:x"))
+            self.assertTrue(resp.released)
+
     def test_real_errors_are_raised_for_the_caller_to_log(self):
         for fn, arg in ((matrix_calls.room_of_alias, "#lobby:x"), (matrix_calls.presence, "@a-agent:x")):
             for status, body in ((500, {"errcode": "M_UNKNOWN"}), (502, "<html>bad gateway</html>"), (200, {"odd": 1}),
