@@ -577,3 +577,13 @@ Rejected or deferred:
 - `connect.py --stop` reports removal even if launchctl/systemctl couldn't stop a running process
   (it then stops at the next login); the 🔁 button isn't retried if its reaction send fails (the
   message still says what to run, and "bring my own" works).
+
+Outage (2026-11-21, ~00:13–00:33 UTC) and its fix (GPT, 22b502e..HEAD), adopted with tests:
+- Several deploys in an hour used Synapse's per-account sign-in burst (3) for @pm, which signed in
+  three times per start. setup_accounts read the 429 as a wrong password, tried to re-create @pm
+  (M_USER_IN_USE) and exited; Docker restarted it, and it signed in again: a loop. Now 429s are
+  waited out (retry_after_ms, up to 15 minutes), ensure_pm needs no sign-in when @pm exists with
+  its name, and a limit that outlasts the wait is an error, never "wrong password" (GPT: the
+  first fix still fell through to re-registering after the wait).
+Deferred: matrix-nio's own unlimited 429 retry inside client.login makes lifecycle.login's cap
+  soft; set-up holds WRITING while a remote agent's sign-in waits, delaying /connect meanwhile.

@@ -27,12 +27,19 @@ class SignInLimit(unittest.TestCase):
         with mock.patch.object(setup_accounts, "api", return_value={"_status": 403, "errcode": "M_FORBIDDEN"}):
             self.assertIsNone(setup_accounts.try_login("pm", "bad", sleep=self.fail))
 
-    def test_the_wait_has_an_end(self):
+    def test_the_wait_has_an_end_and_is_never_a_wrong_password(self):
+        """GPT review 23: a None after the wait sent ensure_user on to re-register the account."""
         waits = []
         with mock.patch.object(setup_accounts, "api", return_value={**LIMITED, "retry_after_ms": 10**9}), \
-                mock.patch("builtins.print"):
-            self.assertIsNone(setup_accounts.try_login("pm", "pw", sleep=waits.append))
+                mock.patch("builtins.print"), self.assertRaises(setup_accounts.AccountError):
+            setup_accounts.try_login("pm", "pw", sleep=waits.append)
         self.assertEqual(sum(waits), setup_accounts.LOGIN_WAIT_S)
+        with mock.patch.object(setup_accounts, "api", return_value={**LIMITED, "retry_after_ms": 10**9}), \
+                mock.patch.object(setup_accounts, "register") as register, mock.patch("builtins.print"), \
+                mock.patch.object(setup_accounts.time, "sleep"), \
+                self.assertRaises(setup_accounts.AccountError):
+            setup_accounts.ensure_user({"PW_PM": "pw"}, "pm", "s", verify=True)
+        register.assert_not_called()
 
     def test_the_matrix_client_waits_too(self):
         waits = []

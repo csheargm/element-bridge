@@ -108,18 +108,21 @@ def register(user, password, shared_secret, admin=False):
 LOGIN_WAIT_S = 15 * 60                    # Synapse's per-account sign-in limit refills one every few minutes
 
 
-def try_login(user, password, sleep=time.sleep) -> str | None:
+def try_login(user, password, sleep=None) -> str | None:
     """A session token, or None if the password is wrong. Synapse's "too many sign-ins" (429) is
     waited out, never read as a wrong password: that made @pm try to re-create itself and crash-loop."""
     waited = 0.0
     while True:
         r = api("POST", "/_matrix/client/v3/login",
                 {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": user}, "password": password})
-        if r.get("errcode") != "M_LIMIT_EXCEEDED" or waited >= LOGIN_WAIT_S:
+        limited = r.get("errcode") == "M_LIMIT_EXCEEDED" or r.get("_status") == 429
+        if limited and waited >= LOGIN_WAIT_S:    # never "wrong password": that would re-create the account
+            raise AccountError(f"Synapse is still limiting @{user}'s sign-ins; try again later")
+        if not limited:
             return r.get("access_token")
         pause = min(max(r.get("retry_after_ms", 5000) / 1000, 1.0), LOGIN_WAIT_S - waited)
         print(f"Synapse limits {user}'s sign-ins: waiting {pause:.0f}s", flush=True)
-        sleep(pause)
+        (sleep or time.sleep)(pause)
         waited += pause
 
 
