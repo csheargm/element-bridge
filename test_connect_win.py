@@ -1,5 +1,6 @@
 """Unit tests: the Windows keep-alive (connect_win.py) that the Scheduled Task runs.
 Run: .venv/bin/python -m unittest test_connect_win"""
+import ctypes
 import json
 import subprocess
 import sys
@@ -21,6 +22,9 @@ def home_with(creds: dict | None = CREDS) -> Path:
     return home
 
 
+LOG = Path("logs") / "anna-agent.log"
+
+
 class FakeProc:
     def __init__(self, code: int):
         self.pid, self.code = 4242, code
@@ -30,13 +34,14 @@ class FakeProc:
 
 
 class KeepRunning(unittest.TestCase):
-    def run_it(self, home: Path, runs: int, lifetimes: list[float]):
+    def run_it(self, home: Path, runs: int, lifetimes: list[float], codes=None):
         calls, sleeps, ticks = [], [], iter([t for life in lifetimes for t in (0, life)])
+        codes = iter(codes or [1] * runs)
 
         def spawn(argv, **kw):
             calls.append((argv, kw))
             kw["stdout"].write(b"bridge output\n")
-            return FakeProc(1)
+            return FakeProc(next(codes))
         connect_win.keep_running(home, runs=runs, spawn=spawn, sleep=sleeps.append, clock=lambda: next(ticks))
         return calls, sleeps
 
@@ -48,13 +53,35 @@ class KeepRunning(unittest.TestCase):
         self.assertEqual(kw["env"]["HAGENCY_CREDENTIALS"], str(home / "credentials.json"))
         self.assertEqual((kw["cwd"], kw["stdin"], kw["stderr"]), (str(connect_win.APP), subprocess.DEVNULL, subprocess.STDOUT))
         self.assertEqual((home / "agent.pid").read_text().split()[1], "4242")
-        log = (home / "agent.log").read_text()
+        log = (home / LOG).read_text()
         self.assertIn("bridge output", log)
         self.assertIn("the agent stopped (exit 1)", log)
 
     def test_restarts_with_a_growing_wait_that_resets_after_a_good_run(self):
         _, sleeps = self.run_it(home_with(), 5, [1, 1, 1, connect_win.HEALTHY_RUN_S, 1])
         self.assertEqual(sleeps, [5, 10, 20, 5, 10])
+
+    def test_a_clean_exit_means_disconnected_and_stays_stopped(self):
+        """bridge.py exits 0 when the server disconnected it (as launchd/systemd, no restart)."""
+        home = home_with()
+        calls, sleeps = self.run_it(home, 5, [1, 1], codes=[1, 0])
+        self.assertEqual((len(calls), sleeps), (2, [5]))
+        self.assertIn("stopped cleanly", (home / LOG).read_text())
+
+    def test_only_one_keeper_per_sign_in_folder(self):
+        home = home_with()
+        first = connect_win.hold_lock(home / "agent.lock")
+        self.addCleanup(first.close)
+        self.assertIsNotNone(first)
+        self.assertIsNone(connect_win.hold_lock(home / "agent.lock"))
+        with mock.patch.object(sys, "argv", ["connect_win.py", "--home", str(home)]), \
+                mock.patch.object(connect_win, "keep_running") as keep:
+            connect_win.main()                                # a second task or Startup entry: does nothing
+        keep.assert_not_called()
+
+    def test_the_job_layout_matches_windows(self):
+        """JOBOBJECT_EXTENDED_LIMIT_INFORMATION is 144 bytes on 64-bit Windows (112 on 32-bit)."""
+        self.assertEqual(ctypes.sizeof(connect_win._JobLimits), 144 if ctypes.sizeof(ctypes.c_void_p) == 8 else 112)
 
     def test_the_wait_never_passes_the_cap(self):
         delay = 0.0
@@ -66,14 +93,15 @@ class KeepRunning(unittest.TestCase):
         home = home_with(None)
         with mock.patch.object(sys, "argv", ["connect_win.py", "--home", str(home)]), self.assertRaises(SystemExit):
             connect_win.main()
-        self.assertIn("credentials file", (home / "agent.log").read_text())
+        self.assertIn("credentials file", (home / "logs" / "connect_win.log").read_text())
 
     def test_a_big_log_is_kept_once_and_started_over(self):
         home = home_with()
-        (home / "agent.log").write_bytes(b"x" * (connect_win.LOG_MAX_BYTES + 1))
+        (home / "logs").mkdir()
+        (home / LOG).write_bytes(b"x" * (connect_win.LOG_MAX_BYTES + 1))
         self.run_it(home, 1, [10])
-        self.assertEqual((home / "agent.log.1").stat().st_size, connect_win.LOG_MAX_BYTES + 1)
-        self.assertLess((home / "agent.log").stat().st_size, 1000)
+        self.assertEqual((home / "logs" / "anna-agent.log.1").stat().st_size, connect_win.LOG_MAX_BYTES + 1)
+        self.assertLess((home / LOG).stat().st_size, 1000)
 
 
 class Names(unittest.TestCase):

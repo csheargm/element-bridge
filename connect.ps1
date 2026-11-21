@@ -1,10 +1,11 @@
 # Hagency Rooms: connect your own Codex or Claude Code as your agent, from this Windows computer.
-#   & ([scriptblock]::Create((irm __HAGENCY_CONSOLE__/connect.ps1))) -Code CODE [-Agent codex|claude]
+#   & ([scriptblock]::Create((irm -UseBasicParsing __HAGENCY_CONSOLE__/connect.ps1))) -Code CODE [-Agent codex|claude]
 # (irm ... | iex can't pass the code, hence the scriptblock.) Installs or updates Hagency Rooms in
 # %LOCALAPPDATA%\Hagency\app, has connect.py trade @pm's one-time code for your agent's sign-in
 # (kept in %USERPROFILE%\.hagency\credentials.json, readable only by you), then registers the
 # Scheduled Task "Hagency agent <name>": it runs connect_win.py at every logon, which keeps your
-# agent running in the background. Run the line again with a new code to reconnect or update.
+# agent running in the background (agent_service.py's counterpart). Run the line again with a new
+# code to reconnect or update.
 param(
     [Parameter(Mandatory = $true)][string]$Code,
     [ValidateSet('codex', 'claude')][string]$Agent
@@ -15,7 +16,8 @@ $ErrorActionPreference = 'Stop'
 $Console = if ($env:HAGENCY_CONSOLE) { $env:HAGENCY_CONSOLE } else { '__HAGENCY_CONSOLE__' }
 $Repo = if ($env:HAGENCY_REPO) { $env:HAGENCY_REPO } else { 'https://github.com/csheargm/hagency-rooms' }
 $App = if ($env:HAGENCY_APP) { $env:HAGENCY_APP } else { Join-Path $env:LOCALAPPDATA 'Hagency\app' }
-$HagencyHome = Join-Path $env:USERPROFILE '.hagency'
+$HagencyHome = if ($env:HAGENCY_DIR) { $env:HAGENCY_DIR } else { Join-Path $env:USERPROFILE '.hagency' }
+$HagencyHome = [IO.Path]::GetFullPath($HagencyHome)   # one absolute folder for this script and both Python entry points
 $CodePattern = '^[A-Za-z0-9-]{4,32}$'          # what pairing.py codes look like; nothing else reaches python
 
 function Say([string]$Text) { Write-Host $Text }
@@ -39,23 +41,33 @@ function Find-Python {
 }
 
 function Invoke-Checked([string]$What, [scriptblock]$Run) {
+    $ErrorActionPreference = 'Continue'          # a native command's stderr is shown; its exit code decides
     & $Run | Out-Host                            # shown, never part of a function's return value
     if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
 }
 
+function Get-OurTasks {
+    # Only tasks that run this installation's connect_win.py, whatever their name.
+    $runner = Join-Path $App 'connect_win.py'
+    @(Get-ScheduledTask -TaskName 'Hagency agent *' -ErrorAction SilentlyContinue | Where-Object {
+        @($_.Actions | Where-Object { $_.Arguments -and $_.Arguments.Contains($runner) }).Count -gt 0 })
+}
+
 function Stop-OldAgent {
-    # Before updating: stop the running agent, so its files and Python aren't in use.
-    Get-ScheduledTask -TaskName 'Hagency agent *' -ErrorAction SilentlyContinue |
-        Stop-ScheduledTask -ErrorAction SilentlyContinue
+    # Before updating: stop the running agent (connect_win.py's job ends the bridge with it), so its
+    # files and Python aren't in use. agent.pid is the fallback for one started from Startup.
+    $ErrorActionPreference = 'Continue'          # nothing to stop is not an error
+    Get-OurTasks | Stop-ScheduledTask -ErrorAction SilentlyContinue
     $pidFile = Join-Path $HagencyHome 'agent.pid'
     if (-not (Test-Path $pidFile)) { return }
+    $ours = @((Join-Path $App 'connect_win.py'), (Join-Path $App 'bridge.py'))
     foreach ($line in Get-Content $pidFile) {
         $id = 0
         if (-not [int]::TryParse($line.Trim(), [ref]$id)) { continue }
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue
-        # Only our own agent: a stale number may belong to something else by now.
-        if ($proc -and $proc.CommandLine -and $proc.CommandLine.IndexOf($App, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
-            Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+        # Only our own keeper or bridge: a stale number may belong to something else by now.
+        if ($proc -and $proc.CommandLine -and @($ours | Where-Object { $proc.CommandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0) {
+            taskkill.exe /PID $id /T /F | Out-Null    # with the CLI it runs; already gone is fine
         }
     }
 }
@@ -104,13 +116,24 @@ function Install-Venv([string]$Python) {
     return $venvPy
 }
 
+function Test-Backend([string]$Name) {
+    # The agent starts the CLI without a shell, which on Windows finds only a real program (.exe),
+    # not an npm .cmd or .ps1 wrapper.
+    [bool](Get-Command "$Name.exe" -CommandType Application -ErrorAction SilentlyContinue)
+}
+
 function Select-Backend {
-    if ($Agent) { return $Agent }
-    $found = @('codex', 'claude' | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue })
+    $hint = 'Claude Code (irm https://claude.ai/install.ps1 | iex) or Codex as a program (codex.exe on your PATH)'
+    if ($Agent) {
+        if (-not (Test-Backend $Agent)) { throw "$Agent.exe isn't on this PC's PATH; install $hint first" }
+        return $Agent
+    }
+    $found = @('codex', 'claude' | Where-Object { Test-Backend $_ })
     if ($found.Count -eq 1) { return $found[0] }
     if ($found.Count -eq 0) {
-        throw ("install Codex (npm i -g @openai/codex) or Claude Code (irm https://claude.ai/install.ps1 | iex) " +
-               'first, then open a new PowerShell and run this line again')
+        $wrapper = @('codex', 'claude' | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue })
+        $why = if ($wrapper.Count) { "found only npm wrappers ($($wrapper -join ', ')), which the agent can't start; " } else { '' }
+        throw "$($why)install $hint, then open a new PowerShell and run this line again"
     }
     do {
         $choice = (Read-Host 'Which one should be your agent, codex or claude?').Trim().ToLower()
@@ -122,17 +145,25 @@ function Protect-Home {
     # Only you (not other accounts on this PC) can read the folder that holds your agent's sign-in.
     New-Item -ItemType Directory -Force -Path $HagencyHome | Out-Null
     $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    Invoke-Checked 'protecting the sign-in folder' { icacls $HagencyHome /inheritance:r /grant:r "*${me}:(OI)(CI)F" /q | Out-Null }
+    Invoke-Checked 'resetting the sign-in folder' { icacls $HagencyHome /reset /t /q | Out-Null }   # no other grants left
+    Invoke-Checked 'protecting the sign-in folder' {
+        icacls $HagencyHome /inheritance:r /grant:r "*${me}:(OI)(CI)F" /q | Out-Null   # files inside follow
+    }
 }
 
 function Register-Agent([string]$VenvPy) {
     $pyw = Join-Path $App '.venv\Scripts\pythonw.exe'
     $runner = Join-Path $App 'connect_win.py'
-    $name = ([string](& $VenvPy $runner --task-name)).Trim()
+    $runArgs = '"{0}" --home "{1}"' -f $runner, $HagencyHome
+    $name = ([string](& $VenvPy $runner --home $HagencyHome --task-name)).Trim()
     if ($LASTEXITCODE -ne 0 -or -not $name) { throw 'could not read the saved sign-in' }
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $startup = [Environment]::GetFolderPath('Startup')
+    # An earlier connection (maybe under another name) goes first: one keeper per computer.
+    Get-OurTasks | Where-Object { $_.TaskName -ne $name } | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
+    Get-ChildItem $startup -Filter 'Hagency agent *.lnk' -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
     try {
-        $action = New-ScheduledTaskAction -Execute $pyw -Argument ('"{0}"' -f $runner) -WorkingDirectory $App
+        $action = New-ScheduledTaskAction -Execute $pyw -Argument $runArgs -WorkingDirectory $App
         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
             -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) `
@@ -141,20 +172,20 @@ function Register-Agent([string]$VenvPy) {
         Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings `
             -Principal $principal -Force | Out-Null
         Start-ScheduledTask -TaskName $name
-        Remove-Item (Join-Path ([Environment]::GetFolderPath('Startup')) "$name.lnk") -ErrorAction SilentlyContinue
         Say "Your agent runs in the background now, and again each time you sign in (task: $name)."
     } catch {
-        # Some PCs don't let people make tasks: start it from the Startup folder instead.
-        $link = Join-Path ([Environment]::GetFolderPath('Startup')) "$name.lnk"
-        $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
+        # Some PCs don't let people make tasks: start it from the Startup folder instead (a half-made
+        # task is removed; connect_win.py's lock would stop a second keeper anyway).
+        Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
+        $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup "$name.lnk"))
         $shortcut.TargetPath = $pyw
-        $shortcut.Arguments = '"{0}"' -f $runner
+        $shortcut.Arguments = $runArgs
         $shortcut.WorkingDirectory = $App
         $shortcut.Save()
-        Start-Process -FilePath $pyw -ArgumentList ('"{0}"' -f $runner) -WorkingDirectory $App -WindowStyle Hidden
+        Start-Process -FilePath $pyw -ArgumentList $runArgs -WorkingDirectory $App -WindowStyle Hidden
         Say "Your agent runs in the background now, and again each time you sign in (Startup: $name)."
     }
-    Say "Its log: $(Join-Path $HagencyHome 'agent.log'). You can close this window."
+    Say "Its log is in $(Join-Path $HagencyHome 'logs'). You can close this window."
 }
 
 try {
@@ -169,7 +200,9 @@ try {
     Install-App
     $venvPy = Install-Venv $python
     Protect-Home
-    Invoke-Checked 'connecting' { & $venvPy (Join-Path $App 'connect.py') --server $Console $Code --agent $backend --pair-only }
+    Invoke-Checked 'connecting' {
+        & $venvPy (Join-Path $App 'connect.py') --server $Console --home $HagencyHome $Code --agent $backend --pair-only
+    }
     Register-Agent $venvPy
 } catch {
     # Not `exit`: this runs inside the person's own PowerShell window, which must stay open.

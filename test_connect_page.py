@@ -133,7 +133,7 @@ class ScriptUnderNode(unittest.TestCase):
     def test_the_lines_people_paste(self):
         got = self.run_js("['mac', 'linux', 'windows'].map(os => m.commandFor(os, data, 'ABCDE-FGHJK'))", PUBLIC)
         self.assertEqual(got, [f"curl -fsSL {PUBLIC}/connect.sh | sh -s -- ABCDE-FGHJK"] * 2 +
-                         [f"& ([scriptblock]::Create((irm {PUBLIC}/connect.ps1))) -Code ABCDE-FGHJK"])
+                         [f"& ([scriptblock]::Create((irm -UseBasicParsing {PUBLIC}/connect.ps1))) -Code ABCDE-FGHJK"])
 
 
 class WindowsInstaller(unittest.TestCase):
@@ -155,6 +155,16 @@ class WindowsInstaller(unittest.TestCase):
     def test_never_closes_the_persons_window(self):
         """It runs inside their own PowerShell: `exit` would close it."""
         self.assertIsNone(re.search(r"(?im)^\s*exit\b", self.text))
+
+    def test_one_sign_in_folder_for_the_script_and_both_python_entry_points(self):
+        """GPT review: the folder the ACL protects is the one connect.py writes and the task reads."""
+        self.assertIn("--home $HagencyHome $Code", self.text)
+        self.assertIn("--home $HagencyHome --task-name", self.text)
+        self.assertIn("'\"{0}\" --home \"{1}\"' -f $runner, $HagencyHome", self.text)
+
+    def test_only_a_cli_the_bridge_can_start_is_picked(self):
+        """GPT review: an npm .cmd wrapper passes Get-Command but not the bridge's shell-less start."""
+        self.assertIn('Get-Command "$Name.exe" -CommandType Application', self.text)
 
     def test_the_task_restarts_and_runs_as_the_person(self):
         for piece in ("New-ScheduledTaskTrigger -AtLogOn", "-RestartCount", "-RunLevel Limited", "-LogonType Interactive"):

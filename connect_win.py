@@ -1,16 +1,19 @@
 """Keep your agent running on Windows: what the Scheduled Task "Hagency agent <name>" runs.
 
-  pythonw connect_win.py               # run the agent hidden, and again whenever it stops
+  pythonw connect_win.py [--home DIR]  # run the agent hidden, and again whenever it fails
   python connect_win.py --task-name    # print the task's name (connect.ps1 uses it)
 
 connect.ps1 has connect.py save the sign-in first (--pair-only), then registers this to run at
-logon. It reads that sign-in (~/.hagency/credentials.json), runs the bridge as a hidden child with
+logon: the Windows counterpart of agent_service.py (launchd / systemd on macOS / Linux). It reads
+that sign-in (~/.hagency/credentials.json), runs the bridge as a hidden child with
 HAGENCY_CREDENTIALS pointing at the file (so no secret is ever on a command line), and starts it
-again when it stops, waiting longer each time it fails quickly. The bridge's output goes to
-~/.hagency/agent.log; ~/.hagency/agent.pid names this process and the bridge, so connect.ps1 can
-stop both before it updates the app.
+again when it fails, waiting longer each time it fails quickly. A clean exit (the server
+disconnected the agent) stops it, as with the other services. Only one runs per sign-in folder
+(agent.lock), and everything it starts ends with it (a Windows job), so a stopped or restarted
+task never leaves a second bridge behind. Output goes to ~/.hagency/logs/<agent>.log.
 """
 import argparse
+import ctypes
 import os
 import subprocess
 import sys
@@ -22,15 +25,61 @@ import bridge_config
 APP = Path(__file__).resolve().parent
 FIRST_DELAY_S = 5
 MAX_DELAY_S = 300
-HEALTHY_RUN_S = 3600                          # ran this long: the next stop starts the backoff over
+HEALTHY_RUN_S = 3600                          # ran this long: the next failure starts the backoff over
 LOG_MAX_BYTES = 5 * 1024 * 1024
 CREATE_NO_WINDOW = 0x08000000                 # Windows: the bridge gets no console window
+JOB_KILL_ON_CLOSE = 0x2000                    # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+JOB_EXTENDED_LIMITS = 9                       # JobObjectExtendedLimitInformation
+
+
+class _JobLimits(ctypes.Structure):
+    """JOBOBJECT_EXTENDED_LIMIT_INFORMATION (basic limits, I/O counters, memory limits)."""
+    _fields_ = [("user_time", ctypes.c_int64), ("job_user_time", ctypes.c_int64), ("flags", ctypes.c_uint32),
+                ("min_ws", ctypes.c_size_t), ("max_ws", ctypes.c_size_t), ("processes", ctypes.c_uint32),
+                ("affinity", ctypes.c_size_t), ("priority", ctypes.c_uint32), ("scheduling", ctypes.c_uint32),
+                ("io", ctypes.c_uint64 * 6), ("process_memory", ctypes.c_size_t), ("job_memory", ctypes.c_size_t),
+                ("peak_process_memory", ctypes.c_size_t), ("peak_job_memory", ctypes.c_size_t)]
+
+
+def tie_children_to_me() -> None:
+    """Windows: put this process in a job that ends everything it starts (the bridge, its CLI) when
+    this process ends, however it ends. Raises OSError if Windows refuses."""
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = ctypes.c_void_p
+    k32.GetCurrentProcess.restype = ctypes.c_void_p
+    k32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    job = k32.CreateJobObjectW(None, None)    # the handle stays open for this process's life, on purpose
+    limits = _JobLimits(flags=JOB_KILL_ON_CLOSE)
+    if not (job and k32.SetInformationJobObject(job, JOB_EXTENDED_LIMITS, ctypes.byref(limits), ctypes.sizeof(limits))
+            and k32.AssignProcessToJobObject(job, k32.GetCurrentProcess())):
+        raise OSError(ctypes.get_last_error(), "couldn't tie the agent to this process")
+
+
+def hold_lock(path: Path):
+    """The open lock file while this is the only keeper for this sign-in folder, else None."""
+    f = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:                                 # only for tests on macOS / Linux
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:                           # another keeper holds it: the caller stops quietly
+        f.close()
+        return None
+    return f
+
+
+def agent_name(creds: dict) -> str:
+    """"anna-agent", from "@anna-agent:server" (connect.py checked it is [a-z0-9-])."""
+    return creds["user_id"].lstrip("@").partition(":")[0]
 
 
 def task_name(creds: dict) -> str:
-    """ "Hagency agent anna", from "@anna-agent:server" (connect.py checked it is [a-z0-9-])."""
-    local = creds["user_id"].lstrip("@").partition(":")[0]
-    return f"Hagency agent {local.removesuffix('-agent')}"
+    return f"Hagency agent {agent_name(creds).removesuffix('-agent')}"
 
 
 def child_python() -> str:
@@ -54,7 +103,8 @@ def next_delay(delay: float, ran_s: float) -> float:
 
 
 def open_log(path: Path):
-    """agent.log, with the previous one kept as agent.log.1 once it grows past LOG_MAX_BYTES."""
+    """The agent's log, with the previous one kept as <log>.1 once it grows past LOG_MAX_BYTES."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
         os.replace(path, path.with_name(path.name + ".1"))
     return open(path, "ab")
@@ -62,19 +112,21 @@ def open_log(path: Path):
 
 def keep_running(home: Path, runs: int | None = None, spawn=subprocess.Popen, sleep=time.sleep,
                  clock=time.monotonic) -> None:
-    """Run the bridge, and again each time it stops (`runs` limits it, for tests)."""
+    """Run the bridge, and again each time it fails (`runs` limits it, for tests)."""
     creds_path = home / "credentials.json"
     delay = 0.0
     while runs is None or runs > 0:
         creds = bridge_config.load_credentials(str(creds_path))   # each time: a new code may have replaced it
         argv, env = bridge_command(creds, creds_path)
-        flags = CREATE_NO_WINDOW if os.name == "nt" else 0
         started = clock()
-        with open_log(home / "agent.log") as log:
-            proc = spawn(argv, cwd=str(APP), env=env, stdin=subprocess.DEVNULL, stdout=log,
-                         stderr=subprocess.STDOUT, creationflags=flags)
+        with open_log(home / "logs" / f"{agent_name(creds)}.log") as log:
+            proc = spawn(argv, cwd=str(APP), env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                         creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
             (home / "agent.pid").write_text(f"{os.getpid()}\n{proc.pid}\n")
             code = proc.wait()
+            if code == 0:                     # disconnected by the server (bridge.py): stay stopped
+                log.write(b"[connect_win] the agent stopped cleanly; run the connect line again to restart it\n")
+                return
             delay = next_delay(delay, clock() - started)
             log.write(f"[connect_win] the agent stopped (exit {code}); starting again in {delay:.0f}s\n".encode())
         if runs is not None:
@@ -88,16 +140,23 @@ def main() -> None:
                     help="where connect.py keeps the sign-in (default ~/.hagency)")
     ap.add_argument("--task-name", action="store_true", help="print the Scheduled Task's name and stop")
     args = ap.parse_args()
+    home = args.home.resolve()
     if args.task_name:
-        print(task_name(bridge_config.load_credentials(str(args.home / "credentials.json"))))
+        print(task_name(bridge_config.load_credentials(str(home / "credentials.json"))))
         return
-    try:
-        keep_running(args.home)
-    except SystemExit as e:                   # pythonw has no console: say why in the log, then stop
-        args.home.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with open_log(args.home / "agent.log") as log:
-            log.write(f"[connect_win] {e}\n".encode())
-        raise
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock = hold_lock(home / "agent.lock")
+    if lock is None:
+        return                                # another keeper already runs this agent: nothing to do
+    with lock:                                # held for as long as this keeper runs
+        try:
+            if os.name == "nt":
+                tie_children_to_me()
+            keep_running(home)
+        except (SystemExit, OSError) as e:    # pythonw has no console: say why in the log, then stop
+            with open_log(home / "logs" / "connect_win.log") as log:
+                log.write(f"[connect_win] {e}\n".encode())
+            raise SystemExit(1) from e
 
 
 if __name__ == "__main__":

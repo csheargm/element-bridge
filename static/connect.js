@@ -1,6 +1,6 @@
 /* The Connect page (connect_page.py): the right one-liner for this computer, with @pm's code in it.
    The code comes from the URL fragment (or the box) and only goes into the line shown: this script
-   makes no request, and the page's Content-Security-Policy forbids any. */
+   makes no request, and the page's Content-Security-Policy blocks fetch, beacons and sockets. */
 "use strict";
 
 const CODE_RE = /^[A-Z0-9-]{4,32}$/;          // the shape pairing.py codes have; nothing else gets in the line
@@ -40,7 +40,7 @@ function cleanCode(raw) {
 /** The line to paste. `consoleUrl` is the server's own address (checked by console.py's URL_RE). */
 function commandFor(os, consoleUrl, code) {
   const shown = code || "YOUR-CODE";
-  if (os === "windows") return `& ([scriptblock]::Create((irm ${consoleUrl}/connect.ps1))) -Code ${shown}`;
+  if (os === "windows") return `& ([scriptblock]::Create((irm -UseBasicParsing ${consoleUrl}/connect.ps1))) -Code ${shown}`;
   return `curl -fsSL ${consoleUrl}/connect.sh | sh -s -- ${shown}`;
 }
 
@@ -99,6 +99,7 @@ function start() {
   }
   window.addEventListener("hashchange", () => {   // a new link opened in this same tab
     code = cleanCode(location.hash.slice(1));
+    input.value = code;
     document.getElementById("code-box").hidden = Boolean(code);
     show();
   });

@@ -3,8 +3,9 @@
 GET /connect/start#CODE shows the right one-liner for the visitor's computer (macOS, Windows or
 Linux, detected in the browser, with tabs to switch) and a copy button. The code travels in the
 URL fragment, which browsers never send to a server, so it never reaches this server's or the
-proxy's logs; the page's own script only places it into the line shown, and the page's
-Content-Security-Policy (no connect-src) means it couldn't send it anywhere if it tried.
+proxy's logs; the page's own script only places it into the line shown and makes no request, and
+the page's Content-Security-Policy (default-src 'none': no fetch, beacon or socket, no other
+script) keeps it that way.
 GET /connect.ps1 serves the Windows installer, as /connect.sh (remote_agent.py) serves the other.
 """
 from pathlib import Path
@@ -19,7 +20,7 @@ STATIC = ROOT / "static"
 WINDOWS_INSTALLER = ROOT / "connect.ps1"
 PAGE_PATH = "/connect/start"
 NO_STORE = console.NO_STORE
-# Only our own script and style; no fetch, form, frame or beacon can leave the page.
+# Only our own script and style; no fetch, beacon, socket, form or frame.
 PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; "
             "form-action 'none'; frame-ancestors 'none'")
 ASSETS = {f"{PAGE_PATH}.js": ("connect.js", "application/javascript"),

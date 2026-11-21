@@ -587,3 +587,25 @@ Outage (2026-11-21, ~00:13–00:33 UTC) and its fix (GPT, 22b502e..HEAD), adopte
   first fix still fell through to re-registering after the wait).
 Deferred: matrix-nio's own unlimited 429 retry inside client.login makes lifecycle.login's cap
   soft; set-up holds WRITING while a remote agent's sign-in waits, delaying /connect meanwhile.
+
+Connect page and the Windows installer (GPT, the feature commit), adopted with tests:
+- Two keepers could run one agent (a Startup entry beside a task, a task left under an old name):
+  connect_win.py holds agent.lock, ties the bridge and its CLI to itself with a Windows job, and
+  connect.ps1 removes earlier tasks and Startup entries of this installation first.
+- Stopping the old agent could hit an unrelated process with a reused PID: only a command line
+  naming this installation's connect_win.py or bridge.py, killed with its children.
+- The ACL could protect another folder than the one holding the sign-in: one absolute folder
+  (HAGENCY_DIR honoured), passed to connect.py and the task; `icacls /reset` first, so no other
+  grants survive.
+- An npm `codex.cmd` passed the CLI check but the bridge (no shell) can't start it: only a real
+  `.exe` counts, with a plain hint. A clean bridge exit (Disconnect) now stays stopped, as with
+  launchd/systemd; logs go to ~/.hagency/logs/ like agent_service.py.
+- `irm -UseBasicParsing` in the line shown (Windows PowerShell 5.1); native stderr no longer
+  stops the installer before its exit code is checked; a changed fragment refreshes the code box.
+Rejected or deferred:
+- @pm still sends the raw curl line: pm_welcome.py/remote_agent.py belong to the other change;
+  `connect_page.page_link(code)` is ready for it.
+- The code in shell history / process arguments: it works once, for 30 minutes, and is used
+  within seconds, as with connect.sh. TLS 1.2 before the first `irm`: Windows 10/11 default to it.
+- X11/BSD shown as Linux, and the installer reporting failure only on screen (it must not close
+  the person's window): the tabs and the red message cover them.

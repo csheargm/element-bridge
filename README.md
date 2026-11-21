@@ -21,7 +21,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    curl -fsSL https://rooms.hagencylabs.xyz/connect.sh | sh -s -- ABCDE-FGHJK                  # Mac, Linux
    ```
    ```powershell
-   & ([scriptblock]::Create((irm https://rooms.hagencylabs.xyz/connect.ps1))) -Code ABCDE-FGHJK  # Windows PowerShell
+   & ([scriptblock]::Create((irm -UseBasicParsing https://rooms.hagencylabs.xyz/connect.ps1))) -Code ABCDE-FGHJK  # Windows
    ```
 
    It installs Hagency Rooms in `~/.hagency/app` (on Windows `%LOCALAPPDATA%\Hagency\app`), keeps
@@ -31,7 +31,10 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    in. Accept its chat invite and talk to it; it works on your computer and obeys only you. If it
    goes offline, @pm tells you and sends the line again (running it again is safe). To stop it:
    `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or Disconnect under My agent
-   in the Hagency panel ("@pm disconnect my agent" works too).
+   in the Hagency panel ("@pm disconnect my agent" works too). On Windows, Disconnect stops it, or
+   in PowerShell: `Stop-ScheduledTask "Hagency agent <you>"; Unregister-ScheduledTask "Hagency agent <you>"`.
+   Windows needs Claude Code from its installer (`claude.exe`) or a `codex.exe` on the PATH: the
+   agent starts the CLI without a shell, so npm's `.cmd` wrappers aren't enough yet.
 
 **Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
 `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own
