@@ -34,8 +34,8 @@ def load() -> dict:
         data = json.loads(PATH.read_text())
     except (OSError, ValueError):
         data = DEFAULT                    # not onboarded yet (or a damaged file): the two demo people
-    if not isinstance(data, dict) or not data:
-        data = DEFAULT
+    if not isinstance(data, dict):
+        data = DEFAULT                    # a saved {} (everyone removed or pruned) stays empty (GPT review)
     # Keep only well-formed entries: a damaged line must never crash @pm or confuse ownership. An old
     # bare key and its full ID together: merged, the full ID's fields winning.
     people = {}
@@ -212,6 +212,8 @@ def _add_agent(person: str, label: str, kind: str) -> dict:
         raise ValueError("an agent's name is one short word: letters and digits, up to 9, starting with a letter")
     if any(a["label"] == label for a in have):
         raise ValueError(f"you already have an agent called {label}")
+    if label in (data[person].get(REMOVED) or []):   # its account was closed for good: the name can't come back
+        raise ValueError(f"you removed an agent called {label} earlier; please choose another name")
     if len(have) >= per_person():
         raise ValueError(f"you have {len(have)} agents, the most one person can have here")
     localpart = identity.agent_localpart(person, SERVER_NAME, label)
@@ -222,3 +224,41 @@ def _add_agent(person: str, label: str, kind: str) -> dict:
     data[person][MORE].append({"label": label, "agent": kind, "created": time.time()})
     save(data)
     return find(person, label)
+
+
+# --- removing agents ---
+REMOVED = "removed"                  # labels of further agents removed for good (their accounts can't come back)
+
+
+def forget_agent(person: str, localpart: str) -> None:
+    """Drop one agent of the person's from agents.json, freeing its slot: a further one leaves "more"
+    (its label is kept in "removed"); the first one only when it is their last, with their line."""
+    with LOCK:
+        person, data = person_id(person), load()
+        have = agents_of(person, data)
+        found = next((a for a in have if a["localpart"] == localpart), None)
+        if found is None:
+            raise ValueError(f"{person} has no agent {localpart}")
+        if found["first"] and len(have) > 1:
+            raise ValueError("remove the other agents first")
+        if found["first"]:
+            del data[person]
+        else:
+            info = data[person]
+            info[MORE] = [e for e in info[MORE] if not (isinstance(e, dict) and e.get("label") == found["label"])]
+            old = info.get(REMOVED) if isinstance(info.get(REMOVED), list) else []
+            info[REMOVED] = sorted({*old, found["label"]})
+        save(data)
+
+
+def prune(dead: set[str]) -> list[str]:
+    """Forget the people whose every account here is deactivated (`dead`: full IDs, from Synapse's own
+    list): all their agents, and the person too when they are from this server. Anyone with one account
+    that isn't explicitly deactivated stays as they are. Returns whom it forgot."""
+    with LOCK:
+        data = load()
+        gone = [p for p in data if (p in dead or not is_local(p))
+                and all(f"@{a['localpart']}:{SERVER_NAME}" in dead for a in _agents(p, data[p]))]
+        if gone:
+            save({p: v for p, v in data.items() if p not in gone})
+        return gone

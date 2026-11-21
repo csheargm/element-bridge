@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 from nio import MatrixRoom, RoomMessageAudio
 
+import identity
 import voice
 
 log = logging.getLogger("bridge")
@@ -103,6 +104,8 @@ class BridgeVoice:
         self.refused = {k: t for k, t in self.refused.items() if now - t < REFUSAL_EVERY_S}   # stays small
         self.refused[key] = now
         try:
-            await self.send(room.room_id, f"I only take requests from {self.owner_name.capitalize()}.", reply_to=event)
+            owner = identity.shown_name(room, self.owner_id)       # as they wrote it: "cx", never "Cx"
+            await self.send(room.room_id, f"I only take requests from {owner}.", reply_to=event,
+                            source=f"I only take requests from {identity.plain(owner)}.")
         except RuntimeError as e:             # a note that can't be posted must never stop the sync loop
             log.warning("couldn't post the owner-only note in %s: %s", room.room_id, e)

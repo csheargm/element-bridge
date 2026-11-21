@@ -10,10 +10,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import PresenceGetResponse
-
+import agent_removal
 import agent_service
 import connect
+import matrix_calls
 import pm_presence
 import registry
 import remote_agent
@@ -117,7 +117,7 @@ class Connect(unittest.TestCase):
         (home / "credentials.json").write_text(json.dumps(saved or {"homeserver": "https://m.org", "user_id": f"@{AGENT}:m.org",
                                                                     "password": "pw", "owner": "newbie1", "agent": "codex"}))
         with mock.patch.object(sys, "argv", ["connect.py", "--home", str(home), *argv]), \
-                mock.patch.object(connect.shutil, "which", lambda b: True), \
+                mock.patch.object(connect.cli_path.shutil, "which", lambda b: True), \
                 mock.patch.object(connect.os, "execve") as execve, mock.patch("builtins.print") as out:
             connect.main()
         return execve, " ".join(str(c.args[0]) for c in out.call_args_list)
@@ -154,12 +154,19 @@ class Offline(unittest.TestCase):
         p = mock.patch.object(registry, "PATH", path)
         p.start()
         self.addCleanup(p.stop)
+        d = mock.patch.object(agent_removal, "deactivated", return_value=set())   # Synapse's list: nobody
+        d.start()
+        self.addCleanup(d.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp._seen, self.said, self.buttons = PM, {}, [], []
-        self.presence = "online"
+        self.presence, self.asked = "online", []
 
-        async def presence(user_id):
-            return PresenceGetResponse(user_id, self.presence, None, None, None)
+        async def presence(client, user_id):
+            self.asked.append(user_id)
+            return self.presence == "online"
+        pr = mock.patch.object(matrix_calls, "presence", presence)
+        pr.start()
+        self.addCleanup(pr.stop)
 
         async def say(room_id, body, *a, **k):
             self.said.append((room_id, body))
@@ -167,7 +174,7 @@ class Offline(unittest.TestCase):
 
         async def thumb(room_id, event_id, key="👍"):
             self.buttons.append(key)
-        self.lp.client = mock.Mock(get_presence=mock.AsyncMock(side_effect=presence))
+        self.lp.client = mock.Mock()
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.private_room = mock.AsyncMock(return_value="!dm")
 
@@ -189,7 +196,7 @@ class Offline(unittest.TestCase):
         self.at(5000)
         self.assertEqual(len(self.said), 1)                    # once
         self.assertFalse(self.lp.agent_online(AGENT))
-        self.lp.client.get_presence.assert_awaited_with(f"@{AGENT}:{S}")   # only remote agents are watched
+        self.assertEqual(set(self.asked), {f"@{AGENT}:{S}"})                 # only remote agents are watched
 
     def test_never_connected_is_not_nagged_and_a_day_between_messages(self):
         self.presence = "offline"
@@ -212,8 +219,10 @@ class Offline(unittest.TestCase):
         self.assertEqual(len(self.said), 2)
 
     def test_a_network_blip_never_stops_the_tick(self):
-        self.lp.client.get_presence = mock.AsyncMock(side_effect=asyncio.TimeoutError())
-        self.at(1000)
+        for blip in (asyncio.TimeoutError(), RuntimeError("HTTP 502")):
+            with mock.patch.object(matrix_calls, "presence", mock.AsyncMock(side_effect=blip)), \
+                    self.assertLogs("loop", "WARNING"):
+                self.at(1000)
         self.assertEqual(self.said, [])
 
     def test_the_button_sends_a_fresh_line_only_for_the_owner(self):

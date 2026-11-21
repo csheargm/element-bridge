@@ -114,7 +114,15 @@ class AgentHears(unittest.TestCase):
         self.hear("What is the time now?", ANNA, reply_to="$agent-msg")
         self.hear("Are you there?", ANNA, reply_to="$agent-msg")
         self.assertEqual(self.answered, [])
-        self.assertEqual(self.sent(), ["I only take requests from Betty."])
+        self.assertEqual(self.sent(), ["I only take requests from betty."])   # as written, never "Betty"
+
+    def test_the_refusal_uses_the_owners_display_name_as_they_set_it(self):
+        """Seen live: cx was called "Cx". A display name is used exactly, and can't add markdown."""
+        self.room.users[BETTY] = SimpleNamespace(display_name="bé *T*")
+        self.b.client.room_get_event = mock.AsyncMock(return_value=SimpleNamespace(event=SimpleNamespace(sender=BETTY_AGENT)))
+        self.hear("What is the time now?", ANNA, reply_to="$agent-msg")
+        self.assertEqual(self.sent(), ["I only take requests from bé *T*."])
+        self.assertNotIn("<em>", self.b.client.room_send.call_args.args[2]["formatted_body"])
 
     def test_someone_elses_voice_not_for_me_is_never_transcribed(self):
         """GPT review 15: a non-owner's clips used this computer's transcription before any check."""

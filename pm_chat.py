@@ -31,6 +31,9 @@ NOTE_WORDS = 6               # a longer message to @pm that isn't a command is a
 LEVEL_WORDS = {"off": "stopped: no new work is handed out and nothing is merged",
                "assist": "assist: agents build and review; a person merges each change",
                "autonomous": "autonomous: agents build, review and merge on their own"}
+WEB_ANSWER = ("There's no web switch to change: when you ask your own agent something, it runs your CLI "
+              "with your own settings, web included, in every room. Work I hand out never has the web. To "
+              "limit your agent, use your CLI's own settings (a deny rule, or web_search = \"disabled\").")
 HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm take it all the way**: agents build, review and merge on their own (owner or maintainer)\n"
         "- **@pm let us approve each change**: agents stop at each change for a person to merge\n"
@@ -39,7 +42,6 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm let's build it**: your agent turns this discussion into issues; 👍 to open them\n"
         "- **@pm show the plan**: the plan waiting for your 👍\n"
         "- **@pm send me my console link**: settings in a page (also the Hagency panel in this room)\n"
-        "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
         "- **@pm retry #9**: a paused issue goes back in the queue (owner or maintainer)\n"
         "- **@pm this room works on owner/name**: the GitHub repo for this room (one room per repo)\n"
         "- **@pm make me a project room**, **@pm find a project**, **@pm ask to join owner/name**\n"
@@ -165,8 +167,8 @@ class Chat(Addressing):
             await self.say(rid, await self.change_level(rid, "autonomous") or
                            "Running on my own now: agents build, review and merge without asking. "
                            "Say \"stop\" anytime.")
-        elif intent in (intents.GRANT_WEB, intents.REVOKE_WEB):   # the sender's own agent, this room only
-            await self.set_grant(room, sender, "web", intent == intents.GRANT_WEB)
+        elif intent == intents.WEB:          # ADR 0006: nothing to switch; say so instead of pretending
+            await self.say(rid, WEB_ANSWER)
         elif intent == intents.CONSOLE:
             await self.send_console_link(room, sender)
         elif intent in FOLLOW_SETTINGS:      # the sender's own setting only (pm_follow.py)

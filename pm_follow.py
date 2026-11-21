@@ -10,7 +10,6 @@ import time
 
 from nio import InviteMemberEvent, MatrixRoom, RoomGetStateEventResponse, RoomInviteResponse, RoomMemberEvent
 
-import capabilities
 import ownership
 import pm_settings
 import registry
@@ -120,31 +119,4 @@ class Follow:
         registry.set_follow(sender, value, found["localpart"])
         which = "" if found["first"] else f" ({found['localpart']})"
         await self.say(room.room_id, f"OK {local}: {FOLLOW_WORDS[value]}{which}.")
-        return True
-
-    async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool, agent: str | None = None) -> bool:
-        """The owner lets their OWN agent (None: their first) use a capability in THIS room (or stops it)."""
-        local = sender.lstrip("@").partition(":")[0]
-        found = registry.find(sender, agent)   # a named agent that isn't theirs: never their first instead
-        agent_local = found["localpart"] if found else None
-        if agent_local is None or not registry.owns(sender, agent_local):
-            await self.say(room.room_id, "Only people with an agent registered on this server can do that." if not agent
-                           else f"{local}, you don't have that agent registered here.")
-            return False
-        agent = f"@{agent_local}:{SERVER_NAME}"
-        state = await self.client.room_get_state(room.room_id)
-        current = capabilities.caps_in(getattr(state, "events", []) or [], agent)   # only what @pm wrote
-        resp = await self.client.room_put_state(room.room_id, capabilities.GRANTS_EVENT,
-                                                capabilities.record(current, cap, sender, on),
-                                                state_key=capabilities.key_for(agent))
-        if not hasattr(resp, "event_id"):
-            await self.say(room.room_id, f"⚠️ I couldn't save that: {resp}")
-            return False
-        self.grants_cache.setdefault(room.room_id, {})[agent] = {c: {} for c in (current | {cap} if on else current - {cap})}
-        what = capabilities.CAPS[cap]
-        warn = (" Note: it reads the room and the project, so anything it looks up leaves this room —"
-                " each web request is shown here." if on else "")
-        await self.say(room.room_id, f"OK {local}: your agent may now {what} in this room.{warn} Say \"stop "
-                                     "letting my agent use the web\" to undo." if on else
-                                     f"OK {local}: your agent may no longer {what} in this room.")
         return True

@@ -133,22 +133,22 @@ function Install-Venv([string]$Python) {
 }
 
 function Test-Backend([string]$Name) {
-    # The agent starts the CLI without a shell, which on Windows finds only a real program (.exe),
-    # not an npm .cmd or .ps1 wrapper.
-    [bool](Get-Command "$Name.exe" -CommandType Application -ErrorAction SilentlyContinue)
+    # The agent starts the CLI without a shell: a real program (.exe), or npm's .cmd wrapper, whose
+    # own program it then starts directly (cli_path.py). A .ps1 wrapper alone isn't enough.
+    [bool](Get-Command "$Name.exe", "$Name.cmd" -CommandType Application -ErrorAction SilentlyContinue)
 }
 
 function Select-Backend {
-    $hint = 'Claude Code (irm https://claude.ai/install.ps1 | iex) or Codex as a program (codex.exe on your PATH)'
+    $hint = 'Claude Code (irm https://claude.ai/install.ps1 | iex) or Codex (npm i -g @openai/codex)'
     if ($Agent) {
-        if (-not (Test-Backend $Agent)) { throw "$Agent.exe isn't on this PC's PATH; install $hint first" }
+        if (-not (Test-Backend $Agent)) { throw "$Agent isn't on this PC's PATH; install $hint first" }
         return $Agent
     }
     $found = @('codex', 'claude' | Where-Object { Test-Backend $_ })
     if ($found.Count -eq 1) { return $found[0] }
     if ($found.Count -eq 0) {
         $wrapper = @('codex', 'claude' | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue })
-        $why = if ($wrapper.Count) { "found only npm wrappers ($($wrapper -join ', ')), which the agent can't start; " } else { '' }
+        $why = if ($wrapper.Count) { "found only PowerShell wrappers ($($wrapper -join ', ')), which the agent can't start; " } else { '' }
         throw "$($why)install $hint, then open a new PowerShell and run this line again"
     }
     do {

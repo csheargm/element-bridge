@@ -36,8 +36,7 @@ ACTIONS = {
     "follow_always": "the sender wants their own agent brought along whenever they join a project room",
     "follow_ask": "the sender wants to be asked before their agent is brought into a room",
     "follow_never": "the sender doesn't want their agent brought into rooms automatically",
-    "grant_web": "the sender lets their OWN agent search the web and read pages in this room",
-    "revoke_web": "the sender stops their own agent using the web in this room",
+    "web": "the sender wants to let (or stop) their own agent using the web: there is no such switch; it's explained",
     "console": "the sender wants the settings console / a link to change settings in a page",
     "none": "no action: just answer (questions, thanks, chit-chat, a requirement noted for later)",
 }

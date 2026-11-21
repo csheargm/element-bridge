@@ -13,10 +13,11 @@ import logging
 import re
 import time
 
-from nio import (InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset,
-                 RoomResolveAliasResponse)
+from aiohttp import ClientError
+from nio import InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset
 
 import identity
+import matrix_calls
 import registry
 import remote_agent
 import remote_people
@@ -28,6 +29,7 @@ from pm_chat import without_quote
 from pm_github import GitHubLink
 from pm_lobby import WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
+from pm_remove import REMOVE_RE
 from redact import room_safe
 from saved_dict import SavedDict
 from setup_accounts import AccountError
@@ -86,21 +88,25 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
     async def ensure_welcome_room(self) -> None:
         """The Welcome room exists and is mine (Synapse only creates it for a server's very first user),
         and anyone who joined while I was down is welcomed now."""
-        resp = await self.client.room_resolve_alias(WELCOME_ALIAS)
-        if not isinstance(resp, RoomResolveAliasResponse):
+        try:
+            welcome = await matrix_calls.room_of_alias(self.client, WELCOME_ALIAS)   # a 404 is no error
+        except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:   # unknown: never a second one
+            log.warning("couldn't check for the Welcome room: %s", e)
+            return
+        if welcome is None:
             made = await self.client.room_create(alias=WELCOME_LOCALPART, name="Welcome", preset=RoomPreset.private_chat,
                                                  topic=WELCOME_TOPIC)
             if not hasattr(made, "room_id"):
                 log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
             await self.ensure_lobby()         # pm_lobby.py: the public front door
             return
-        await self.ensure_welcome_topic(resp.room_id)
+        await self.ensure_welcome_topic(welcome)
         await self.ensure_lobby()
-        room = self.client.rooms.get(resp.room_id)
+        room = self.client.rooms.get(welcome)
         joined = [u for u in getattr(room, "users", {}) if u not in getattr(room, "invited_users", {})]
         for person in joined:
             if self.is_newcomer(person):
-                await self.greet_from_welcome(resp.room_id, person)
+                await self.greet_from_welcome(welcome, person)
 
     async def on_welcome_member(self, room: MatrixRoom, event: RoomMemberEvent) -> None:
         if is_stale(event, self.started_ms) or event.prev_membership == event.membership:
@@ -159,6 +165,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was a click on my welcome (handled here, used or not), or on "offline" (pm_presence.py)."""
         if (await self.on_offline_reaction(room, event) or await self.on_add_reaction(room, event)   # pm_agents.py
+                or await self.on_removal_reaction(room, event)                                       # pm_remove.py
                 or await self.on_lobby_reaction(room, event) or await self.on_project_reaction(room, event)):
             return True
         entry = self.welcomes().get(event.sender)
@@ -189,6 +196,8 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             await self.choose(room.room_id, event.sender, HOUSE)
         elif in_dm and BRING_RE.search(text):
             await self.choose(room.room_id, event.sender, BRING)
+        elif m := REMOVE_RE.search(text):
+            await self.ask_removal(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_remove.py
         elif m := DISCONNECT_RE.search(text):
             await self.disconnect(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_presence.py
         elif WANT_RE.search(text):

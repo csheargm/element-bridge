@@ -15,16 +15,13 @@ import room_state
 from pm_chat import CONFIRM_S, LEVEL_WORDS, without_quote
 
 log = logging.getLogger("loop")
-SETTING_QUESTIONS = {"grant_web": "Let your agent search the web in this room?",
-                     "revoke_web": "Stop your agent searching the web in this room?",
-                     "follow_always": "Bring your agent along whenever you join a project room?",
+SETTING_QUESTIONS = {"follow_always": "Bring your agent along whenever you join a project room?",
                      "follow_ask": "Ask you first before bringing your agent into a room?",
                      "follow_never": "Never bring your agent along?"}
 BRAIN_ACTIONS = {"stop": intents.OFF, "assist": intents.ASSIST, "autonomous": intents.AUTONOMOUS,
                  "plan": intents.PLAN, "show_plan": intents.SHOW_PLAN, "status": intents.STATUS,
                  "follow_always": intents.FOLLOW_ALWAYS, "follow_ask": intents.FOLLOW_ASK,
-                 "follow_never": intents.FOLLOW_NEVER, "grant_web": intents.GRANT_WEB,
-                 "revoke_web": intents.REVOKE_WEB, "console": intents.CONSOLE}
+                 "follow_never": intents.FOLLOW_NEVER, "web": intents.WEB, "console": intents.CONSOLE}
 
 
 class Understanding:
@@ -94,7 +91,7 @@ class Understanding:
         if action in ("assist", "autonomous") and (voice or intents.classify(text) != BRAIN_ACTIONS[action]):
             await self.ask_mode(room, sender, action)
             return
-        if action.startswith(("follow_", "grant_", "revoke_")) and (voice or not intents.plainly_says(text, BRAIN_ACTIONS[action])):
+        if action.startswith("follow_") and (voice or not intents.plainly_says(text, BRAIN_ACTIONS[action])):
             await self.ask_setting(room, sender, action)   # understood, but not in plain words: one 👍 to be sure
             return
         waiting = self.pending.get(rid, {})

@@ -8,9 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import PresenceGetResponse, RoomInviteResponse
+from nio import RoomInviteResponse
 
+import agent_removal
 import console
+import matrix_calls
 import pm_agents
 import pm_presence
 import registry
@@ -40,6 +42,9 @@ class Base(unittest.TestCase):
         p = mock.patch.object(registry, "PATH", path)
         p.start()
         self.addCleanup(p.stop)
+        d = mock.patch.object(agent_removal, "deactivated", return_value=set())   # Synapse's list: nobody
+        d.start()
+        self.addCleanup(d.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy = PM, 0, set()
         self.lp._welcomes, self.lp._add_offers, self.lp._seen, self.lp.dm_rooms = {}, {}, {}, {CX: "!dm"}
@@ -165,9 +170,12 @@ class PresenceAndDisconnect(Base):
     def test_each_agent_is_watched_and_the_notice_names_it(self):
         status = {f"@cx-agent:{S}": "online", f"@cx-codex-agent:{S}": "online"}
 
-        async def presence(user_id):
-            return PresenceGetResponse(user_id, status[user_id], None, None, None)
-        self.lp.client = mock.Mock(get_presence=mock.AsyncMock(side_effect=presence))
+        async def presence(client, user_id):
+            return status[user_id] == "online"
+        p = mock.patch.object(matrix_calls, "presence", presence)
+        p.start()
+        self.addCleanup(p.stop)
+        self.lp.client = mock.Mock()
         at = lambda t: (setattr(self.lp, "_checked", 0), asyncio.run(self.lp.check_agents(now=t)))
         at(1000)
         status[f"@cx-codex-agent:{S}"] = "offline"
@@ -228,7 +236,6 @@ class FollowAndConsole(Base):
     def test_the_console_lists_every_agent_with_its_own_settings(self):
         self.lp.client.rooms = {"!r": self.room(CX, CXC)}
         self.lp.is_person = lambda r, u: u == CX
-        self.lp.grants_cache = {"!r": {CXC: {"web": {}}}}
         self.lp.level = mock.AsyncMock(return_value="off")
         self.lp.pending = {}
         self.lp._seen = {"cx-codex-agent": {"online": True}}
@@ -240,7 +247,6 @@ class FollowAndConsole(Base):
         mine = {a["name"]: a for a in v["agents"]}
         self.assertEqual(list(mine), ["cx-agent", "cx-codex-agent"])
         self.assertEqual((mine["cx-agent"]["follow"], mine["cx-codex-agent"]["follow"]), ("always", "never"))
-        self.assertEqual((mine["cx-agent"]["web"], mine["cx-codex-agent"]["web"]), (False, True))
         self.assertEqual((mine["cx-codex-agent"]["online"], mine["cx-codex-agent"]["here"]), (True, True))
         self.assertTrue(v["can_add"])
 
@@ -253,9 +259,6 @@ class FollowAndConsole(Base):
                       asyncio.run(console.act(self.lp, "!r", BETTY, "follow", "never", "cx-codex-agent")))
         self.assertEqual(registry.follow(CX, "cx-codex-agent"), "ask")                  # never someone else's
         self.assertIn("don't have that agent", self.said[-1][1])
-        self.lp.client.room_get_state, self.lp.client.room_put_state = mock.AsyncMock(), mock.AsyncMock()
-        self.assertIn("isn't one of your agents", asyncio.run(console.act(self.lp, "!r", CX, "web", "on", "nope-agent")))
-        self.lp.client.room_put_state.assert_not_awaited()                               # GPT 24: never the first instead
 
 
 if __name__ == "__main__":

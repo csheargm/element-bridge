@@ -24,18 +24,26 @@ class Render(unittest.TestCase):
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}), room_repos={},
                                     boards={"!r": {"text": "📋 **Project status** — loop: **assist**\n\n**Now**\n\n- #7 building"}},
                                     pending={"!r": {"kind": "plan", "by": f"@anna:{S}", "until": time.time() + 60}},
-                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}},
-                                    grants_cache={"!r": {f"@anna-agent:{S}": {"web": {"by": f"@anna:{S}"}}}})
+                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}})
 
     def test_shows_status_waiting_plan_and_whose_agent_is_whose(self):
         page = panel.render(self.loop, "!r")
         self.assertIn("<strong>Now</strong>", page)
         self.assertNotIn("<strong>Project status</strong>", page)     # the board's title line repeats the header
         self.assertIn("a plan · anna clicks 👍", page)
-        self.assertIn("<b>anna-agent</b> <span class=muted>· Anna's agent</span>", page)
-        self.assertIn("<span class=chip>comes along: always</span> <span class=chip>uses: web</span>", page)
-        self.assertIn("<b>betty-agent</b> <span class=muted>· Betty's agent <span class=muted>(owner not here: idle)", page)
-        self.assertIn("<span class=chip>uses: project only</span>", page)
+        self.assertIn("<b>anna-agent</b> <span class=muted>· anna's agent</span>", page)
+        self.assertIn("<span class=chip>comes along: always</span></div>", page)
+        self.assertNotIn("uses:", page)                                # ADR 0006: no per-room web grant
+        self.assertIn("<b>betty-agent</b> <span class=muted>· betty's agent <span class=muted>(owner not here: idle)", page)
+
+    def test_owner_names_are_shown_as_written(self):
+        """Seen live: the owner "cx" showed as "Cx". A display name is used as set, escaped."""
+        room = self.loop.client.rooms["!r"]
+        registry.PATH.write_text(json.dumps({"anna": {}, "betty": {"follow": "ask"}, "cx": {}}))
+        room.users[f"@cx:{S}"], room.users[f"@cx-agent:{S}"] = 0, 0
+        self.assertIn("· cx's agent", panel.render(self.loop, "!r"))
+        room.users[f"@anna:{S}"] = SimpleNamespace(display_name="Anna <b>B</b>")
+        self.assertIn("· Anna &lt;b&gt;B&lt;/b&gt;'s agent", panel.render(self.loop, "!r"))
 
     def test_everything_people_wrote_is_escaped(self):
         self.assertNotIn("<script>", panel.render(self.loop, "!r"))

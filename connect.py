@@ -17,7 +17,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
 import urllib.error
@@ -26,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 import agent_service
+import cli_path
 import identity
 from bridge_config import credentials_match
 
@@ -94,10 +94,10 @@ def pick_backend(given: str | None, saved: str | None, ask=input) -> str:
     """--agent, else the last choice, else the one CLI installed here (or ask when both are)."""
     for choice in (given, saved):
         if choice in BACKENDS:
-            if not shutil.which(choice):
+            if not cli_path.startable(choice):
                 raise SystemExit(f"✗ {choice} isn't installed here (or not on PATH)")
             return choice
-    found = [b for b in BACKENDS if shutil.which(b)]
+    found = [b for b in BACKENDS if cli_path.startable(b)]
     if len(found) == 1:
         return found[0]
     if not found:
@@ -170,7 +170,7 @@ def main() -> None:
         saved = redeem(args.server, args.code)
         path = agent_dir(home, saved) / "credentials.json"       # a further agent: its own folder
         if saved.get("label") and not args.agent:   # its own last choice, or what it's called ("codex"), if installed
-            backend = next((b for b in (read_saved(path).get("agent"), saved["label"]) if b in BACKENDS and shutil.which(b)),
+            backend = next((b for b in (read_saved(path).get("agent"), saved["label"]) if b in BACKENDS and cli_path.startable(b)),
                            backend)
     creds = {**saved, "agent": backend}
     save(path, creds)

@@ -5,8 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import RoomInviteError, RoomInviteResponse, RoomKickResponse, RoomResolveAliasError, RoomResolveAliasResponse
+from nio import RoomInviteError, RoomInviteResponse, RoomKickResponse
 
+import matrix_calls
 import pm_joining
 import pm_lobby
 import pm_welcome
@@ -185,14 +186,20 @@ class LobbyGreeting(Base):
         self.assertEqual(self.said, [])
 
     def test_the_lobby_is_created_public_and_listed_and_welcome_points_at_my_chat(self):
-        self.lp.client.room_resolve_alias = mock.AsyncMock(return_value=RoomResolveAliasError("not found"))
+        lobby = mock.patch.object(matrix_calls, "room_of_alias", mock.AsyncMock(return_value=None))   # a 404
+        lobby.start()
+        self.addCleanup(lobby.stop)
         self.lp.client.room_create = mock.AsyncMock(return_value=SimpleNamespace(room_id="!l"))
         run(self.lp.ensure_lobby())
         kw = self.lp.client.room_create.call_args.kwargs
         self.assertEqual((kw["alias"], kw["preset"].value, kw["visibility"].value), ("lobby", "public_chat", "public"))
-        self.lp.client.room_resolve_alias = mock.AsyncMock(return_value=RoomResolveAliasResponse("#lobby:x", "!l", []))
+        matrix_calls.room_of_alias.return_value = "!l"
         self.lp.client.room_create.reset_mock()
         run(self.lp.ensure_lobby())
+        self.lp.client.room_create.assert_not_called()
+        matrix_calls.room_of_alias.side_effect = RuntimeError("HTTP 500")   # unknown: never a second Lobby
+        with self.assertLogs("loop", "WARNING"):
+            run(self.lp.ensure_lobby())
         self.lp.client.room_create.assert_not_called()
         self.lp.client.rooms = {"!w": SimpleNamespace(topic="Everyone starts here.")}
         run(self.lp.ensure_welcome_topic("!w"))

@@ -11,7 +11,6 @@ Joining never gives anyone a say in how the room runs: mode, repo and approvals 
 import asyncio
 import json
 import logging
-import re
 import urllib.parse
 
 from nio import AsyncClient, RoomGetStateResponse
@@ -19,6 +18,7 @@ from nio import AsyncClient, RoomGetStateResponse
 import github
 import room_state
 from bridge_config import SERVER_NAME
+from identity import plain  # noqa: F401 — pm_joining, pm_settings, pm_projects import it from here
 from local_signup import WELCOME_ALIAS
 
 log = logging.getLogger("loop")
@@ -35,13 +35,6 @@ WORDS = {PRIVATE: "private: people join by invite, or by asking me with the exac
                   "people ask to join and an owner lets them in"),
          OPEN: "open: listed, and anyone can join"}
 NOT_OPEN = "This room works on a private repo, so it can't be open to anyone; it can be listed (people ask to join)."
-
-
-def plain(text: str) -> str:
-    """A name someone chose (a room's), shown as text in my markdown messages: no links, emphasis or
-    line breaks that could pass for my own instructions (GPT review)."""
-    flat = " ".join(str(text).split())[:80]
-    return re.sub(r"([\\`*_{}\[\]()<>+!|~-])", r"\\\1", flat)   # "#": github.linkify links issues
 
 
 async def join_rule(client: AsyncClient, room_id: str) -> str:

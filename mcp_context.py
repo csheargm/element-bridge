@@ -34,7 +34,7 @@ RECENT_S = 15 * 60
 
 def owners_room() -> str | None:
     """The room where the owner just @mentioned this agent (last 15 min). If they did so in more than
-    one room, refuse to guess: a turn in one room must never borrow another room's grants or
+    one room, refuse to guess: a turn in one room must never borrow another room's
     conversation (the MCP call itself doesn't say which room it came from)."""
     rooms = []
     for ev in owners_asks():
