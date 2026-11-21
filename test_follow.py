@@ -94,6 +94,20 @@ class FollowMe(Registry):
         self.assertEqual(self.invited, [ANNA_A])
         self.assertIn("anna joined, so their agent came along", self.said[-1])
 
+    def test_an_agent_that_never_connected_is_only_invited(self):
+        """Screen test: "<name> joined, so their agent came along" for an agent whose computer had never
+        connected: it was only invited. Say so; "came along" once it's online."""
+        registry.update("dora", None, agent=registry.REMOTE, ready=True)
+        dora = f"@dora:{S}"
+        self.lp._seen = {}                                       # pm_presence.py: never seen online
+        self.member(room(dora), dora, "join", "invite")
+        self.assertEqual(self.invited, [f"@dora-agent:{S}"])
+        self.assertIn("I invited dora's agent; it joins once it's connected on their computer", self.said[-1])
+        self.assertNotIn("came along", self.said[-1])
+        self.lp._seen = {"dora-agent": {"online": True, "ever": True}}
+        self.member(room(dora), dora, "join", "invite")
+        self.assertIn("dora joined, so their agent came along", self.said[-1])
+
     def test_ask_asks_first_and_only_the_owner_confirms(self):
         r = room(ANNA, BETTY)
         self.member(r, BETTY, "join", "invite")
