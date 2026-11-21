@@ -31,6 +31,7 @@ NONE_YET = "No projects are listed yet. Make your own: \"@pm make me a project r
 HEADER = "Projects you can join, one per message below (they're also under Explore rooms in Element):"
 ASKED_OWNERS = ("I've asked the owners of **{name}**. You'll get an invite on the left (under Invites) "
                 "if they let you in.")
+GONE = "That room isn't listed any more, so I can't ask for you."
 NOT_ASKED = ("I couldn't ask the owners of **{name}** for you: you may have asked today already, or asked to join "
              "several rooms this hour, or nobody there can let people in right now. Try again later.")
 
@@ -65,10 +66,15 @@ class Finding:
             await self.say(room_id, "I just listed them; they're also under Explore rooms in Element.")
             return
         self._finds[person] = [*recent, time.time()]
+        offers = self.find_offers()
+        for eid in [e for e, o in offers.items() if time.time() - o["at"] > OFFER_S]:
+            offers.pop(eid, None)             # expired: pruned as new ones come
         try:
             found = await self.find_projects(person)
             await self.say(room_id, HEADER if found else NONE_YET)
             for rid, text, ask in found:
+                if await project_rooms.visibility(self.client, rid) == project_rooms.PRIVATE:
+                    continue                  # made private while I was listing (GPT review)
                 event = await self.say(room_id, text)
                 if ask:
                     self.find_offers()[event] = {"room": rid, "person": person, "chat": room_id, "at": time.time()}
@@ -98,10 +104,9 @@ class Finding:
                 or time.time() - offer["at"] > OFFER_S):
             return True                       # only the person who asked, within a day
         self.find_offers().pop(event.reacts_to, None)   # once
-        name = plain(self.room_name(offer["room"]))
         try:
-            if await project_rooms.visibility(self.client, offer["room"]) == project_rooms.PRIVATE:
-                await self.say(room.room_id, f"**{name}** isn't listed any more, so I can't ask for you.")
+            if await project_rooms.visibility(self.client, offer["room"], strict=True) == project_rooms.PRIVATE:
+                await self.say(room.room_id, GONE)   # never its name now: it may have been renamed since
                 return True
             asked = await self.ask_to_join(offer["room"], event.sender)
         except (RuntimeError, OSError) as e:  # StateUnreadable, network: the button works again
@@ -109,5 +114,5 @@ class Finding:
             self.find_offers()[event.reacts_to] = offer
             await self.say(room.room_id, f"I couldn't ask just now; click {ASK} again in a minute.")
             return True
-        await self.say(room.room_id, (ASKED_OWNERS if asked else NOT_ASKED).format(name=name))
+        await self.say(room.room_id, (ASKED_OWNERS if asked else NOT_ASKED).format(name=plain(self.room_name(offer["room"]))))
         return True

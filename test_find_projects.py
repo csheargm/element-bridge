@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import RoomInviteResponse
+from nio import RoomInviteResponse, RoomKickResponse
 
 import pm_find
 import project_rooms
@@ -69,6 +69,23 @@ class FindAndAsk(Base):
         self.assertNotIn("!fin", "".join(said))                            # no raw room ID shown
         self.assertEqual([(r, k) for r, _, k in self.buttons], [("!l", "🙋"), ("!l", "🙋")])   # listed only
 
+    def test_a_declined_knock_also_settles_their_click_so_no_later_thumbs_up_invites(self):
+        """GPT review: a knock and 🙋 for the same room were two decisions; 👎 on one, 👍 on the other."""
+        self.lp.client.room_kick = mock.AsyncMock(return_value=RoomKickResponse())
+        self.find()
+        event, _ = self.line("final project")
+        run(self.lp.on_project_reaction(self.lobby, click(NEW, "🙋", event)))
+        found_q = next(iter(self.lp._join_requests))
+        self.members[("!fin", NEW)], self.member_ids[("!fin", NEW)] = "knock", "$k"
+        run(self.lp.on_knock(self.final, NEW, "$k"))
+        knock_q, req = next((e, r) for e, r in self.lp._join_requests.items() if r["knock"] == "$k")
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=req["dm"]), click(ANNA, "👎", knock_q)))
+        self.lp.client.room_kick.assert_awaited_once()
+        self.members[("!fin", NEW)] = "leave"
+        self.assertEqual(self.lp._join_requests, {})
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=req["dm"]), click(ANNA, "👍", found_q)))
+        self.lp.client.room_invite.assert_not_called()
+
     def test_their_click_asks_the_owners_and_a_thumbs_up_lets_them_in(self):
         """A room with no repo: asked by room, without Element's knock UI."""
         self.find()
@@ -92,8 +109,33 @@ class FindAndAsk(Base):
         event, _ = self.line("final project")
         self.state["!fin"][project_rooms.VISIBILITY_EVENT] = ({"visibility": "private"}, PM)
         run(self.lp.on_project_reaction(self.lobby, click(NEW, "🙋", event)))
-        self.assertIn("isn't listed any more", self.said[-1][1])
+        self.assertEqual(self.said[-1][1], pm_find.GONE)
         self.assertEqual(self.lp._join_requests, {})
+
+    def test_an_unreadable_room_keeps_the_button_and_never_reads_as_unlisted(self):
+        """GPT review: a failed state read looked private, so the click was used up."""
+        self.find()
+        event, _ = self.line("final project")
+        real = self.lp.client.room_get_state
+        self.lp.client.room_get_state = mock.AsyncMock(return_value=SimpleNamespace(message="timeout"))
+        run(self.lp.on_project_reaction(self.lobby, click(NEW, "🙋", event)))
+        self.assertIn("click 🙋 again in a minute", self.said[-1][1])
+        self.lp.client.room_get_state = real
+        run(self.lp.on_project_reaction(self.lobby, click(NEW, "🙋", event)))
+        self.assertIn("I've asked the owners", self.said[-1][1])
+
+    def test_a_room_made_private_while_listing_is_left_out(self):
+        real = self.lp.find_projects
+
+        async def then_private(person):
+            found = await real(person)
+            self.state["!sec"][project_rooms.VISIBILITY_EVENT] = ({"visibility": "private"}, PM)
+            return found
+        self.lp.find_projects = then_private
+        self.lp._find_offers = {"$old": {"room": "!fin", "person": NEW, "chat": "!l", "at": 0}}
+        said = [b for _, b in self.find()]
+        self.assertFalse(any(b.startswith("**Sec**") for b in said), said)
+        self.assertNotIn("$old", self.lp._find_offers)                                     # expired: pruned
 
     def test_members_see_they_are_in_and_listing_is_rate_limited(self):
         said = [b for _, b in self.find(ANNA)]

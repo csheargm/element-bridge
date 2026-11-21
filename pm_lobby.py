@@ -55,6 +55,11 @@ class Lobby:
         publishing (room_list_publication_rules now allow @pm) was missing from Explore rooms."""
         if await matrix_calls.in_directory(self.client, room_id):
             return
+        state = await self.client.room_get_state(room_id)     # GPT review: only the Lobby I made, still public
+        events = {e.get("type"): e for e in getattr(state, "events", []) if e.get("state_key") == ""}
+        if ((events.get("m.room.create") or {}).get("sender") != self.client.user_id
+                or ((events.get("m.room.join_rules") or {}).get("content") or {}).get("join_rule") != "public"):
+            raise RuntimeError(f"{LOBBY_ALIAS} points to {room_id}, which isn't a public room I made: not listed")
         if not await project_rooms.publish(self.client, room_id, True):
             raise RuntimeError(f"the room directory refused to list {LOBBY_ALIAS}")
         log.info("listed %s in the room directory", LOBBY_ALIAS)

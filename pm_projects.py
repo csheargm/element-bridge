@@ -115,9 +115,12 @@ class Projects(Finding, Joining):
     def agent_note(self, person: str) -> str:
         """"comes along" only for an agent that can join (one run here, or theirs connected at least once:
         pm_presence.py, as the panel's Add an agent); screen test: said to someone whose agent never connected."""
-        mine = registry.agents_of(person)
-        if any(a["agent"] != registry.REMOTE or self.ever_connected(a["localpart"]) for a in mine):
+        mine = [a for a in registry.agents_of(person) if a["follow"] != "never"]   # their own setting (GPT review)
+        ready = [a for a in mine if a["agent"] != registry.REMOTE or self.ever_connected(a["localpart"])]
+        if any(a["follow"] == "always" for a in ready):
             return " Your agent comes along when you join."
+        if ready:
+            return " When you join, I'll ask whether to bring your agent."
         return " Your agent joins once it's connected on your computer." if mine else ""
 
     async def set_visibility(self, room: MatrixRoom, sender: str, value: str) -> str:
@@ -149,6 +152,11 @@ class Projects(Finding, Joining):
             return None, ""
         if unsafe := await project_rooms.history_safe(self.client, room_id):   # nobody outside reads its history
             return f"{unsafe} I haven't set the repo.", ""
+        try:                                  # an address made before the bind never names the repo
+            await room_address.keep_secret(self.client, room_id, self.room_name(room_id), repo)
+        except (RuntimeError, OSError, asyncio.TimeoutError) as e:
+            log.warning("couldn't check %s's address: %s", room_id, e)
+            return "⚠️ I couldn't check this room's address just now, so I haven't set the repo; please try again.", ""
         if await project_rooms.join_rule(self.client, room_id) != "public":
             return None, ""
         failed = await project_rooms.apply(self.client, room_id, project_rooms.LISTED)

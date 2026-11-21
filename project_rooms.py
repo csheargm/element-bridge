@@ -55,9 +55,14 @@ def visibility_in(events: list, pm: str) -> str:
     return PRIVATE
 
 
-async def visibility(client: AsyncClient, room_id: str) -> str:
+async def visibility(client: AsyncClient, room_id: str, strict: bool = False) -> str:
+    """Private when unreadable; strict: raises room_state.StateUnreadable instead (never a guess)."""
     r = await client.room_get_state(room_id)
-    return visibility_in(r.events, room_state.pm_id(client)) if isinstance(r, RoomGetStateResponse) else PRIVATE
+    if isinstance(r, RoomGetStateResponse):
+        return visibility_in(r.events, room_state.pm_id(client))
+    if strict:
+        raise room_state.StateUnreadable(f"couldn't read {room_id}'s state: {getattr(r, 'message', r)}")
+    return PRIVATE
 
 
 async def repo_is_private(repo: str | None) -> bool:

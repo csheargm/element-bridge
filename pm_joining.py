@@ -63,10 +63,13 @@ class Joining:
     async def ask_to_join(self, room_id: str, person: str, knock: str | None = None) -> bool:
         """Ask the room's moderators to let `person` in (knock: the knock's event id); True if asked."""
         room = self.client.rooms.get(room_id)
-        if room is None or (person in room.users and person not in room.invited_users) or not self.may_ask(room_id, person, knock):
+        if room is None or (person in room.users and person not in room.invited_users):
+            return False
+        mods = await room_state.moderators(self.client, room)   # first: a failed read never uses up a try (GPT review)
+        if not self.may_ask(room_id, person, knock):
             return False
         asked = False
-        for mod in await room_state.moderators(self.client, room):
+        for mod in mods:
             if mod == person:
                 continue
             try:
@@ -128,12 +131,13 @@ class Joining:
             resp = await self.client.room_kick(req["room"], req["person"], "An owner declined the request to join") \
                 if req.get("knock") else RoomKickResponse()
             done, said = isinstance(resp, RoomKickResponse), f"Declined: {who} isn't let in."
-        if done:
-            self.settle(req)                  # one answer settles it for every moderator asked
+        if done:                              # one answer settles it for every moderator asked, and every
+            self.settle(req, every=True)      # way they asked (a knock and 🙋): never a 👍 after a 👎 (GPT review)
         await self.say(room.room_id, said if done else f"⚠️ That didn't work: {getattr(resp, 'message', resp)}. Try again.")
         return True
 
-    def settle(self, req: dict) -> None:
-        for eid in [e for e, r in self.join_requests().items()      # this request only: never a renewed knock's
-                    if (r["room"], r["person"], r.get("knock")) == (req["room"], req["person"], req.get("knock"))]:
+    def settle(self, req: dict, every: bool = False) -> None:
+        """This request only (never a renewed knock's), or, once decided, all of theirs for that room."""
+        key = (lambda r: (r["room"], r["person"])) if every else (lambda r: (r["room"], r["person"], r.get("knock")))
+        for eid in [e for e, r in self.join_requests().items() if key(r) == key(req)]:
             self.join_requests().pop(eid, None)

@@ -13,6 +13,7 @@ import urllib.parse
 
 from nio import AsyncClient, RoomGetStateResponse
 
+import matrix_calls
 import room_state
 from bridge_config import SERVER_NAME
 
@@ -50,36 +51,47 @@ def alias_path(alias: str) -> str:
     return f"/_matrix/client/v3/directory/room/{urllib.parse.quote(alias)}"
 
 
-async def addresses(client: AsyncClient, room_id: str) -> tuple[str | None, str | None]:
-    """(the address I made, the room's canonical alias). Raises RuntimeError when unreadable."""
+async def addresses(client: AsyncClient, room_id: str) -> tuple[str | None, dict]:
+    """(the address I made, the room's canonical alias content). Raises RuntimeError when unreadable."""
     r = await client.room_get_state(room_id)
     if not isinstance(r, RoomGetStateResponse):
         raise RuntimeError(f"couldn't read the room's state: {getattr(r, 'message', r)}")
-    mine = canonical = None
+    mine, canonical = None, {}
     for ev in r.events:
-        alias = (ev.get("content") or {}).get("alias")
-        if ev.get("state_key") != "" or not isinstance(alias, str):
+        content = ev.get("content") if isinstance(ev.get("content"), dict) else {}
+        if ev.get("state_key") != "":
             continue
         if ev.get("type") == ADDRESS_EVENT and ev.get("sender") == room_state.pm_id(client):
-            mine = alias
+            mine = content.get("alias") if isinstance(content.get("alias"), str) else None
         elif ev.get("type") == "m.room.canonical_alias":
-            canonical = alias
+            canonical = content
     return mine, canonical
 
 
-async def give(client: AsyncClient, room_id: str, name: str, private_repo: str | None) -> str | None:
-    """Make the room's address and make it the main one; None if none could be made."""
+async def claim(client: AsyncClient, room_id: str, alias: str) -> bool | None:
+    """True: `alias` now points here (made now, or by an earlier try whose answer was lost: GPT review);
+    False: another room has it; None: the server refused."""
+    status = await call(client, "PUT", alias_path(alias), {"room_id": room_id})
+    if status == 409:
+        return await matrix_calls.room_of_alias(client, alias) == room_id
+    if status != 200:
+        log.warning("couldn't make %s for %s: HTTP %s", alias, room_id, status)
+        return None
+    return True
+
+
+async def give(client: AsyncClient, room_id: str, name: str, private_repo: str | None, canonical: dict) -> str | None:
+    """Make the room's address and make it the main one (its other addresses kept); None if none."""
     base = localpart(name, private_repo)
     for n in range(1, TRIES + 1):
         alias = f"#{base if n == 1 else f'{base}-{n}'}:{SERVER_NAME}"
-        status = await call(client, "PUT", alias_path(alias), {"room_id": room_id})
-        if status == 409:                     # taken: the next number
-            continue
-        if status != 200:
-            log.warning("couldn't make %s for %s: HTTP %s", alias, room_id, status)
+        mine = await claim(client, room_id, alias)
+        if mine is None:
             return None
+        if not mine:                          # taken: the next number
+            continue
         recorded = await client.room_put_state(room_id, ADDRESS_EVENT, {"alias": alias})   # first: removable later
-        shown = await client.room_put_state(room_id, "m.room.canonical_alias", {"alias": alias}) \
+        shown = await client.room_put_state(room_id, "m.room.canonical_alias", {**canonical, "alias": alias}) \
             if hasattr(recorded, "event_id") else recorded
         if hasattr(shown, "event_id"):
             return alias
@@ -90,13 +102,25 @@ async def give(client: AsyncClient, room_id: str, name: str, private_repo: str |
 
 
 async def take(client: AsyncClient, room_id: str, alias: str) -> bool:
-    """Remove the address I made: from the directory, as the main one, and from my record."""
-    if await call(client, "DELETE", alias_path(alias)) not in (200, 404):   # 404: gone already
+    """Remove the address I made: from the directory, as the main one, and from my record. Only while
+    it still points here: a record that outlived its address never removes another room's (GPT review)."""
+    if await matrix_calls.room_of_alias(client, alias) == room_id \
+            and await call(client, "DELETE", alias_path(alias)) not in (200, 404):   # 404: gone already
         return False
     _, canonical = await addresses(client, room_id)
-    if canonical == alias and not hasattr(await client.room_put_state(room_id, "m.room.canonical_alias", {}), "event_id"):
-        return False
+    if canonical.get("alias") == alias:
+        kept = {k: v for k, v in canonical.items() if k != "alias"}   # its other addresses stay
+        if not hasattr(await client.room_put_state(room_id, "m.room.canonical_alias", kept), "event_id"):
+            return False
     return hasattr(await client.room_put_state(room_id, ADDRESS_EVENT, {}), "event_id")
+
+
+async def keep_secret(client: AsyncClient, room_id: str, name: str, private_repo: str) -> None:
+    """Binding a private repo: my address (made before the bind) never holds its name (GPT review)."""
+    mine, _ = await addresses(client, room_id)
+    if mine and localpart(mine[1:].split(":")[0], private_repo) == FALLBACK and await take(client, room_id, mine):
+        _, canonical = await addresses(client, room_id)
+        await give(client, room_id, name, private_repo, canonical)
 
 
 async def follow(client: AsyncClient, room_id: str, listed: bool, name: str, private_repo: str | None) -> str:
@@ -108,9 +132,9 @@ async def follow(client: AsyncClient, room_id: str, listed: bool, name: str, pri
             if mine and not await take(client, room_id, mine):
                 return f" I couldn't remove its address {mine}: set it to private again to retry."
             return ""
-        if mine or canonical:                 # mine already, or one its owners chose
+        if mine or canonical.get("alias"):    # mine already, or one its owners chose
             return ""
-        made = await give(client, room_id, name, private_repo)
+        made = await give(client, room_id, name, private_repo, canonical)
     except (RuntimeError, OSError, asyncio.TimeoutError) as e:   # the setting itself is done; said in the reply
         log.warning("address of %s not updated: %s", room_id, e)
         made = None

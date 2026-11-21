@@ -216,6 +216,7 @@ class LobbyGreeting(Base):
             p.start()
             self.addCleanup(p.stop)
         self.lp.client.room_create = mock.AsyncMock()
+        self.state["!l"] = {"m.room.create": ({}, PM), "m.room.join_rules": ({"join_rule": "public"}, PM)}
         run(self.lp.ensure_lobby())
         self.lp.client.room_create.assert_not_called()                                     # never a second Lobby
         method, path, body = self.lp.client.send.call_args.args[:3]
@@ -230,6 +231,19 @@ class LobbyGreeting(Base):
         with self.assertLogs("loop", "WARNING") as logs:                                   # refused: said, retried next start
             run(self.lp.ensure_lobby())
         self.assertIn("refused to list", logs.output[0])
+
+    def test_a_lobby_address_on_someone_elses_or_a_closed_room_is_never_listed(self):
+        """GPT review: #lobby resolving is no proof it is my public Lobby."""
+        for p in (mock.patch.object(matrix_calls, "room_of_alias", mock.AsyncMock(return_value="!l")),
+                  mock.patch.object(matrix_calls, "in_directory", mock.AsyncMock(return_value=False))):
+            p.start()
+            self.addCleanup(p.stop)
+        for create_by, rule in ((ANNA, "public"), (PM, "invite")):
+            self.state["!l"] = {"m.room.create": ({}, create_by), "m.room.join_rules": ({"join_rule": rule}, PM)}
+            with self.assertLogs("loop", "WARNING") as logs:
+                run(self.lp.ensure_lobby())
+            self.assertIn("isn't a public room I made", logs.output[0])
+        self.lp.client.send.assert_not_called()
 
     def test_a_named_welcome_room_is_left_alone(self):
         self.lp.client.rooms = {"!w": SimpleNamespace(topic=pm_lobby.WELCOME_TOPIC, name="Welcome")}

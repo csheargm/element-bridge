@@ -16,6 +16,12 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def reply(status, body):
+    async def read(content_type=None):
+        return body
+    return SimpleNamespace(status=status, json=read, release=lambda: None)
+
+
 class Address(Base):
     def setUp(self):
         super().setUp()
@@ -24,10 +30,13 @@ class Address(Base):
         self.members[("!a", ANNA)], self.mods["!a"] = "join", {ANNA}
         self.aliases, self.calls = {f"#lobby:{S}": "!l"}, []      # the server's directory: alias → room
 
-        async def send(method, path, body=None, headers=None):
+        async def send(method, path, body=None, headers=None, timeout=None):
             self.calls.append((method, path))
             if "/directory/room/" in path:
                 alias = urllib.parse.unquote(path.rsplit("/", 1)[1])
+                if method == "GET":           # matrix_calls.room_of_alias
+                    found = self.aliases.get(alias)
+                    return reply(200, {"room_id": found}) if found else reply(404, {"errcode": "M_NOT_FOUND"})
                 if method == "PUT":
                     if alias in self.aliases:
                         return SimpleNamespace(status=409)
@@ -80,8 +89,8 @@ class Address(Base):
         self.assertFalse(any(m == "DELETE" for m, _ in self.calls))
 
     def test_a_failure_is_said_and_never_undoes_the_setting(self):
-        async def refuse(method, path, body=None, headers=None):
-            return SimpleNamespace(status=403 if "/directory/room/" in path else 200)
+        async def refuse(method, path, body=None, headers=None, timeout=None):
+            return reply(403 if "/directory/room/" in path else 200, {})
         self.lp.client.send = refuse
         answer = run(self.lp.set_visibility(self.room, ANNA, "listed"))
         self.assertTrue(answer.startswith("This room is now listed"), answer)
@@ -89,6 +98,35 @@ class Address(Base):
         self.state["!a"][room_address.ADDRESS_EVENT] = ({"alias": f"#final-project:{S}"}, PM)
         self.assertIn("set it to private again to retry", run(self.lp.set_visibility(self.room, ANNA, "private")))
         self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": "invite"})   # closed all the same
+
+    def test_a_record_that_outlived_its_address_never_removes_another_rooms(self):
+        """GPT review: the alias was deleted and taken by another room since."""
+        self.state["!a"] = {room_address.ADDRESS_EVENT: ({"alias": f"#final-project:{S}"}, PM)}
+        self.aliases[f"#final-project:{S}"] = "!other"
+        run(self.lp.set_visibility(self.room, ANNA, "private"))
+        self.assertEqual(self.aliases[f"#final-project:{S}"], "!other")
+        self.assertFalse(any(m == "DELETE" for m, _ in self.calls))
+        self.assertEqual(self.state["!a"][room_address.ADDRESS_EVENT][0], {})                # my record goes
+
+    def test_an_address_made_by_a_lost_try_is_used_and_other_addresses_are_kept(self):
+        """GPT review: a PUT whose answer was lost left the alias pointing here; alt_aliases survive."""
+        self.aliases[f"#final-project:{S}"] = "!a"
+        alt = {"alt_aliases": [f"#old:{S}"]}
+        self.state["!a"] = {"m.room.canonical_alias": (alt, ANNA)}
+        self.assertIn(f"Its address is #final-project:{S}.", run(self.lp.set_visibility(self.room, ANNA, "listed")))
+        self.assertEqual(self.state["!a"]["m.room.canonical_alias"][0], {**alt, "alias": f"#final-project:{S}"})
+        run(self.lp.set_visibility(self.room, ANNA, "private"))
+        self.assertEqual(self.state["!a"]["m.room.canonical_alias"][0], alt)
+
+    def test_binding_a_private_repo_replaces_an_address_that_names_it(self):
+        """GPT review: listed (with its address) before the private repo was bound."""
+        self.room.display_name = "secret-one"
+        run(self.lp.set_visibility(self.room, ANNA, "listed"))
+        self.assertEqual(self.canonical(), f"#secret-one:{S}")
+        with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
+            self.assertEqual(run(self.lp.close_for_private("!a", "a/secret-one")), (None, ""))
+        self.assertEqual(self.canonical(), f"#project:{S}")
+        self.assertNotIn("secret", json.dumps(self.aliases))
 
 
 if __name__ == "__main__":

@@ -75,7 +75,8 @@ class Base(unittest.TestCase):
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.client = mock.Mock(user_id=PM, rooms={}, access_token="tok", room_get_state=get_state,
                                    room_put_state=put_state, room_get_state_event=get_state_event)
-        self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=200, release=lambda: None))
+        self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=200, release=lambda: None,
+                                                                          json=mock.AsyncMock(return_value={})))
         self.lp.private_room = mock.AsyncMock(side_effect=lambda who: f"!dm-{who}")
         self.lp.kick = lambda: None
 
@@ -357,6 +358,9 @@ class MakeAndFind(Base):
         self.assertIn("Your agent joins once it's connected on your computer.", made[1])   # never connected
         self.assertNotIn("comes along", made[1])
         self.assertIn("Your agent comes along when you join.", made[2])                    # connected once
+        for follow, note in (("ask", " When you join, I'll ask whether to bring your agent."), ("never", "")):
+            registry.PATH.write_text(json.dumps({"anna": {"agent": "hermes", "follow": follow}}))
+            self.assertEqual(self.lp.agent_note(ANNA), note)                               # GPT review: their setting
 
 
 class Panel(Visibility):
