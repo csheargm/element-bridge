@@ -1,6 +1,5 @@
 """Unit tests, step 4: several agents per person in @pm's chat and the console (pm_agents.py,
-pm_presence.py, pm_follow.py, console.py) and in task routing (routing.py, loop.py): two agents of
-one person never check each other's work. Run: .venv/bin/python -m unittest test_more_agents_flows"""
+pm_presence.py, pm_follow.py, console.py); task routing is in test_routing.py. Run: .venv/bin/python -m unittest test_more_agents_flows"""
 import asyncio
 import json
 import tempfile
@@ -12,13 +11,11 @@ from unittest import mock
 from nio import PresenceGetResponse, RoomInviteResponse
 
 import console
-import ownership
 import pm_agents
 import pm_presence
 import registry
 import remote_agent
 import room_state
-import routing
 from loop import Loop
 
 S = "bridge.localhost"
@@ -74,7 +71,8 @@ class AddInChat(Base):
 
         def provision_more(person, label):
             self.made.append((person, label))
-            return registry.add_agent(person, label)["localpart"]
+            found = registry.find(person, label)              # as remote_agent: an unfinished one is finished
+            return (found if found and not found["first"] else registry.add_agent(person, label))["localpart"]
         p = mock.patch.object(remote_agent, "provision_more", provision_more)
         p.start()
         self.addCleanup(p.stop)
@@ -127,6 +125,28 @@ class AddInChat(Base):
         self.assertIn("the most one person can have", self.said[-1][1])
         self.assertEqual(self.made, [])
 
+    def test_a_plus_in_a_project_room_asks_in_the_private_chat(self):
+        """GPT 24: the answer is only taken in our private chat, so the question must be there."""
+        self.lp._add_offers = {"$plus": {"person": CX, "dm": "!project"}}
+        self.run_(self.lp.on_add_reaction(SimpleNamespace(room_id="!project"), click(CX, "➕", "$plus")))
+        self.assertEqual(self.said, [("!dm", pm_agents.ASK_NAME)])
+
+    def test_a_failed_set_up_can_be_finished_even_at_the_cap_and_names_are_exact(self):
+        registry.add_agent(CX, "one")
+        registry.add_agent(CX, "two")                                                   # reserved, never finished
+        self.run_(self.lp.start_add("!dm", CX, "two"))
+        self.assertEqual(self.made, [(CX, "two")])                                       # GPT 24: not stranded
+        self.run_(self.lp.start_add("!dm", CX, "co-dex"))
+        self.assertIn("the most one person", self.said[-1][1])
+        registry.update(CX, "two", dm="!d")
+        self.made.clear()
+        with mock.patch.dict("os.environ", {"HAGENCY_AGENTS_PER_PERSON": "5"}):
+            self.run_(self.lp.start_add("!dm", CX, "co-dex"))
+            self.assertIn("doesn't work as a name", self.said[-1][1])                  # never silently "codex"
+            self.run_(self.lp.start_add("!dm", CX, "two"))
+            self.assertIn("already have an agent called two", self.said[-1][1])
+        self.assertEqual(self.made, [])
+
     def test_from_the_console(self):
         loop = self.lp
         loop.client = SimpleNamespace(rooms={"!r": SimpleNamespace(users={CX: 0}, invited_users={})})
@@ -134,37 +154,6 @@ class AddInChat(Base):
         answer = self.run_(console.act(loop, "!r", CX, "add", "codex"))
         self.assertIn("cx-codex-agent", answer)
         self.assertEqual(self.made, [(CX, "codex")])
-
-
-class Routing(unittest.TestCase):
-    OWNERS = {CXA: CX, CXC: CX, BA: BETTY}
-
-    def test_two_agents_of_one_person_never_check_each_other(self):
-        owner = self.OWNERS.get
-        self.assertEqual(routing.checkers_for([CXA, CXC], CXA, owner), [])
-        self.assertEqual(routing.checkers_for([CXA, CXC, BA], CXC, owner), [BA])
-        self.assertEqual(routing.checkers_for([CXA, CXC, BA], BA, owner), [CXA, CXC])   # either of cx's
-        self.assertEqual(routing.checkers_for([CXA, "@odd-agent:x"], CXA, owner), [])  # no registered owner: never
-        self.assertEqual(routing.checkers_for([CXA, BA], "@odd-agent:x", owner), [])
-
-    def test_known_offline_agents_get_no_work(self):
-        online = {"cx-agent": False, "cx-codex-agent": True}.get
-        self.assertEqual(routing.available([CXA, CXC, BA], online), [CXC, BA])
-
-    def test_the_loop_asks_another_persons_agent_by_owner_full_id(self):
-        path = Path(tempfile.mkdtemp()) / "agents.json"
-        path.write_text(json.dumps({CX: {"agent": "remote", "more": [{"label": "codex"}]}, BETTY: {"agent": "remote"}}))
-        with mock.patch.object(registry, "PATH", path):
-            lp = Loop.__new__(Loop)
-            lp._seen, lp.say, lp.stop = {}, mock.AsyncMock(), mock.AsyncMock()
-            lp.agents_in = lambda room: [CXA, CXC]
-            item = {"builder": CXA}
-            self.assertFalse(asyncio.run(lp.pick_reviewer(SimpleNamespace(room_id="!r"), item, "7", "review PR #1")))
-            lp.stop.assert_awaited_once()                                                # cx's own agents: stopped
-            lp.agents_in = lambda room: [CXA, CXC, BA]
-            self.assertTrue(asyncio.run(lp.pick_reviewer(SimpleNamespace(room_id="!r"), item, "7", "review PR #1")))
-            self.assertEqual(item["reviewer"], BA)
-            self.assertEqual(ownership.owner_id(CXC), CX)
 
 
 class PresenceAndDisconnect(Base):
@@ -255,9 +244,13 @@ class FollowAndConsole(Base):
         self.lp.is_person = lambda r, u: True
         asyncio.run(console.act(self.lp, "!r", CX, "follow", "ask", "cx-codex-agent"))
         self.assertEqual((registry.follow(CX), registry.follow(CX, "cx-codex-agent")), ("always", "ask"))
-        asyncio.run(console.act(self.lp, "!r", BETTY, "follow", "never", "cx-codex-agent"))
+        self.assertIn("isn't one of your agents",
+                      asyncio.run(console.act(self.lp, "!r", BETTY, "follow", "never", "cx-codex-agent")))
         self.assertEqual(registry.follow(CX, "cx-codex-agent"), "ask")                  # never someone else's
         self.assertIn("don't have that agent", self.said[-1][1])
+        self.lp.client.room_get_state, self.lp.client.room_put_state = mock.AsyncMock(), mock.AsyncMock()
+        self.assertIn("isn't one of your agents", asyncio.run(console.act(self.lp, "!r", CX, "web", "on", "nope-agent")))
+        self.lp.client.room_put_state.assert_not_awaited()                               # GPT 24: never the first instead
 
 
 if __name__ == "__main__":

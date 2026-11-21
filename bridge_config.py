@@ -38,7 +38,7 @@ def credentials_match(user_id: str, owner: str, label: str | None = None) -> boo
     """`user_id` is exactly `owner`'s agent account (owner: a full ID, or a bare name on its server),
     or with a label, exactly that further agent of theirs (identity.py)."""
     server = user_id.partition(":")[2]
-    if not server or (label is not None and not (isinstance(label, str) and identity.LABEL_RE.match(label))):
+    if not server or (label is not None and not (isinstance(label, str) and identity.LABEL_RE.fullmatch(label))):
         return False
     return user_id == f"@{identity.agent_localpart(owner, server, label)}:{server}"
 

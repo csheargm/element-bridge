@@ -43,7 +43,7 @@ def agent_localpart(person: str, home: str, label: str | None = None) -> str:
     """The localpart of `person`'s agent account on `home` (deterministic, see the module docstring);
     with a label, the localpart of that further agent of theirs."""
     if label:
-        if not LABEL_RE.match(label):
+        if not LABEL_RE.fullmatch(label):
             raise ValueError(f"not an agent label: {label!r}")
         return f"{handle(person, home)}-{label}{AGENT_SUFFIX}"
     full = person_id(person, home)

@@ -25,6 +25,7 @@ REMOTE = "remote"                    # their agent runs on their own computer (c
 FIRST_LABEL = "main"                 # what the first agent is called when its person never named it
 MORE = "more"                        # a person's further agents, in their line
 PER_PERSON_DEFAULT = 3
+LOCK = threading.RLock()             # @pm's read-modify-writes of this file (its loop and set-up threads)
 
 
 def load() -> dict:
@@ -113,6 +114,11 @@ def set_follow(person: str, value: str, agent: str | None = None) -> None:
     update(person, agent, follow=value)
 
 
+def from_elsewhere(people: dict) -> dict:
+    """The people (registry.load()) from other servers: whom the hourly cap is for."""
+    return {p: v for p, v in people.items() if not is_local(p)}
+
+
 # --- several agents per person ---
 def per_person() -> int:
     """HAGENCY_AGENTS_PER_PERSON: how many agents one person may have (a typo: the default, never unlimited)."""
@@ -125,23 +131,30 @@ def per_person() -> int:
 def clean_label(text: str) -> str | None:
     """A label as a person types it ("My Laptop") made into one (mylaptop), or None if nothing fits."""
     word = re.sub(r"[^a-z0-9]", "", str(text).lower()).lstrip("0123456789")[:9]
-    return word if identity.LABEL_RE.match(word) else None
+    return word if identity.LABEL_RE.fullmatch(word) else None
+
+
+def _text(value, ok=lambda v: True) -> str | None:
+    """A field of agents.json only if it is a string that passes `ok` (a damaged file: ignored)."""
+    return value if isinstance(value, str) and value and ok(value) else None
 
 
 def _agents(person: str, info: dict) -> list[dict]:
-    first = {"label": info.get("label") or FIRST_LABEL, "agent": info.get("agent") or "server", "first": True,
-             "localpart": info.get("agent_user") or identity.agent_localpart(person, SERVER_NAME),
-             "created": info.get("created"), "dm": info.get("dm"),
-             "follow": info.get("follow") if info.get("follow") in FOLLOW else "always"}
+    first = {"label": _text(info.get("label"), identity.LABEL_RE.fullmatch) or FIRST_LABEL, "first": True,
+             "agent": _text(info.get("agent")) or "server", "created": info.get("created"), "dm": _text(info.get("dm")),
+             "localpart": _text(info.get("agent_user")) or identity.agent_localpart(person, SERVER_NAME),
+             "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
+             "disconnected": info.get("disconnected")}
     found, labels = [first], {first["label"]}
     for e in info.get(MORE) if isinstance(info.get(MORE), list) else []:
         label = e.get("label") if isinstance(e, dict) else None
-        if not isinstance(label, str) or not identity.LABEL_RE.match(label) or label in labels:
+        if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label) or label in labels:
             continue                          # a damaged or repeated entry: never an agent
         labels.add(label)
-        found.append({"label": label, "agent": e.get("agent") or REMOTE, "first": False, "created": e.get("created"),
-                      "localpart": identity.agent_localpart(person, SERVER_NAME, label), "dm": e.get("dm"),
-                      "follow": e.get("follow") if e.get("follow") in FOLLOW else "never"})
+        found.append({"label": label, "agent": _text(e.get("agent")) or REMOTE, "first": False, "created": e.get("created"),
+                      "localpart": identity.agent_localpart(person, SERVER_NAME, label), "dm": _text(e.get("dm")),
+                      "follow": e.get("follow") if e.get("follow") in FOLLOW else "never",
+                      "disconnected": e.get("disconnected")})
     return found
 
 
@@ -160,11 +173,19 @@ def find(person: str, agent: str | None) -> dict | None:
     return next((a for a in found if agent in (a["localpart"], a["label"])), None)
 
 
-def update(person: str, agent: str | None, **fields) -> None:
-    """Change fields of one of the person's agents (default and unknown-first: the line's own fields)."""
-    data, person = load(), person_id(person)
+def update(person: str, which: str | None, **fields) -> None:
+    """Change fields of one of the person's agents, `which` by localpart or label (None or unknown:
+    the line's own fields, their first agent)."""
+    with LOCK:
+        _update(person_id(person), which, fields)
+
+
+def _update(person: str, which: str | None, fields: dict) -> None:
+    data = load()
     info = data.setdefault(person, {})
-    found = find(person, agent) if agent else None
+    found = find(person, which) if which else None
+    if which and found is None:
+        raise ValueError(f"{person} has no agent {which}")   # never the first agent's fields by mistake
     if found and not found["first"]:
         more = info[MORE]
         more[next(i for i, e in enumerate(more) if isinstance(e, dict) and e.get("label") == found["label"])].update(fields)
@@ -176,11 +197,16 @@ def update(person: str, agent: str | None, **fields) -> None:
 def add_agent(person: str, label: str, kind: str = REMOTE) -> dict:
     """Reserve a further agent for `person` (counted before its account exists, so a failed set-up
     can't dodge the cap). Raises ValueError with a sentence to show them."""
-    data, person = load(), person_id(person)
+    with LOCK:
+        return _add_agent(person_id(person), label, kind)
+
+
+def _add_agent(person: str, label: str, kind: str) -> dict:
+    data = load()
     have = agents_of(person, data)
     if not have:
         raise ValueError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
-    if not identity.LABEL_RE.match(label or ""):
+    if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label):
         raise ValueError("an agent's name is one short word: letters and digits, up to 9, starting with a letter")
     if any(a["label"] == label for a in have):
         raise ValueError(f"you already have an agent called {label}")

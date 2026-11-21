@@ -98,6 +98,14 @@ class Migration(unittest.TestCase):
         use_registry(self, {CX: {"agent": "remote", "more": [{"label": "codex"}, {"label": "codex"}, "x",
                                                             {"label": "BAD-1"}, {"nolabel": 1}]}})
         self.assertEqual([a["label"] for a in registry.agents_of(CX)], ["main", "codex"])
+        use_registry(self, {CX: {"agent": "remote", "label": ["x"], "agent_user": {"a": 1}, "dm": 5,
+                                 "more": [{"label": "codex\n"}]}, BETTY: {}})
+        self.assertEqual([(a["label"], a["localpart"], a["dm"]) for a in registry.agents_of(CX)], [("main", "cx-agent", None)])
+        self.assertEqual(registry.owner_of("betty-agent"), BETTY)                        # GPT 24: one bad line breaks nobody
+        self.assertFalse(bridge_config.credentials_match(f"@cx-codex-agent:{S}", "cx", "codex\n"))
+        self.assertIsNone(registry.clean_label("\n"))
+        with self.assertRaises(ValueError):
+            registry.update(CX, "laptop", dm="!x")                                       # never the first's fields
         use_registry(self, {CX: {"agent": "remote", "more": "oops"}})
         self.assertEqual(len(registry.agents_of(CX)), 1)
         self.assertEqual(registry.add_agent(CX, "codex")["localpart"], "cx-codex-agent")   # a damaged list: replaced
@@ -133,6 +141,14 @@ class Caps(unittest.TestCase):
             with self.assertRaises(AccountError):
                 remote_people.check_new(people, ALICE, at=1100, further=True)            # 2 this hour: full
             remote_people.check_new(people, ALICE, at=1000 + remote_people.HOUR_S + 5, further=True)
+            local = {CX: {"agent": "remote", "more": [{"label": "a", "created": 1000}, {"label": "b", "created": 1000}]}}
+            remote_people.check_new(registry.from_elsewhere(local), ALICE, at=1100)       # GPT 24: ours don't count
+
+    def test_caddy_sends_the_my_agents_script_to_pm(self):
+        """GPT 24: /panel-agents.js fell through to Element, so the panel had no "My agents"."""
+        line = next(l for l in (Path(__file__).parent / "deploy" / "Caddyfile").read_text().splitlines() if "@pm path" in l)
+        for path in ("/panel", "/panel-agents.js", "/console", "/connect/*"):
+            self.assertIn(f" {path}", line)
 
 
 class Codes(unittest.TestCase):
@@ -141,12 +157,15 @@ class Codes(unittest.TestCase):
         first = codes.issue(CX, now=0)
         extra = codes.issue(CX, now=0, agent="cx-codex-agent")
         again = codes.issue(CX, now=0, agent="cx-codex-agent")                           # replaces only its own
-        self.assertEqual(codes.redeem_agent(extra, now=1), (None, None))
-        self.assertEqual(codes.redeem_agent(again, now=1), (CX, "cx-codex-agent"))
-        self.assertEqual(codes.redeem_agent(first, now=1), (CX, None))
+        self.assertEqual(codes.redeem_agent(extra, now=1), (None, None, 0))
+        self.assertEqual(codes.redeem_agent(again, now=1), (CX, "cx-codex-agent", 0))
+        self.assertEqual(codes.redeem_agent(first, now=1), (CX, None, 0))
         a, b = codes.issue(CX, now=0), codes.issue(CX, now=0, agent="cx-codex-agent")
         codes.revoke(CX, "cx-codex-agent")
         self.assertEqual((codes.redeem(b, now=1), codes.redeem(a, now=1)), (None, CX))
+        c = codes.issue(CX, now=0)
+        codes.codes[pairing.digest(c)] = {**codes.codes[pairing.digest(c)], "agent": ["cx-codex-agent"]}
+        self.assertEqual(codes.redeem_agent(c, now=1), (None, None, 0))                  # GPT 24: damaged, not the first's
 
 
 class SignIn(unittest.TestCase):
@@ -168,6 +187,31 @@ class SignIn(unittest.TestCase):
         self.assertFalse(bridge_config.credentials_match(extra["user_id"], "cx"))
         self.assertFalse(bridge_config.credentials_match(extra["user_id"], "cx", "laptop"))
         self.assertFalse(bridge_config.credentials_match(f"@cx-agent:{S}", "cx", "x-y"))
+
+    def test_a_code_from_before_a_disconnect_never_gets_the_new_password(self):
+        """GPT 24: /connect takes the code, then waits for the lock while a disconnect rotates."""
+        registry.update(CX, "codex", disconnected=500.0)
+        self.assertIsNone(remote_agent.credentials_for(CX, "cx-codex-agent", issued=499.0))
+        self.assertIsNone(remote_agent.credentials_for(CX, "cx-codex-agent", issued=500.0))
+        self.assertEqual(remote_agent.credentials_for(CX, "cx-codex-agent", issued=501.0)["password"], "pw2")
+        self.assertEqual(remote_agent.credentials_for(CX, None, issued=1.0)["password"], "pw1")   # the first: not cut
+
+    def test_disconnect_never_resets_an_account_we_never_set_up(self):
+        """GPT 24: a failed reservation (the name existed with someone else's password) must not let
+        its claimant reset that account and then fetch the new password."""
+        registry.add_agent(CX, "laptop")                                                 # no password held
+        with mock.patch.object(remote_agent.local_signup, "admin_call") as admin, \
+                mock.patch.object(remote_agent.setup_accounts, "save_env") as saved:
+            with self.assertRaisesRegex(AccountError, "never set up"):
+                remote_agent.disconnect(CX, "cx-laptop-agent")
+            with self.assertRaisesRegex(AccountError, "isn't your agent"):
+                remote_agent.disconnect(BETTY, "cx-codex-agent")
+            admin.return_value = {}
+            remote_agent.disconnect(CX, "cx-codex-agent")
+        self.assertEqual(admin.call_count, 1)
+        self.assertEqual(saved.call_count, 1)
+        self.assertIsInstance(registry.find(CX, "codex")["disconnected"], float)
+        self.assertIsNone(registry.find(CX, None)["disconnected"])
 
     def test_connect_keeps_a_further_agent_in_its_own_folder(self):
         creds = {"homeserver": "https://h.example", "user_id": f"@cx-codex-agent:{S}", "password": "pw2",

@@ -27,6 +27,9 @@ B, R = "@b-agent:x", "@r-agent:x"
 
 class Rounds(unittest.TestCase):
     def setUp(self):
+        owners = mock.patch("ownership.owner_id", lambda a: a.replace("-agent", ""))   # each agent: its own person
+        owners.start()
+        self.addCleanup(owners.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.room_repos = {"!r": "your-name/hagency-hello"}
         self.lp.state, self.lp.save = {}, lambda: None

@@ -60,17 +60,20 @@ class Codes:
         """The person a fresh code was issued to, or None. The code is gone after this either way."""
         return self.redeem_agent(code, now)[0]
 
-    def redeem_agent(self, code: str, now: float | None = None) -> tuple[str | None, str | None]:
-        """(person, further agent's localpart or None for their first) for a fresh code, else (None,
-        None). The code is gone after this either way."""
+    def redeem_agent(self, code: str, now: float | None = None) -> tuple[str | None, str | None, float]:
+        """(person, further agent's localpart or None for their first, when it was issued) for a
+        fresh code, else (None, None, 0). The code is gone after this either way."""
         if not isinstance(code, str) or not code or len(code) > MAX_CODE_CHARS:
-            return None, None
+            return None, None, 0
         entry = self.codes.pop(digest(code), None)
         now = time.time() if now is None else now
-        if not isinstance(entry, dict) or entry.get("expires", 0) <= now or not entry.get("person"):
-            return None, None
+        if (not isinstance(entry, dict) or not isinstance(entry.get("expires"), (int, float)) or entry["expires"] <= now
+                or not isinstance(entry.get("person"), str) or not entry["person"]):
+            return None, None, 0
         agent = entry.get("agent")
-        return entry["person"], agent if isinstance(agent, str) and agent else None
+        if agent is not None and not (isinstance(agent, str) and agent):
+            return None, None, 0              # a damaged entry: never read as the first agent's code
+        return entry["person"], agent, entry["expires"] - CODE_S
 
 
 class Limiter:

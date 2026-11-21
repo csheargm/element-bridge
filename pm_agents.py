@@ -65,8 +65,12 @@ class MoreAgents:
         offer = self.add_offers().get(event.reacts_to)
         if not offer or offer.get("person") != event.sender or offer.get("dm") != room.room_id:
             return False
-        if event.key.replace("️", "") == ADD:
-            await self.start_add(room.room_id, event.sender)
+        if event.key.replace("️", "") == ADD:   # the question and the code: only in our private chat
+            dm = await self.private_room(event.sender)
+            if dm is None:
+                await self.say(room.room_id, "I couldn't open a private chat with you; please try again.")
+            else:
+                await self.start_add(dm, event.sender)
         return True
 
     def in_private(self, room: MatrixRoom, person: str) -> bool:
@@ -105,18 +109,19 @@ class MoreAgents:
         have = registry.agents_of(person)
         if not have or not registry.owns(person, have[0]["localpart"]):
             return await self._tell(dm, "You don't have an agent here yet: type \"bring my own\" to get your first one.")
-        if len(have) >= registry.per_person():
+        label = registry.clean_label(typed) if typed else None
+        if label != (typed or "").strip().lower():
+            label = None                      # never silently a different name than the one typed
+        same = next((a for a in have if a["label"] == label), None) if label else None
+        unfinished = same is not None and not same["first"] and not same["dm"]   # a failed set-up: finished now
+        if len(have) >= registry.per_person() and not unfinished:
             naming.pop(person, None)
-            return await self._tell(dm, f"You have {len(have)} agents, the most one person can have here. "
-                                        "Disconnect one in the console first if you want a different one.")
-        if not typed:
+            return await self._tell(dm, f"You have {len(have)} agents, the most one person can have here.")
+        if not typed or label is None or (same and not unfinished):
             naming[person] = {"dm": dm, "until": time.time() + NAMING_S}
-            return await self._tell(dm, ASK_NAME)
-        label = registry.clean_label(typed)
-        if label is None or any(a["label"] == label for a in have):
-            naming[person] = {"dm": dm, "until": time.time() + NAMING_S}
-            why = f"You already have an agent called {label}." if label else "That doesn't work as a name."
-            return await self._tell(dm, f"{why} {ASK_NAME}")
+            why = (f"You already have an agent called {label}. " if same else
+                   "That doesn't work as a name. " if typed else "")
+            return await self._tell(dm, f"{why}{ASK_NAME}")
         naming.pop(person, None)
         busy = self.__dict__.setdefault("_provisioning", set())   # shared with pm_welcome.choose: one at a time
         if person in busy:

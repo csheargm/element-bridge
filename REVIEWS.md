@@ -640,3 +640,35 @@ Rejected or deferred:
   it is kept while one of ours survived. A failed rerun also relaunches a Startup-folder agent and
   says honestly whether anything came back; that state lives in a local hashtable, never in the
   person's own session scope.
+
+### GPT review 24 (2026-11-20): several agents per person (step 4)
+Adopted, with tests (test_more_agents, test_more_agents_flows, test_routing):
+- A failed reservation could authorize a password reset: if the derived name already existed with
+  someone else's password, the claim stayed and "disconnect" asked Synapse to reset that account,
+  whose new password the claimant could then fetch. Disconnect now only resets an account whose
+  password this server already holds (one it created or verified).
+- A code taken just before a disconnect waited for the lock and then returned the NEW password:
+  each disconnect is recorded per agent and a code issued before it is refused.
+- Damaged agents.json fields (a list as a label, an object as agent_user) could break ownership
+  lookups for everyone: only well-formed strings count; labels use fullmatch ("codex\n" was
+  accepted by `match`); a pairing code with a damaged agent field is refused, never read as the
+  first agent's; `registry.update` with an unknown agent raises instead of writing the first's.
+- The cross-review rule held only when the checker was picked: review and verify results are now
+  accepted only from an agent of a DIFFERENT person than the builder's (owner full IDs).
+- @pm's own read-modify-writes of agents.json (its loop and set-up threads) share one lock; the
+  hourly cap for other servers no longer counts this server's people's further agents.
+- ➕ under a message in a project room asked for the name there, but answers are only taken in
+  the private chat: the question goes to the private chat. A set-up that failed can be finished
+  by asking for the same name again, even at the cap; the cap message no longer suggests
+  Disconnect (it doesn't free a slot). A typed name must be exactly a valid name ("co-dex" is
+  refused, never silently "codex").
+- The console's agent field: an unknown agent fell back to the first agent for web research, and
+  refused changes said "ok": a named agent must be theirs, and refusals are reported.
+- Caddy didn't route /panel-agents.js to @pm (the panel would have had no "My agents").
+- connect.py: with a code, a saved backend whose CLI is gone no longer stops a further agent's pairing.
+Rejected or deferred:
+- A cross-process lock with onboard.py (an operator's command, run by hand while @pm runs): deferred.
+- An older connect.py refuses a further agent's sign-in after using the code: connect.sh always
+  updates the app first, so only a hand-run old copy is affected (it says so; ask for a new code).
+- Re-checking a stored checker before each re-dispatch: results are what count, and they are
+  checked; assignments made before this change had no further agents.

@@ -37,3 +37,6 @@ must stay as strict as before: by the owner's full ID.
 - On Windows, connect.ps1 registers only the first agent's Scheduled Task: a further agent there
   runs in a window (`connect.py --name <its name> --foreground`) until the installer learns more.
 - Agents this server runs (Hermes, onboard.py) stay one per person: further ones are remote.
+- Removing an agent (freeing a slot) is future work: Disconnect only signs it out. A reservation
+  whose set-up failed keeps its slot and is finished by asking for the same name again.
+- A disconnect is recorded per agent; a code issued before it never yields the new password.

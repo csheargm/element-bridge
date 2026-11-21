@@ -193,8 +193,9 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
             return
         if item["stage"] != EXPECTED_STAGE.get(kind) or result.get("task_id") not in item.get("task_ids", [item.get("task_id")]):
             return   # late/duplicate result for a step that's no longer current
-        if sender != item.get("reviewer" if kind in CHECKER_KINDS else "builder"):
-            return   # only the agent the step was given to can report on it
+        if sender != item.get("reviewer" if kind in CHECKER_KINDS else "builder") or (
+                kind in CHECKER_KINDS and sender not in routing.checkers_for([sender], item["builder"], ownership.owner_id)):
+            return   # only the agent the step was given to, and a checker only of ANOTHER person's work
         if result.get("error"):
             await self.stop(room.room_id, key, item, f"{sender.split(':')[0][1:]} couldn't {kind} it")
         elif kind == "build" and result.get("already_done"):
@@ -273,8 +274,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
 
     def kick(self) -> None:
         """Act now instead of at the next poll (after a ✅, a mode change or new issues)."""
-        wake = getattr(self, "wake", None)
-        if wake is not None:
+        if (wake := getattr(self, "wake", None)) is not None:
             wake.set()
 
     async def locked_tick(self) -> None:

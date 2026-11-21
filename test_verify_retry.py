@@ -85,6 +85,9 @@ class HermesVerifies(unittest.TestCase):
 
 class Retry(unittest.TestCase):
     def setUp(self):
+        owners = mock.patch("ownership.owner_id", lambda a: a.replace("-agent", ""))   # each agent: its own person
+        owners.start()
+        self.addCleanup(owners.stop)
         self.lp = loop.Loop.__new__(loop.Loop)
         self.lp.lock = asyncio.Lock()
         self.lp.room_repos = {"!r": REPO}

@@ -97,26 +97,28 @@ class Follow:
             if registry.owns(person, found["localpart"]) and ownership.joined(room, agent):
                 await self.client.room_kick(room.room_id, agent, reason="its owner left the room")
 
-    async def set_follow(self, room: MatrixRoom, sender: str, value: str, agent: str | None = None) -> None:
+    async def set_follow(self, room: MatrixRoom, sender: str, value: str, agent: str | None = None) -> bool:
         """Only ever the sender's OWN setting (by full ID: from any server, never a same-named other),
         for one agent of theirs (None, as in the chat: their first)."""
         local = sender.lstrip("@").partition(":")[0]
         found = registry.find(sender, agent)
         if found is None or not registry.owns(sender, found["localpart"]):
             await self.say(room.room_id, f"{local}, you don't have {'that agent' if agent else 'an agent'} registered here.")
-            return
+            return False
         registry.set_follow(sender, value, found["localpart"])
         which = "" if found["first"] else f" ({found['localpart']})"
         await self.say(room.room_id, f"OK {local}: {FOLLOW_WORDS[value]}{which}.")
+        return True
 
-    async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool, agent: str | None = None) -> None:
+    async def set_grant(self, room: MatrixRoom, sender: str, cap: str, on: bool, agent: str | None = None) -> bool:
         """The owner lets their OWN agent (None: their first) use a capability in THIS room (or stops it)."""
         local = sender.lstrip("@").partition(":")[0]
-        found = registry.find(sender, agent)
-        agent_local = found["localpart"] if found else registry.agent_of(sender)
-        if not registry.owns(sender, agent_local):
-            await self.say(room.room_id, "Only people with an agent registered on this server can do that.")
-            return
+        found = registry.find(sender, agent)   # a named agent that isn't theirs: never their first instead
+        agent_local = found["localpart"] if found else None
+        if agent_local is None or not registry.owns(sender, agent_local):
+            await self.say(room.room_id, "Only people with an agent registered on this server can do that." if not agent
+                           else f"{local}, you don't have that agent registered here.")
+            return False
         agent = f"@{agent_local}:{SERVER_NAME}"
         state = await self.client.room_get_state(room.room_id)
         current = capabilities.caps_in(getattr(state, "events", []) or [], agent)   # only what @pm wrote
@@ -125,7 +127,7 @@ class Follow:
                                                 state_key=capabilities.key_for(agent))
         if not hasattr(resp, "event_id"):
             await self.say(room.room_id, f"⚠️ I couldn't save that: {resp}")
-            return
+            return False
         self.grants_cache.setdefault(room.room_id, {})[agent] = {c: {} for c in (current | {cap} if on else current - {cap})}
         what = capabilities.CAPS[cap]
         warn = (" Note: it reads the room and the project, so anything it looks up leaves this room —"
@@ -133,3 +135,4 @@ class Follow:
         await self.say(room.room_id, f"OK {local}: your agent may now {what} in this room.{warn} Say \"stop "
                                      "letting my agent use the web\" to undo." if on else
                                      f"OK {local}: your agent may no longer {what} in this room.")
+        return True

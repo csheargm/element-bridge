@@ -163,11 +163,11 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
                        f"Mode changed to {value} by {user.split(':')[0][1:]} (from the console).")
         return "ok"
     if action == "follow" and value in registry.FOLLOW:
-        await loop.set_follow(room, user, value, agent or None)
-        return "ok"
+        done = await loop.set_follow(room, user, value, agent or None)
+        return "ok" if done is not False else "that isn't one of your agents"
     if action == "web" and value in ("on", "off"):
-        await loop.set_grant(room, user, "web", value == "on", agent or None)
-        return "ok"
+        done = await loop.set_grant(room, user, "web", value == "on", agent or None)
+        return "ok" if done is not False else "that isn't one of your agents (or I couldn't save it)"
     if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
         dm = await loop.private_room(user)
         return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"

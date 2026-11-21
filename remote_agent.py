@@ -12,6 +12,7 @@ import os
 import secrets
 import socket
 import threading
+import time
 import urllib.parse
 
 from aiohttp import web
@@ -97,15 +98,12 @@ def _provision(person: str) -> str:
     if agent != identity.agent_localpart(person, SERVER_NAME) or registry.claimants(agent) not in ([], [person]):
         raise AccountError("your agent's account name is taken here; ask this server's operator")
     if local is None:
-        remote_people.check_new(people, person)   # other servers' people: allowed, and not too many at once
+        remote_people.check_new(registry.from_elsewhere(people), person)   # other servers' people: allowed, not too many
         if person not in people:              # counted and reserved BEFORE the account exists: a failed
-            people[person] = {"agent": registry.REMOTE, "created": remote_people.now()}   # chat can't dodge the cap
-            registry.save(people)
+            registry.update(person, None, agent=registry.REMOTE, created=remote_people.now())   # chat can't dodge the cap
     password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
     dm = info.get("dm") or open_dm(agent, password, person)
-    people = registry.load()                  # re-read: keep anything written meanwhile
-    people[person] = {**people.get(person, {}), "agent": registry.REMOTE, "dm": dm}
-    registry.save(people)
+    registry.update(person, None, agent=registry.REMOTE, dm=dm)   # a fresh read under its lock: keeps the rest
     return agent
 
 
@@ -121,7 +119,7 @@ def provision_more(person: str, label: str) -> str:
         found = registry.find(person, label)
         if found is None or found["first"]:   # new (an unfinished one with this name is finished instead)
             if registry.local_name(person) is None:
-                remote_people.check_new(registry.load(), person, further=True)
+                remote_people.check_new(registry.from_elsewhere(registry.load()), person, further=True)
             try:
                 found = registry.add_agent(person, label)
             except ValueError as e:
@@ -142,10 +140,14 @@ def disconnect(person: str, agent: str | None = None) -> None:
     with WRITING:
         person, env = registry.person_id(person), load_env()
         agent = agent or registry.agent_of(person)
-        if not registry.owns(person, agent):
+        found = registry.find(person, agent)
+        if found is None or not registry.owns(person, agent):
             raise AccountError(f"@{agent} isn't your agent")
         key = setup_accounts.password_key(agent)
         old, new = env.get(key), secrets.token_urlsafe(18)
+        if old is None:                       # never set up (a failed reservation): never reset an account
+            raise AccountError(f"@{agent} was never set up here")   # we don't hold (GPT review 24)
+        registry.update(person, None if found["first"] else agent, disconnected=time.time())   # older codes: dead
         setup_accounts.save_env({**env, key: new})
         try:
             r = local_signup.admin_call("POST", f"/_synapse/admin/v1/reset_password/{urllib.parse.quote(f'@{agent}:{SERVER_NAME}')}",
@@ -158,18 +160,22 @@ def disconnect(person: str, agent: str | None = None) -> None:
             raise AccountError(f"couldn't give @{agent} a new password: {r.get('errcode')}")
 
 
-def locked_credentials(person: str, agent: str | None = None) -> dict | None:
+def locked_credentials(person: str, agent: str | None = None, issued: float | None = None) -> dict | None:
     """credentials_for, never in the middle of a set-up or a disconnect (.env read-modify-write)."""
     with WRITING:
-        return credentials_for(person, agent)
+        return credentials_for(person, agent, issued)
 
 
-def credentials_for(person: str, agent: str | None = None) -> dict | None:
+def credentials_for(person: str, agent: str | None = None, issued: float | None = None) -> dict | None:
     """What connect.py needs to run this agent of `person` (None: their first), or None if it isn't
-    a remote agent of theirs any more."""
+    a remote agent of theirs any more, or the code (`issued` then) predates its disconnect: a code
+    taken just before a disconnect never picks up the new password (GPT review 24)."""
     person = registry.person_id(person)       # codes issued before full IDs hold a bare name
     found = registry.find(person, agent)
     if found is None or found["agent"] != registry.REMOTE or (agent and found["localpart"] != agent):
+        return None
+    cut = found.get("disconnected")
+    if issued is not None and isinstance(cut, (int, float)) and issued <= cut:
         return None
     if not registry.local_name(person) and not remote_people.allowed():
         return None                           # turned off: no new sign-ins for other servers' people
@@ -196,8 +202,8 @@ def routes() -> list:
             body = await request.json()
         except ValueError:                    # not JSON: the same answer as a wrong code
             body = {}
-        person, agent = CODES.redeem_agent(body.get("code") if isinstance(body, dict) else None)
-        creds = await asyncio.to_thread(locked_credentials, person, agent) if person else None
+        person, agent, issued = CODES.redeem_agent(body.get("code") if isinstance(body, dict) else None)
+        creds = await asyncio.to_thread(locked_credentials, person, agent, issued) if person else None
         if not creds:
             LIMIT.failed(client)
             return web.json_response({"error": "that code is wrong, used or expired: ask @pm for a new one"},
