@@ -32,7 +32,7 @@ class Status(unittest.IsolatedAsyncioTestCase):
         for target, name, value in ((registry, "PATH", reg), (remote_agent, "CODES", pairing.Codes(folder / "p.json")),
                                     (remote_agent, "LIMIT", pairing.Limiter()),
                                     (remote_agent, "load_env", lambda: {"PW_NEWBIE1_AGENT": "s3cret"}),
-                                    (connect_status, "LIMIT", pairing.Limiter()), (connect_status, "_used", {}),
+                                    (connect_status, "LIMIT", connect_status.ClientLimiter()), (connect_status, "_used", {}),
                                     (connect_status, "_asks", {})):
             p = mock.patch.object(target, name, value)
             p.start()
@@ -71,7 +71,7 @@ class Status(unittest.IsolatedAsyncioTestCase):
         for code in (old, "ABCDE-FGHJK", "", "x" * 100, None, 7, ["a"]):
             r = await self.client.post(connect_page.STATUS_PATH, json={"code": code}, headers={"X-Forwarded-For": f"{code}"})
             self.assertEqual(await r.json(), {"state": "expired"}, code)
-            connect_status.LIMIT = pairing.Limiter()          # each from a fresh limiter: only the answer is checked
+            connect_status.LIMIT = connect_status.ClientLimiter()        # each from a fresh limiter: only the answer is checked
 
     async def test_guessing_is_rate_limited_and_never_locks_out_connect_py(self):
         for i in range(pairing.FAILS_PER_CLIENT):
@@ -98,6 +98,17 @@ class Status(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r.status, 415)                       # a form from another site can't even ask
         r = await self.client.post(connect_page.STATUS_PATH + f"?code={code}", json={})
         self.assertEqual(await r.json(), {"state": "expired"})   # a code in the URL is never read
+
+    def test_many_clients_guessing_never_block_someone_elses_status(self):
+        """GPT review: a shared wrong-code budget would stop every page's status."""
+        for i in range(pairing.FAILS_TOTAL + 5):
+            connect_status.LIMIT.failed(f"10.0.{i // 250}.{i % 250}", now=100)
+        self.assertFalse(connect_status.too_many("192.0.2.1", now=101))
+
+    def test_refused_asks_are_not_piled_up(self):
+        for _ in range(connect_status.REQUESTS_PER_MIN * 5):
+            connect_status.too_many("192.0.2.9", now=50)
+        self.assertEqual(len(connect_status._asks["192.0.2.9"]), connect_status.REQUESTS_PER_MIN)
 
     def test_used_codes_are_forgotten_in_time(self):
         connect_status.mark_used("ABCDE-FGHJK", now=100)
@@ -129,6 +140,11 @@ class PageUnderNode(unittest.TestCase):
         self.assertEqual(got, [{"code": "ABCDE-FGHJK", "kind": "ollama"}, {"code": "ABCDE-FGHJK", "kind": ""},
                                {"code": "ABCDE-FGHJK", "kind": ""}, {"code": "ABCDE-FGHJK", "kind": ""},
                                {"code": "", "kind": "ollama"}])
+
+    def test_only_a_whole_code_is_asked_about(self):
+        """GPT review: a code still being typed must not use up the wrong-code budget."""
+        got = self.run_js("['ABCD', 'ABCDE-FGH', 'ABCDE-FGHJK', 'ABCDEFGHJK', ''].map(m.pollable)")
+        self.assertEqual(got, ["", "", "ABCDE-FGHJK", "ABCDEFGHJK", ""])
 
     def test_before_you_start_lists_the_chosen_kinds_needs(self):
         kinds = agent_kinds.kinds()

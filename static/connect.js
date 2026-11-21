@@ -7,6 +7,7 @@
 
 const CODE_RE = /^[A-Z0-9-]{4,32}$/;          // the shape pairing.py codes have; nothing else gets in the line
 const KIND_RE = /^[a-z]{2,16}$/;
+const FULL_CODE_RE = /^[A-Z0-9]{5}-?[A-Z0-9]{5}$/;   // a whole pairing.py code: only that is asked about
 const STATUS_PATH = "/connect/status";
 const POLL_MS = 3000, SLOW_POLL_MS = 10000, GIVE_UP_MS = 35 * 60 * 1000;
 
@@ -56,6 +57,11 @@ function cleanCode(raw) {
   try { text = decodeURIComponent(text); } catch (e) { return ""; }   // a broken fragment: ask for the code instead
   const code = text.replace(/^#/, "").trim().toUpperCase();
   return CODE_RE.test(code) ? code : "";
+}
+
+/** The code to follow on the status, or "" while it's still being typed (no wasted wrong guesses). */
+function pollable(code) {
+  return FULL_CODE_RE.test(code || "") ? code : "";
 }
 
 /** {code, kind} from "#CODE" or "#CODE&kind=ollama" (connect_page.page_link); a kind not in `kinds` is dropped. */
@@ -213,16 +219,16 @@ function start() {
     input.value = code;
     document.getElementById("code-box").hidden = Boolean(code);
     show();
-    follow(code);
+    follow(pollable(code));
   });
-  input.addEventListener("input", () => { code = cleanCode(input.value); show(); follow(code); });
+  input.addEventListener("input", () => { code = cleanCode(input.value); show(); follow(pollable(code)); });
   copy.addEventListener("click", () => copyText(document.getElementById("command").textContent, copy, STEPS[os].copyKey));
   show();
-  follow(code);
+  follow(pollable(code));
 }
 
 if (typeof module === "object" && module.exports) {   // test_connect_page.py runs these under node
-  module.exports = { detectOS, cleanCode, parseFragment, commandFor, needsFor, runsOn, makePoller, STEPS, STATUS, CODE_RE };
+  module.exports = { detectOS, cleanCode, parseFragment, commandFor, needsFor, runsOn, makePoller, pollable, STEPS, STATUS, CODE_RE };
 } else {
   document.addEventListener("DOMContentLoaded", start);
 }

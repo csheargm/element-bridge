@@ -24,6 +24,7 @@ from ask_line import ask_line
 INSTALL = {"codex": "install Codex first: npm i -g @openai/codex",
            "claude": "install Claude Code first: npm i -g @anthropic-ai/claude-code"}
 STARTABLE = ("codex", "claude", "hermes")    # programs any kind starts
+KIND_SETTINGS = ("model", "base_url")         # belong to the kind they were chosen for
 
 
 def problem(kind: str) -> str | None:
@@ -82,13 +83,13 @@ def _base_url(given: str | None, ask, tty: bool) -> str:
     return _ask_until("The service's address (like https://api.example.com/v1): ", agent_kinds.valid_base_url, ask).rstrip("/")
 
 
-def _key(folder: Path, url: str, old_url: str | None, new_key: bool, secret, tty: bool) -> None:
-    """Saves the API key unless the one saved already belongs to this very address."""
+def _key(folder: Path, url: str, new_key: bool, secret, tty: bool) -> None:
+    """Saves the API key with its address, unless the one saved was typed for this very address."""
     try:
         have = codex_provider.load_key(folder)
     except codex_provider.ProviderError:
         have = None                           # readable by others: replaced below
-    if have and url == old_url and not new_key:
+    if have and have[1] == url and not new_key:
         return
     if not tty:
         raise SystemExit("✗ your agent needs the service's API key: run this in a Terminal to type it in")
@@ -96,32 +97,38 @@ def _key(folder: Path, url: str, old_url: str | None, new_key: bool, secret, tty
     while True:
         key = secret("API key (not shown as you type): ").strip()
         try:
-            codex_provider.save_key(folder, key)
+            codex_provider.save_key(folder, key, url)
             return
         except codex_provider.ProviderError as e:
             print(e)
 
 
-def settings(kind: str, creds: dict, offered: dict, flags, folder: Path, ask=None, secret=None,
-             tty: bool | None = None) -> dict:
-    """The credentials to save for `kind`: model and base_url for ollama / remote (flags first, then
-    @pm's, then the last ones), nothing extra for the others; remote's key is saved beside them."""
+def pending_for(kind: str, saved: dict, offered: dict) -> dict:
+    """The sign-in with `kind` and only its own settings: the last ones if it ran this kind before,
+    @pm's when @pm named this kind (or none); never another kind's (GPT review)."""
+    keep = saved if saved.get("agent") == kind else {k: v for k, v in saved.items() if k not in KIND_SETTINGS}
+    offer = offered if offered.get("agent_kind") in (None, kind) else {}
+    return {**keep, **{k: offer[k] for k in KIND_SETTINGS if k in offer}, "agent": kind}
+
+
+def settings(kind: str, pending: dict, flags, folder: Path, ask=None, secret=None, tty: bool | None = None) -> dict:
+    """The credentials to save for `kind` (pending_for's, with flags first): model and base_url for
+    ollama / remote, asked when missing; remote's key is saved in its own file."""
     tty = sys.stdin.isatty() if tty is None else tty
     ask, secret = ask or input, secret or getpass.getpass     # looked up now: stdin's own prompts
-    clean = {k: v for k, v in creds.items() if k not in ("model", "base_url")}
+    clean = {k: v for k, v in pending.items() if k not in KIND_SETTINGS}
     if kind != "remote":
         codex_provider.key_path(folder).unlink(missing_ok=True)   # no key left behind for another kind
     if kind not in agent_kinds.MODEL_KINDS:
         return {**clean, "agent": kind}
-    same = creds.get("agent") == kind
-    pick = lambda k: getattr(flags, k, None) or offered.get(k) or (creds.get(k) if same else None)
     for k, check in (("model", agent_kinds.valid_model), ("base_url", agent_kinds.valid_base_url)):
         if getattr(flags, k, None) and not check(getattr(flags, k)):
             raise SystemExit(f"✗ --{k.replace('_', '-')} doesn't look right")
+    pick = lambda k: getattr(flags, k, None) or pending.get(k)
     url = _base_url(pick("base_url"), ask, tty) if kind == "remote" else None
     out = {**clean, "agent": kind, "model": _model(kind, pick("model"), ask, tty), **({"base_url": url} if url else {})}
     if url:
-        _key(folder, url, creds.get("base_url") if same else None, getattr(flags, "new_key", False), secret, tty)
+        _key(folder, url, getattr(flags, "new_key", False), secret, tty)
     return out
 
 

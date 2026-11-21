@@ -58,7 +58,7 @@ class Contract(unittest.TestCase):
         kinds = re.search(r"\[ValidateSet\(([^)]*)\)\]\[string\]\$Agent", ps1).group(1)
         self.assertEqual(re.findall(r"'([a-z]+)'", kinds), [k for k in agent_kinds.KINDS if k not in agent_kinds.NOT_ON_WINDOWS])
         model = re.search(r"\[ValidatePattern\('([^']*)'\)\]\[string\]\$Model", ps1).group(1)
-        self.assertEqual(model, agent_kinds.MODEL_RE.pattern)
+        self.assertEqual(model, agent_kinds.MODEL_RE.pattern.removesuffix("$") + "\\z")   # .NET: \z, not a "\n" before $
 
 
 class Provider(unittest.TestCase):
@@ -68,7 +68,7 @@ class Provider(unittest.TestCase):
     def test_ollama_is_codexs_own_provider_with_the_model(self):
         self.assertEqual(codex_provider.args("ollama", {"model": "qwen3:8b"}),
                          ["-c", 'model_provider="ollama"', "-m", "qwen3:8b"])
-        self.assertEqual(codex_provider.env("ollama", None), {})
+        self.assertEqual(codex_provider.env("ollama", None, {}), {})
 
     def test_remote_names_the_key_variable_never_the_key(self):
         args = codex_provider.args("remote", REMOTE)
@@ -84,10 +84,10 @@ class Provider(unittest.TestCase):
                 codex_provider.args("remote", creds)
 
     def test_the_key_file_is_only_mine(self):
-        path = codex_provider.save_key(self.folder, KEY)
+        path = codex_provider.save_key(self.folder, KEY, REMOTE["base_url"])
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-        self.assertEqual(codex_provider.load_key(self.folder), KEY)
-        self.assertEqual(codex_provider.env("remote", str(self.folder / "credentials.json")), {codex_provider.KEY_ENV: KEY})
+        self.assertEqual(codex_provider.load_key(self.folder), (KEY, REMOTE["base_url"]))
+        self.assertEqual(codex_provider.env("remote", str(self.folder / "credentials.json"), REMOTE), {codex_provider.KEY_ENV: KEY})
         path.chmod(0o644)
         with self.assertRaises(codex_provider.ProviderError):
             codex_provider.load_key(self.folder)
@@ -95,10 +95,10 @@ class Provider(unittest.TestCase):
     def test_odd_keys_are_not_saved(self):
         for bad in ("", "two words", "line\nbreak", "x" * 5000):
             with self.assertRaises(codex_provider.ProviderError):
-                codex_provider.save_key(self.folder, bad)
+                codex_provider.save_key(self.folder, bad, REMOTE["base_url"])
         self.assertIsNone(codex_provider.load_key(self.folder))
         with self.assertRaises(codex_provider.ProviderError):
-            codex_provider.env("remote", str(self.folder / "credentials.json"))
+            codex_provider.env("remote", str(self.folder / "credentials.json"), REMOTE)
 
 
 class Turns(unittest.TestCase):
@@ -143,14 +143,14 @@ class Turns(unittest.TestCase):
         self.assertIn("features.apps=false", seen["argv"])
 
     def test_a_remote_key_travels_only_in_the_environment(self):
-        codex_provider.save_key(self.folder, KEY)
+        codex_provider.save_key(self.folder, KEY, REMOTE["base_url"])
         _, seen = self.turn("remote", REMOTE)
         self.assertFalse(any(KEY in a for a in seen["argv"]))
         self.assertEqual(seen["env"][codex_provider.KEY_ENV], KEY)
         self.assertNotIn(codex_provider.KEY_ENV, os.environ)              # the bridge itself never holds it
 
     def test_codex_kind_gets_no_provider_and_no_key(self):
-        codex_provider.save_key(self.folder, KEY)
+        codex_provider.save_key(self.folder, KEY, REMOTE["base_url"])
         _, seen = self.turn("codex", REMOTE)
         self.assertNotIn("-m", seen["argv"])
         self.assertNotIn(codex_provider.KEY_ENV, seen["env"])
@@ -163,10 +163,39 @@ class Turns(unittest.TestCase):
             self.turn("ollama", {})
 
     def test_an_error_that_echoes_the_key_never_carries_it(self):
-        codex_provider.save_key(self.folder, KEY)
+        codex_provider.save_key(self.folder, KEY, REMOTE["base_url"])
         with self.assertRaises(agents.AgentError) as e:
             self.turn("remote", REMOTE, code=1, out=b"", err=f"401: bad key {KEY}".encode())
         self.assertNotIn(KEY, str(e.exception))
+
+    def test_a_reply_that_echoes_the_key_never_carries_it(self):
+        """GPT review: the service gets the key and could put it in a reply bound for the room."""
+        codex_provider.save_key(self.folder, KEY, REMOTE["base_url"])
+        reply, _ = self.turn("remote", REMOTE, out=json.dumps({"type": "item.completed", "item": {
+            "type": "agent_message", "text": f"your key is {KEY}"}}).encode())
+        self.assertEqual(reply, "your key is ***")
+
+    def test_a_key_is_only_sent_to_the_address_it_was_typed_for(self):
+        """GPT review: during a reconnect the running bridge still has the old address."""
+        codex_provider.save_key(self.folder, KEY, "https://new.example.com/v1")
+        with self.assertRaisesRegex(agents.AgentError, "another service address"):
+            self.turn("remote", REMOTE)
+
+    def test_a_conversation_never_resumes_at_another_service(self):
+        codex_provider.save_key(self.folder, KEY, REMOTE["base_url"])
+        self.turn("remote", REMOTE)
+        state = json.loads((self.work / ".bridge-session.json").read_text())
+        (key,) = state
+        self.assertTrue(key.startswith("remote:"))
+        other = {**REMOTE, "base_url": "https://other.example.com/v1"}
+        self.assertNotEqual(codex_provider.session_tag("remote", other), key.removeprefix("remote"))
+        self.assertEqual(codex_provider.session_tag("ollama", other), "")
+
+    def test_values_with_a_trailing_line_break_are_refused(self):
+        """GPT review: `$` matches before a final newline; these go into TOML strings and argv."""
+        self.assertFalse(agent_kinds.valid_model("qwen3:8b\n"))
+        self.assertFalse(agent_kinds.valid_base_url("https://h.example/v1\n"))
+        self.assertFalse(agent_kinds.valid_base_url("https://[::1/v1"))      # malformed brackets: no exception
 
     def test_owner_args_keep_their_own_web_choice(self):
         (self.folder / "codex").mkdir()

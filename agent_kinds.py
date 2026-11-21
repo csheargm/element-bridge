@@ -57,20 +57,20 @@ def program(kind: str) -> str:
 
 
 def valid_model(model: object) -> bool:
-    return isinstance(model, str) and bool(MODEL_RE.match(model)) and ".." not in model
+    return isinstance(model, str) and bool(MODEL_RE.fullmatch(model)) and ".." not in model   # fullmatch: no "\n"
 
 
 def valid_base_url(url: object) -> bool:
     """https, or plain http only to this computer (the API key travels over it); nothing that could
     break out of a TOML string or carry a password in the address."""
-    if not (isinstance(url, str) and len(url) <= MAX_URL and URL_CHARS_RE.match(url)):
-        return False
-    parts = urllib.parse.urlsplit(url)
-    if parts.username is not None or parts.password is not None or parts.query or parts.fragment:
+    if not (isinstance(url, str) and len(url) <= MAX_URL and URL_CHARS_RE.fullmatch(url)):
         return False
     try:
+        parts = urllib.parse.urlsplit(url)    # malformed brackets raise here
         parts.port                            # a malformed port raises
     except ValueError:
+        return False
+    if parts.username is not None or parts.password is not None or parts.query or parts.fragment:
         return False
     return bool(parts.hostname) and (parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in LOCAL_HOSTS))
 

@@ -168,7 +168,7 @@ BACKENDS = {"codex": (_codex_argv, _parse_codex), "claude": (_claude_argv, _pars
 
 def _kind_env(backend: str) -> dict:
     try:
-        return codex_provider.env(backend, os.environ.get("HAGENCY_CREDENTIALS"))
+        return codex_provider.env(backend, os.environ.get("HAGENCY_CREDENTIALS"), bridge_config.CREDENTIALS)
     except codex_provider.ProviderError as e:
         raise AgentError(str(e)) from e
 
@@ -189,6 +189,7 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
     state = {} if fresh else (json.loads(state_file.read_text()) if state_file.exists() else {})
     state = state if isinstance(state, dict) else {}
     key = backend if owner else f"{backend}-locked"   # a locked turn never shares the owner's conversation
+    key += codex_provider.session_tag(backend, bridge_config.CREDENTIALS)   # remote: per service address
     session_id = state.get(key)
     if session_id is not None and not (isinstance(session_id, str) and SESSION_ID_RE.match(session_id)):
         session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
@@ -217,4 +218,4 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
         tmp = state_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(state))
         os.replace(tmp, state_file)   # atomic: a crash can't leave a half-written state file
-    return (result.text.strip() + note).strip()
+    return codex_provider.scrub((result.text.strip() + note).strip(), extra)   # a service echoing its key

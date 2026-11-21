@@ -72,7 +72,7 @@ def redeem(server: str, code: str) -> dict:
     try:
         offer = agent_kinds.from_connect_info(data)      # agent_kind / model / base_url, when @pm names them
     except agent_kinds.BadConnectInfo as e:
-        raise SystemExit(f"✗ {e}; nothing was saved") from e
+        offer = {"offer_error": str(e)}             # the sign-in is still saved first (the code is used up)
     return {**{k: data[k] for k in ("homeserver", "user_id", "password", "owner", "label") if k in data}, **offer}
 
 
@@ -201,18 +201,22 @@ def connect_here(args, home: Path, path: Path, saved: dict) -> tuple[dict, Path]
             raise SystemExit(f"✗ {args.server}: use https (plain http only for this computer)")
         fresh = redeem(args.server, args.code)
         offered = {k: fresh.pop(k) for k in agent_kinds.OFFER_KEYS if k in fresh}
+        bad_offer = fresh.pop("offer_error", None)
         path = agent_dir(home, fresh) / "credentials.json"        # a further agent: its own folder
         before = read_saved(path)
-        saved = {**fresh, **{k: before[k] for k in ("agent", "model", "base_url") if k in before}}
+        saved = {**fresh, **{k: before[k] for k in ("agent", *connect_kinds.KIND_SETTINGS) if k in before}}
         save(path, saved)                                         # the code is used up: keep the sign-in
+        if bad_offer and not args.agent:
+            raise SystemExit(f"✗ {bad_offer}.\n  Your sign-in is saved: run {sys.executable} {APP / 'connect.py'} "
+                             f"{name_arg(saved)}--agent KIND (no code needed)")
     kind = pick_kind(args, offered, saved)
+    pending = connect_kinds.pending_for(kind, saved, offered)
+    save(path, pending)                                           # chosen: a rerun asks only what's missing
     why = connect_kinds.problem(kind)
     if why:
-        save(path, {**saved, "agent": kind})
         raise SystemExit(f"✗ {why}\n  Your sign-in is saved; then run {sys.executable} {APP / 'connect.py'} "
                          f"{name_arg(saved)}(no code needed)")
-    save(path, {**saved, "agent": kind})                         # chosen: a rerun asks only what's missing
-    creds = connect_kinds.settings(kind, saved, offered, args, path.parent)
+    creds = connect_kinds.settings(kind, pending, args, path.parent)
     save(path, creds)
     if kind == "hermes":
         connect_kinds.setup_hermes(APP, path)

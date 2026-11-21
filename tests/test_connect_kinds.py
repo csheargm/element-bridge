@@ -102,7 +102,7 @@ class Flow(unittest.TestCase):
         self.assertIn("sent only to https://llm.example.com/v1", said)
         key_file = self.home / codex_provider.KEY_FILE
         self.assertEqual(stat.S_IMODE(key_file.stat().st_mode), 0o600)
-        self.assertEqual(codex_provider.load_key(self.home), KEY)
+        self.assertEqual(codex_provider.load_key(self.home)[0], KEY)
         creds_text = (self.home / "credentials.json").read_text()
         self.assertNotIn(KEY, creds_text)
         self.assertEqual(json.loads(creds_text)["base_url"], "https://llm.example.com/v1")
@@ -125,9 +125,9 @@ class Flow(unittest.TestCase):
         moved = {**offer, "base_url": "https://other.example.net/v1"}
         _, said, secret, _ = self.run_connect("ABCDE-FGHJK", answer=moved, key="sk-new")
         secret.assert_called_once()                                       # the old key never goes to a new address
-        self.assertEqual(codex_provider.load_key(self.home), "sk-new")
+        self.assertEqual(codex_provider.load_key(self.home)[0], "sk-new")
         _, _, secret, _ = self.run_connect("--new-key", key="sk-newer")
-        self.assertEqual(codex_provider.load_key(self.home), "sk-newer")
+        self.assertEqual(codex_provider.load_key(self.home)[0], "sk-newer")
         _, _, _, failed = self.run_connect("--agent", "codex")            # another kind: no key left behind
         self.assertIsNone(failed)
         self.assertFalse((self.home / codex_provider.KEY_FILE).exists())
@@ -146,11 +146,35 @@ class Flow(unittest.TestCase):
         self.assertIsNone(failed)
         self.assertEqual((self.saved()["base_url"], self.saved()["model"]), ("https://llm.example.com/v1", "gpt-x"))
 
-    def test_a_kind_or_address_this_computer_wont_use_saves_nothing(self):
+    def test_a_kind_or_address_this_computer_wont_use_keeps_only_the_sign_in(self):
+        """GPT review: the used code's sign-in is saved first; the odd settings never are."""
         for offer in ({**SIGN_IN, "agent_kind": "gpt"}, {**SIGN_IN, "agent_kind": "remote", "base_url": "http://x.example"}):
-            _, _, _, failed = self.run_connect("ABCDE-FGHJK", answer=offer)
-            self.assertIn("nothing was saved", failed)
-            self.assertFalse((self.home / "credentials.json").exists())
+            install, _, _, failed = self.run_connect("ABCDE-FGHJK", answer=offer)
+            self.assertIn("Your sign-in is saved", failed)
+            self.assertIn("--agent KIND", failed)
+            self.assertIsNone(install)
+            self.assertEqual(self.saved()["password"], SIGN_IN["password"])
+            self.assertNotIn("agent", self.saved())
+            self.assertNotIn("base_url", self.saved())
+            (self.home / "credentials.json").unlink()
+
+    def test_settings_stay_with_their_kind(self):
+        """GPT review: another kind's model or address is never reused, nor @pm's for a kind it didn't name."""
+        pending = connect_kinds.pending_for
+        saved = {**SIGN_IN, "agent": "remote", "model": "gpt-x", "base_url": "https://a.example/v1"}
+        self.assertNotIn("model", pending("ollama", saved, {}))
+        self.assertEqual(pending("remote", saved, {})["base_url"], "https://a.example/v1")
+        self.assertNotIn("model", pending("remote", {**SIGN_IN}, {"agent_kind": "ollama", "model": "qwen3:8b"}))
+        self.assertEqual(pending("ollama", {**SIGN_IN}, {"agent_kind": "ollama", "model": "qwen3:8b"})["model"], "qwen3:8b")
+
+    def test_pms_model_survives_a_missing_tool(self):
+        """GPT review: stopped for a missing tool, the rerun still has @pm's model."""
+        self.installed = {"claude"}
+        _, _, _, failed = self.run_connect("ABCDE-FGHJK", answer={**SIGN_IN, "agent_kind": "ollama", "model": "qwen3:8b"})
+        self.assertIn("runs through Codex", failed)
+        self.installed = {"codex"}
+        _, _, _, failed = self.run_connect(tty=False)
+        self.assertEqual((failed, self.saved()["model"]), (None, "qwen3:8b"))
 
     def test_the_persons_own_choice_wins_and_is_said(self):
         install, said, _, _ = self.run_connect("ABCDE-FGHJK", "--agent", "claude",

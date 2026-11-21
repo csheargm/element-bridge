@@ -6,10 +6,14 @@ lockdown for locked turns), plus `-c` overrides that pick the provider and `-m <
   - remote: our own provider entry with the person's base_url, wire_api "responses", and
     env_key HAGENCY_REMOTE_API_KEY. The key goes to Codex ONLY in that environment variable: never
     in argv, a log or a config file of Codex's; Codex's own shells get it blanked
-    (shell_environment_policy.set), so a command the model runs can't print it.
+    (shell_environment_policy.set), so a command the model runs can't print it, and it is cut out
+    of every reply and error (scrub).
 The key lives in remote.env (mode 600) beside the agent's credentials.json, written by connect.py
-from a getpass prompt. Model and base_url come from the credentials file (checked again here).
+from a getpass prompt, TOGETHER with the address it was typed for: a turn whose base_url isn't that
+address gets no key (GPT review: a reconnect could otherwise send a new key to an old address).
+Model and base_url come from the credentials file (checked again here).
 """
+import hashlib
 import os
 import tempfile
 from pathlib import Path
@@ -17,6 +21,7 @@ from pathlib import Path
 import agent_kinds
 
 KEY_ENV = "HAGENCY_REMOTE_API_KEY"
+URL_ENV = "HAGENCY_REMOTE_BASE_URL"          # in remote.env only: the address the key belongs to
 KEY_FILE = "remote.env"
 PROVIDER_ID = "hagency_remote"               # a TOML bare key; Codex reserves openai, ollama, lmstudio...
 OLLAMA_PROVIDER = "ollama"
@@ -37,21 +42,24 @@ def key_path(folder: Path) -> Path:
     return folder / KEY_FILE
 
 
-def save_key(folder: Path, key: str) -> Path:
-    """Written as 0600 (a new temp file: no symlink games) and swapped in whole."""
+def save_key(folder: Path, key: str, base_url: str) -> Path:
+    """The key and its address in one 0600 file (a new temp file: no symlink games), swapped in whole."""
     if not valid_key(key):
         raise ProviderError("that API key has spaces or odd characters in it; paste it again")
+    if not agent_kinds.valid_base_url(base_url):
+        raise ProviderError("the service's address doesn't look right")
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=".remote-")
     with os.fdopen(fd, "w") as f:
-        f.write(f"{KEY_ENV}={key}\n")
+        f.write(f"{URL_ENV}={base_url}\n{KEY_ENV}={key}\n")
     path = key_path(folder)
     os.replace(tmp, path)
     return path
 
 
-def load_key(folder: Path) -> str | None:
-    """The saved key, or None when there is none (or it isn't only the owner's: then it's not used)."""
+def load_key(folder: Path) -> tuple[str, str] | None:
+    """(key, the address it belongs to), or None when there is none. Raises ProviderError when
+    others can read the file (then it's not used)."""
     path = key_path(folder)
     try:
         if os.name != "nt" and path.stat().st_mode & 0o077:
@@ -59,11 +67,13 @@ def load_key(folder: Path) -> str | None:
         text = path.read_text()
     except FileNotFoundError:
         return None
+    found = {}
     for line in text.splitlines():
         name, sep, value = line.partition("=")
-        if sep and name.strip() == KEY_ENV and valid_key(value.strip()):
-            return value.strip()
-    return None
+        if sep:
+            found[name.strip()] = value.strip()
+    key, url = found.get(KEY_ENV), found.get(URL_ENV)
+    return (key, url) if valid_key(key) and agent_kinds.valid_base_url(url) else None
 
 
 def _setting(creds: dict, key: str, check) -> str:
@@ -87,17 +97,27 @@ def args(kind: str, creds: dict) -> list[str]:
             "-c", f'shell_environment_policy.set.{KEY_ENV}=""', "-m", model]
 
 
-def env(kind: str, creds_path: str | None) -> dict:
-    """What the Codex process needs in its environment for this kind: the key for remote."""
+def env(kind: str, creds_path: str | None, creds: dict) -> dict:
+    """What the Codex process needs in its environment for this kind: for remote, the key, only
+    when it was typed for this very base_url."""
     if kind != "remote":
         return {}
-    key = load_key(Path(creds_path).parent) if creds_path else None
-    if not key:
+    saved = load_key(Path(creds_path).parent) if creds_path else None
+    if not saved:
         raise ProviderError("no API key saved for the remote service; run connect.py again to enter it")
+    key, url = saved
+    if url != creds.get("base_url"):
+        raise ProviderError("the saved API key belongs to another service address; run connect.py again")
     return {KEY_ENV: key}
 
 
+def session_tag(kind: str, creds: dict) -> str:
+    """Saved sessions are per service address: a conversation never resumes at another provider."""
+    url = creds.get("base_url")
+    return ":" + hashlib.sha256(url.encode()).hexdigest()[:12] if kind == "remote" and isinstance(url, str) else ""
+
+
 def scrub(text: str, extra_env: dict) -> str:
-    """An error text with the key (should a CLI ever echo it) cut out."""
+    """A reply or error with the key (should the service or the CLI ever echo it) cut out."""
     key = extra_env.get(KEY_ENV)
     return text.replace(key, "***") if key else text

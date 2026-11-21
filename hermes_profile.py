@@ -199,9 +199,19 @@ def write_env(profile: Path, values: dict, key_name: str | None) -> None:
     lines = [ln for ln in lines if ln.split("=", 1)[0].strip() not in (*MATRIX_KEYS, *WIDENING_KEYS, key_name)]
     if key_name:
         lines += [ln for ln in (HERMES_HOME / ".env").read_text().splitlines() if ln.startswith(key_name + "=")]
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    if any("\n" in str(v) or "\r" in str(v) for v in values.values()):
+        raise ValueError("a Matrix setting has a line break in it")   # would add its own lines to .env
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    os.fchmod(fd, 0o600)                     # an older .env keeps its mode otherwise (GPT review)
     with os.fdopen(fd, "w") as f:
         f.write("\n".join([*lines, *(f"{k}={v}" for k, v in values.items())]) + "\n")
+
+
+def _yaml_env(env: dict) -> str:
+    """The MCP server's env block, each value single-quoted for YAML (a quote doubled; no line breaks)."""
+    if any("\n" in str(v) or "\r" in str(v) for v in env.values()):
+        raise ValueError("a setting for the hagency MCP server has a line break in it")
+    return "\n".join(f"      {k}: '{str(v).replace(chr(39), chr(39) * 2)}'" for k, v in env.items())
 
 
 def configure(name: str, *, owner: str, agent: str, password: str, home_room: str | None,
@@ -217,7 +227,7 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
     env = {"HAGENCY_AGENT": agent, **repo_env(), "PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
            **(mcp_env or {}), **({LOOP_ONLY_ENV: "1"} if loop else {})}     # loop: no hagency web tools either
     forget_pairings(profile)
-    env_lines = "\n".join(f"      {k}: '{v}'" for k, v in env.items())
+    env_lines = _yaml_env(env)
     model_lines = "\n".join(f"  {k}: {v}" for k, v in model.items())
     (profile / "config.yaml").write_text(f"""model:
 {model_lines}

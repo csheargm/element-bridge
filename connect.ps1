@@ -10,8 +10,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Code,
     [ValidateSet('codex', 'claude', 'ollama', 'remote')][string]$Agent,   # none: the kind @pm set up
-    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$')][string]$Model,   # agent_kinds.MODEL_RE
-    [ValidatePattern('^https?://[^\s"\\]+$')][string]$BaseUrl,                # connect.py checks it fully
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}\z')][string]$Model,   # agent_kinds.MODEL_RE
+    [ValidatePattern('^https?://[^\s"\\]+\z')][string]$BaseUrl,                # connect.py checks it fully
     [switch]$NewKey
 )
 Set-StrictMode -Version 3

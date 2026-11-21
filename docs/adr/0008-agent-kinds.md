@@ -30,8 +30,8 @@ carry, besides `homeserver`, `user_id`, `password`, `owner` and `label`:
 - **No `agent_kind`** (every older server): today's behaviour, Codex or Claude Code, whichever is
   installed (asked when both are).
 - **A value that is present but wrong** (unknown kind, odd model, plain-http address) is refused by
-  `agent_kinds.from_connect_info` and nothing is saved: the person would otherwise run a different
-  agent than the one they chose.
+  `agent_kinds.from_connect_info`. Only the sign-in is saved (the code is used up), never these
+  values: the person would otherwise run a different agent than the one they chose.
 - **Which kind runs:** `connect.py --agent KIND` (the person's own choice here wins, and a
   difference from @pm's is said). Else `agent_kind`. Else the kind saved last time. Else a further
   agent's label when it is `codex` or `claude`. Else the old automatic pick.
@@ -95,14 +95,28 @@ carry, besides `homeserver`, `user_id`, `password`, `owner` and `label`:
   - **Typing it:** asked with `getpass` (never echoed) after showing the address it will be sent to.
     It is never accepted from argv or the environment. With no terminal, connect.py refuses.
   - **Storing it:** saved as `remote.env` (mode 600, a fresh temp file swapped in) beside the
-    agent's `credentials.json`. It is not used if others can read the file.
+    agent's `credentials.json`, **together with the address it was typed for**. It is not used if
+    others can read the file.
   - **Asked again** whenever the address changes (a saved key never goes to a new address), and on
     `--new-key`. The file is deleted when the agent switches to another kind.
   - **At turn time** it reaches Codex only as the `HAGENCY_REMOTE_API_KEY` environment variable of
-    that one process. It is never in argv, the service file, a log or `os.environ` of the bridge.
-    Codex's own shells get it blanked (`shell_environment_policy.set.HAGENCY_REMOTE_API_KEY=""`),
-    so a command the model runs can't print it. A CLI error that echoes it is scrubbed before it
-    can reach the room.
+    that one process, and only when the turn's `base_url` is the address saved with the key. A
+    bridge still running with the old address during a reconnect therefore gets no key.
+  - **Never shown:** the key is never in argv, the service file, a log or `os.environ` of the
+    bridge. Codex's own shells get it blanked
+    (`shell_environment_policy.set.HAGENCY_REMOTE_API_KEY=""`), so a command the model runs can't
+    print it. A reply or CLI error that echoes the exact key has it cut out before it can reach the
+    room or @pm.
+  - **Remaining risk (as in ADR 0006):** the agent's own tools can read files its sandbox allows,
+    including `remote.env`, just as they can read `credentials.json` and the CLI's own sign-ins. The
+    owner's deny rules and the CLI's sandbox are the defence. Saved sessions are kept per service
+    address, so a conversation never resumes at another provider.
+- **Settings stay with their kind:** `connect_kinds.pending_for` keeps a model or address only for
+  the kind it was chosen for, and @pm's only when @pm named that kind. It is saved before any
+  check, so a rerun after "install X first" still has @pm's model.
+- **Odd values from @pm:** if @pm's connect info has a kind, model or address this computer won't
+  use, the sign-in (the used code) is still saved and nothing else. The person is told to rerun
+  with `--agent`.
 - Questions are printed on their own line, then read from stdin (`ask_line.py`). connect.ps1 pipes
   output through `Out-Host`, which shows a line only once it ends.
 
@@ -117,9 +131,10 @@ carry, besides `homeserver`, `user_id`, `password`, `owner` and `label`:
   `{"state": "waiting"|"connected"|"expired"}`:
   - **connected** means `POST /connect` handed out the sign-in for that code (remembered in memory,
     by hash, for 30 minutes).
-  - **Limits:** 30 asks a minute per client. Codes that aren't live count as wrong codes on a
-    limiter of its own, so guessing here is as limited as at `/connect`, and a page can't lock out
-    connect.py.
+  - **Limits:** 30 asks a minute per client, and refused asks aren't counted. Codes that aren't
+    live count as wrong codes, per client only, on a limiter of its own. So guessing here is as
+    limited as at `/connect`, many guessers can't stop anyone else's status, and a page can't lock
+    out connect.py. The page asks only about a whole code, never one still being typed.
   - **Content-Security-Policy:** it now allows `connect-src 'self'` and nothing more. The code
     still never appears in a URL the server sees.
 - **The "expired" link:** it points to `ELEMENT_ORIGIN/#/user/@pm:<server>`, the same for everyone,

@@ -1094,3 +1094,47 @@ Re-check (GPT, the fix commit): six points. Adopted, with tests:
 Rejected: **a failed Welcome lookup skips the Lobby lookup** and **is_welcome_room checks only the
 main address** (both pre-existing; the address check still guards, the next start retries; out of
 scope, R8).
+
+## GPT review of feat/agent-backends (agent kinds on your own computer, Connect page, R15)
+
+The review focused on secret handling and command injection. GPT found no shell or flag injection:
+the model and address are separate argv items, and connect.ps1 splats an array. It raised 11
+points. Adopted, each verified in the code and covered by a test:
+- **Key bound to its address:** `remote.env` now holds the key together with the address it was
+  typed for. A turn whose `base_url` differs gets no key. Before, during a reconnect the running
+  bridge (old address) could send the newly typed key to the old address.
+- **A reply that echoes the key:** the exact key is now cut out of successful replies too, not
+  only out of errors.
+- **Sessions per address:** saved sessions are keyed by the address (`remote:<hash>`), so a
+  conversation never resumes at another provider.
+- **Hermes `.env` and YAML:**
+  - A line break in a server-sent value (the password) is refused rather than written into `.env`,
+    where it could have added `MATRIX_ALLOWED_USERS=*`.
+  - An older `.env` is chmod'ed to 0600 and opened without following symlinks.
+  - YAML values have their quotes doubled.
+- **Validators:** they used `match` with `$`, which allows a trailing newline. They now use
+  `fullmatch`, and PowerShell uses `\z`. A malformed IPv6 address no longer raises from
+  `urlsplit`.
+- **Status limiter:**
+  - The wrong-code budget is per client only, so many guessers can't stop everyone's status.
+  - Refused asks aren't stored.
+  - The page polls only a whole code, never one still being typed.
+- **Odd offer values:** a kind, model or address @pm sent that this computer won't use now still
+  leaves the sign-in saved (the code is used up), with "rerun with `--agent`". Before, nothing was
+  saved.
+- **Settings stay with their kind:** a model or address is kept only for the kind it was chosen
+  for, and @pm's only when @pm named that kind. It is saved before the tool check, so a rerun
+  keeps @pm's model.
+
+Not adopted:
+- **A credential broker that hides the key from the agent's own tools:** same-user files the
+  sandbox can read stay readable, as for `credentials.json` and the CLIs' own sign-ins (ADR 0006's
+  accepted risk, now named in ADR 0008).
+- **A fixed public error for remote failures:** errors are scrubbed and cut short, and they help
+  the owner fix a wrong address or model.
+- **Retryable redemption with a client-held claim secret:** a server protocol change, outside this
+  PR. A used code's sign-in is now always saved first.
+- **A separate status token and origin:** the status reveals only waiting/connected/expired, by
+  POST body, rate-limited.
+- **"@pm never supplies the kind":** that is the @pm side's part of the contract (another
+  change). The `#kind=` on the page is only a pre-check hint.

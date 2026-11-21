@@ -73,8 +73,11 @@ def setup() -> tuple[str, str]:
         raise SystemExit("✗ the sign-in folder's path has a quote in it; use another folder (--home)")
     import hermes_profile
     creds, person, owner_id = _who()
-    hermes_profile.configure_both(person, owner=person, owner_id=owner_id, agent=creds["user_id"][1:].partition(":")[0],
-                                  password=creds["password"], home_room=None, mcp_env={"HAGENCY_CREDENTIALS": path})
+    try:
+        hermes_profile.configure_both(person, owner=person, owner_id=owner_id, agent=creds["user_id"][1:].partition(":")[0],
+                                      password=creds["password"], home_room=None, mcp_env={"HAGENCY_CREDENTIALS": path})
+    except ValueError as e:                   # a line break in a server-sent value: never written into .env
+        raise SystemExit(f"✗ {e}; ask @pm for a new code") from e
     return hermes_profile.profile_names(person)
 
 

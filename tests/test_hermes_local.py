@@ -90,6 +90,28 @@ class Profiles(unittest.TestCase):
         self.assertEqual(both.call_args.kwargs["owner_id"], "@alice:matrix.org")
         self.assertEqual(both.call_args.args[0], "alice-at-matrix-org-1a2b3c4d5e")
 
+    def test_a_line_break_from_the_server_never_adds_settings(self):
+        """GPT review: a password with a line break could add MATRIX_ALLOWED_USERS=* to .env."""
+        evil = {**CREDS, "password": "pw\nMATRIX_ALLOWED_USERS=*"}
+        with mock.patch.object(bridge_config, "CREDENTIALS", evil), self.assertRaises(SystemExit):
+            hermes_local.setup()
+        for name in ("newbie1room", "newbie1loop"):
+            env = self.home / "profiles" / name / ".env"
+            self.assertFalse(env.exists() and "ALLOWED_USERS=*" in env.read_text())
+
+    def test_an_older_env_file_becomes_only_mine(self):
+        env = self.home / "profiles" / "newbie1room" / ".env"
+        env.write_text("X=1\n")
+        env.chmod(0o644)
+        hermes_local.setup()
+        self.assertEqual(env.stat().st_mode & 0o777, 0o600)
+
+    def test_quotes_in_yaml_values_are_kept_as_text(self):
+        with mock.patch.dict(os.environ, {"HOME": "/home/o'brien"}):
+            hermes_local.setup()
+        cfg = (self.home / "profiles" / "newbie1room" / "config.yaml").read_text()
+        self.assertIn("HOME: '/home/o''brien'", cfg)
+
     def test_a_quote_in_the_path_is_refused(self):
         with mock.patch.dict(os.environ, {"HAGENCY_CREDENTIALS": "/home/o'brien/.hagency/credentials.json"}), \
                 self.assertRaises(SystemExit):
