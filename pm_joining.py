@@ -66,7 +66,7 @@ class Joining:
         if room is None or (person in room.users and person not in room.invited_users):
             return False
         mods = await room_state.moderators(self.client, room)   # first: a failed read never uses up a try (GPT review)
-        if not self.may_ask(room_id, person, knock):
+        if not [m for m in mods if m != person] or not self.may_ask(room_id, person, knock):
             return False
         asked = False
         for mod in mods:

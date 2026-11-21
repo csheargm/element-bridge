@@ -108,15 +108,35 @@ class Address(Base):
         self.assertFalse(any(m == "DELETE" for m, _ in self.calls))
         self.assertEqual(self.state["!a"][room_address.ADDRESS_EVENT][0], {})                # my record goes
 
-    def test_an_address_made_by_a_lost_try_is_used_and_other_addresses_are_kept(self):
-        """GPT review: a PUT whose answer was lost left the alias pointing here; alt_aliases survive."""
+    def test_an_address_already_pointing_here_is_used_but_never_removed_and_others_are_kept(self):
+        """GPT review: a PUT whose answer was lost (or the owners) left the alias pointing here; it is
+        used, but not recorded as mine, so I never delete it. alt_aliases survive."""
         self.aliases[f"#final-project:{S}"] = "!a"
         alt = {"alt_aliases": [f"#old:{S}"]}
         self.state["!a"] = {"m.room.canonical_alias": (alt, ANNA)}
         self.assertIn(f"Its address is #final-project:{S}.", run(self.lp.set_visibility(self.room, ANNA, "listed")))
         self.assertEqual(self.state["!a"]["m.room.canonical_alias"][0], {**alt, "alias": f"#final-project:{S}"})
+        self.assertNotIn(room_address.ADDRESS_EVENT, self.state["!a"])
         run(self.lp.set_visibility(self.room, ANNA, "private"))
-        self.assertEqual(self.state["!a"]["m.room.canonical_alias"][0], alt)
+        self.assertEqual(self.aliases[f"#final-project:{S}"], "!a")
+        self.state["!a"].pop("m.room.canonical_alias")
+        self.state["!a"][room_address.ADDRESS_EVENT] = ({"alias": f"#mine:{S}"}, PM)
+        self.state["!a"]["m.room.canonical_alias"] = ({**alt, "alias": f"#mine:{S}"}, PM)
+        self.aliases[f"#mine:{S}"] = "!a"
+        run(self.lp.set_visibility(self.room, ANNA, "private"))
+        self.assertEqual(self.state["!a"]["m.room.canonical_alias"][0], alt)               # mine goes, theirs stay
+
+    def test_a_repo_named_address_that_cant_be_removed_stops_the_bind(self):
+        """GPT re-check: a failed removal must not let the private repo be bound."""
+        self.state["!a"] = {room_address.ADDRESS_EVENT: ({"alias": f"#secret-one:{S}"}, PM)}
+        self.aliases[f"#secret-one:{S}"] = "!a"
+
+        async def refuse_delete(method, path, body=None, headers=None, timeout=None):
+            return reply(403, {}) if method == "DELETE" else await self.lp_send(method, path, body, headers, timeout)
+        self.lp_send, self.lp.client.send = self.lp.client.send, refuse_delete
+        with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
+            refused, _ = run(self.lp.close_for_private("!a", "a/secret-one"))
+        self.assertIn("I haven't set the repo", refused)
 
     def test_binding_a_private_repo_replaces_an_address_that_names_it(self):
         """GPT review: listed (with its address) before the private repo was bound."""

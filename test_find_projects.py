@@ -137,6 +137,18 @@ class FindAndAsk(Base):
         self.assertFalse(any(b.startswith("**Sec**") for b in said), said)
         self.assertNotIn("$old", self.lp._find_offers)                                     # expired: pruned
 
+    def test_the_reply_names_the_room_as_it_was_shown_and_nothing_listed_says_so(self):
+        """GPT re-check: a rename during the ask never reaches the chat; no header for nothing."""
+        self.find()
+        event, _ = self.line("final project")
+        self.final.display_name = "renamed in secret"
+        run(self.lp.on_project_reaction(self.lobby, click(NEW, "🙋", event)))
+        self.assertNotIn("renamed", "".join(b for r, b in self.said if r == "!l"))   # the moderators may see it
+        for rid in ("!fin", "!pub", "!sec"):
+            self.state[rid][project_rooms.VISIBILITY_EVENT] = ({"visibility": "private"}, PM)
+        self.lp._finds = {}
+        self.assertEqual([b for _, b in self.find()][-1], pm_find.NONE_YET)
+
     def test_members_see_they_are_in_and_listing_is_rate_limited(self):
         said = [b for _, b in self.find(ANNA)]
         self.assertTrue(all("You're in it already" in b for b in said[1:]), said)

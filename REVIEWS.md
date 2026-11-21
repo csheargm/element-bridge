@@ -1043,3 +1043,18 @@ Rejected, with reasons:
 - **Check offer_thumb's send result.** Pre-existing helper used by every button; out of scope (R8).
 - **"comes along" for an agent that connected once but is offline now.** The task asked for the
   ever_connected rule; the agent is invited and joins when its computer is back.
+Re-check (GPT, the fix commit): three blocking, four should-fix, one nit. Adopted, with tests:
+- **A repo-named address that couldn't be removed still let the private repo be bound.** keep_secret
+  raises, so close_for_private refuses. test_room_address (test_a_repo_named_address_that_cant_be_removed_stops_the_bind).
+- **The 🙋 reply read the room's name after the ask (a rename meanwhile could leak).** The name as shown
+  is kept with the offer. test_find_projects (test_the_reply_names_the_room_as_it_was_shown_…).
+- **A 409 resolving here could be the owners' alias, then recorded as mine and later deleted.** It is
+  used as the main address but never recorded as mine, so I never remove it. test_room_address
+  (test_an_address_already_pointing_here_is_used_but_never_removed_and_others_are_kept).
+- **A failed moderator read (is_moderator → False) still used up a try.** No moderator to ask: no try
+  taken. **Nit: a header with no rooms under it**: the header goes out with the first room only.
+Rejected: **lookup-then-DELETE race** (Matrix has no compare-and-delete; the window is one request,
+and Synapse only lets @pm delete aliases it made or in rooms it moderates); **👎 on a 🙋 leaves the
+Matrix knock pending** (the knock stays visible to moderators in Element; only my buttons go, as
+the person was answered); **"ask" + never-connected agent** (the reply already says it joins once
+connected; pm_follow asks when they join).

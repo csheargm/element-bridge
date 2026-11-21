@@ -70,15 +70,19 @@ class Finding:
         for eid in [e for e, o in offers.items() if time.time() - o["at"] > OFFER_S]:
             offers.pop(eid, None)             # expired: pruned as new ones come
         try:
-            found = await self.find_projects(person)
-            await self.say(room_id, HEADER if found else NONE_YET)
-            for rid, text, ask in found:
+            posted = False
+            for rid, text, ask in await self.find_projects(person):
                 if await project_rooms.visibility(self.client, rid) == project_rooms.PRIVATE:
                     continue                  # made private while I was listing (GPT review)
+                if not posted:
+                    posted = bool(await self.say(room_id, HEADER))   # only once there is a room to show
                 event = await self.say(room_id, text)
                 if ask:
-                    self.find_offers()[event] = {"room": rid, "person": person, "chat": room_id, "at": time.time()}
+                    self.find_offers()[event] = {"room": rid, "person": person, "chat": room_id, "at": time.time(),
+                                                 "name": plain(self.room_name(rid))}   # as shown: never a later name
                     await self.offer_thumb(room_id, event, ASK)
+            if not posted:
+                await self.say(room_id, NONE_YET)
         except (RuntimeError, OSError) as e:  # SendError, network: they can ask again
             log.error("couldn't list projects for %s: %s", person, e)
 
@@ -114,5 +118,5 @@ class Finding:
             self.find_offers()[event.reacts_to] = offer
             await self.say(room.room_id, f"I couldn't ask just now; click {ASK} again in a minute.")
             return True
-        await self.say(room.room_id, (ASKED_OWNERS if asked else NOT_ASKED).format(name=plain(self.room_name(offer["room"]))))
+        await self.say(room.room_id, (ASKED_OWNERS if asked else NOT_ASKED).format(name=offer["name"]))
         return True

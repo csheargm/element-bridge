@@ -10,6 +10,7 @@ import json
 import logging
 import re
 import urllib.parse
+from types import SimpleNamespace
 
 from nio import AsyncClient, RoomGetStateResponse
 
@@ -22,6 +23,7 @@ ADDRESS_EVENT = "xyz.hagencylabs.address"
 SLUG_MAX = 40
 TRIES = 10                                    # #name, #name-2 … #name-10
 FALLBACK = "project"
+MADE, HERE, TAKEN = "made", "here", "taken"
 RESERVED = ("lobby", "welcome", "pm")         # @pm's own rooms and name: never a look-alike #lobby-2
 
 
@@ -68,16 +70,17 @@ async def addresses(client: AsyncClient, room_id: str) -> tuple[str | None, dict
     return mine, canonical
 
 
-async def claim(client: AsyncClient, room_id: str, alias: str) -> bool | None:
-    """True: `alias` now points here (made now, or by an earlier try whose answer was lost: GPT review);
-    False: another room has it; None: the server refused."""
+async def claim(client: AsyncClient, room_id: str, alias: str) -> str | None:
+    """MADE: I made `alias` for this room now; HERE: it already points here (an earlier try whose answer
+    was lost, or the owners': GPT review), so it is used but never recorded as mine (never removed by
+    me); TAKEN: another room has it; None: the server refused."""
     status = await call(client, "PUT", alias_path(alias), {"room_id": room_id})
     if status == 409:
-        return await matrix_calls.room_of_alias(client, alias) == room_id
+        return HERE if await matrix_calls.room_of_alias(client, alias) == room_id else TAKEN
     if status != 200:
         log.warning("couldn't make %s for %s: HTTP %s", alias, room_id, status)
         return None
-    return True
+    return MADE
 
 
 async def give(client: AsyncClient, room_id: str, name: str, private_repo: str | None, canonical: dict) -> str | None:
@@ -85,18 +88,20 @@ async def give(client: AsyncClient, room_id: str, name: str, private_repo: str |
     base = localpart(name, private_repo)
     for n in range(1, TRIES + 1):
         alias = f"#{base if n == 1 else f'{base}-{n}'}:{SERVER_NAME}"
-        mine = await claim(client, room_id, alias)
-        if mine is None:
+        got = await claim(client, room_id, alias)
+        if got is None:
             return None
-        if not mine:                          # taken: the next number
+        if got == TAKEN:                      # the next number
             continue
-        recorded = await client.room_put_state(room_id, ADDRESS_EVENT, {"alias": alias})   # first: removable later
+        recorded = await client.room_put_state(room_id, ADDRESS_EVENT, {"alias": alias}) \
+            if got == MADE else SimpleNamespace(event_id=None)   # mine: recorded first, removable later
         shown = await client.room_put_state(room_id, "m.room.canonical_alias", {**canonical, "alias": alias}) \
             if hasattr(recorded, "event_id") else recorded
         if hasattr(shown, "event_id"):
             return alias
         log.warning("couldn't make %s the address of %s: %s", alias, room_id, shown)
-        await take(client, room_id, alias)
+        if got == MADE:
+            await take(client, room_id, alias)
         return None
     return None
 
@@ -118,9 +123,12 @@ async def take(client: AsyncClient, room_id: str, alias: str) -> bool:
 async def keep_secret(client: AsyncClient, room_id: str, name: str, private_repo: str) -> None:
     """Binding a private repo: my address (made before the bind) never holds its name (GPT review)."""
     mine, _ = await addresses(client, room_id)
-    if mine and localpart(mine[1:].split(":")[0], private_repo) == FALLBACK and await take(client, room_id, mine):
-        _, canonical = await addresses(client, room_id)
-        await give(client, room_id, name, private_repo, canonical)
+    if not mine or localpart(mine[1:].split(":")[0], private_repo) != FALLBACK:
+        return
+    if not await take(client, room_id, mine):
+        raise RuntimeError(f"couldn't remove {mine}")   # the caller doesn't bind the repo (GPT re-check)
+    _, canonical = await addresses(client, room_id)
+    await give(client, room_id, name, private_repo, canonical)
 
 
 async def follow(client: AsyncClient, room_id: str, listed: bool, name: str, private_repo: str | None) -> str:
