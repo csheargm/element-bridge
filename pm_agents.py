@@ -38,7 +38,7 @@ NAME_ANSWER_RE = re.compile(r"^\W*((call|name) it|let'?s call it|it'?s)?\s*(?P<l
 ADD_HINT = "\n\nWant another agent too (for example Codex as well as Claude Code)? Click ➕ below."
 ASK_NAME = ("What should I call your new agent? One short word, letters and digits (up to 9), for example "
             "**codex** or **laptop**. (Say \"cancel\" to stop.)")
-BRING_REPLY = ("Your agent is **{agent}**. On the computer where {where} is installed, open "
+BRING_REPLY = ("Your agent is **{agent}**. On the computer where {where}, open "
                "[your Connect page]({link}): it shows the one line to paste there (Mac, Windows or Linux).\n\n"
                "Your code: `{code}` (it works once, within 30 minutes). On a Mac or Linux this is the same line:\n\n"
                "`{line}`\n\nYour agent then runs in the background. It has invited you to a private chat: "

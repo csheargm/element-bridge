@@ -170,3 +170,20 @@ class NamesAndOldRecords(KindFlow):
         answer, install, _, _ = self.run_on_computer(message)
         self.assertEqual(answer["user_id"], f"@cx-agent:{flows.S}")
         self.assertEqual(install.args[2], "claude")
+
+
+class WhatTheirComputerNeeds(KindFlow):
+    """Screen test 4: an Ollama (or remote) agent's Connect message said "On the computer where Codex is
+    installed"; it says what that kind needs there (agent_kinds.ABOUT)."""
+    SAID = (("ol", "ollama qwen3:8b", "where Ollama and Codex are installed,"),
+            ("rm", f"remote {OPENROUTER} openai/gpt-4o", "where Codex is installed (have the service's API key at hand"),
+            ("he", "hermes", "where Hermes is installed (macOS or Linux),"),
+            ("cl", "claude", "where Claude Code is installed,"),
+            ("cx2", "codex", "where Codex is installed,"))
+
+    def test_each_kinds_connect_message_says_what_must_be_installed(self):
+        with mock.patch.dict("os.environ", {"HAGENCY_AGENTS_PER_PERSON": "9"}):
+            for label, how, said in self.SAID:
+                with self.subTest(how=how):
+                    self.assertIn(f"On the computer {said}", self.tell(f"@pm add another agent called {label} using {how}"))
+        self.assertEqual({how.split()[0] for _, how, _ in self.SAID}, set(agent_kinds.KINDS))
