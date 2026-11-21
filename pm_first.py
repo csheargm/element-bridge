@@ -21,10 +21,10 @@ from redact import room_safe
 from setup_accounts import AccountError
 
 log = logging.getLogger("loop")
-HOUSE, BRING = "🏠", "🔌"
+HOUSE, BRING = "🏠", "🔌"   # 🏠: only on old offers (the server agent, not built yet)
 USING_RE = re.compile(r"\bbring (my|your) own\b(\s+agent)?\s+(using|with|running)\s+(?P<how>.+?)\W*$", re.I)
-HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
-               f"own: type \"bring my own\" ({agent_kinds.IN_WORDS} on your computer).")
+SERVER_REPLY = ("A server agent, one that runs on this server for you, isn't here yet. For now you can bring "
+                f"your own: type \"bring my own\" ({agent_kinds.IN_WORDS} on your computer).")
 # Under the first agent's Connect message until it connects (pm_agents.send_code).
 CHOOSE_HINT = ("\n\n{now} For another AI, type for example \"bring my own using hermes\", \"... using ollama "
                "llama3.2\" or \"... using remote https://openrouter.ai/api/v1 openai/gpt-4o\", or choose it in "
@@ -52,7 +52,7 @@ class FirstAgent:
         it runs (pm_kinds.choice; {}: the one found on their computer), only while it has never
         connected; None: keep what it has."""
         if key == HOUSE:
-            await self.say(dm, HOUSE_REPLY)
+            await self.say(dm, SERVER_REPLY)
             return
         busy = self.__dict__.setdefault("_provisioning", set())
         if person in busy or not self.may_have_agent(person):
