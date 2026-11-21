@@ -29,15 +29,16 @@ HOW = ("Say which AI it runs, for example \"add another agent called pi using cl
        "ollama [model], remote <base URL> <model>).")
 
 
-LONG_RUN = 20                                 # a key-like piece: this long, letters and digits mixed
+LONG_RUN = 20                                 # a key-like piece: this long, letters and digits mixed,
+LONGER_RUN = 32                               # or this long of either (no model name has such a word)
 
 
 def looks_like_key(text: str) -> bool:
     """A key someone pasted: a known key prefix, or a long piece of mixed letters and digits (model names and
     URL paths are short words: llama3.2, openai/gpt-4o, api/v1). GPT review: plain keys had no prefix."""
     pieces = re.split(r"[/:._@+\-\s?=&]+", str(text))
-    return bool(KEY_RE.search(text)) or any(len(p) >= LONG_RUN and re.search(r"[A-Za-z]", p) and re.search(r"\d", p)
-                                           for p in pieces)
+    return bool(KEY_RE.search(text)) or any(len(p) >= LONGER_RUN or (len(p) >= LONG_RUN and re.search(r"[A-Za-z]", p)
+                                                                      and re.search(r"\d", p)) for p in pieces)
 
 
 def clean_url(text: str) -> str | None:

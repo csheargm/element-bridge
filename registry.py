@@ -245,7 +245,8 @@ def add_agent(person: str, label: str, kind: str = REMOTE, picked: dict | None =
 def free_label(person: str, word: str, data: dict) -> str:
     """The account slot for a new agent the person calls `word`: `word` itself, or (that name's account
     was closed for good, or is someone else's) word2, word3 … so a removed name can be used again."""
-    gone = set(data[person].get(REMOVED) or []) | {a["label"] for a in agents_of(person, data)}
+    have = agents_of(person, data)            # never another agent's slot or given name (GPT re-check)
+    gone = set(data[person].get(REMOVED) or []) | {a["label"] for a in have} | {name_of(a).lower() for a in have}
     for n in range(1, 100):
         label = word if n == 1 else f"{word[:identity.LABEL_MAX - len(str(n))]}{n}"
         if label not in gone and not claimants(identity.agent_localpart(person, SERVER_NAME, label)):

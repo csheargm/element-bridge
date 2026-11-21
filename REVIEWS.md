@@ -1193,3 +1193,18 @@ GPT (Codex) on feat/remove-repo..HEAD: two blocking, three medium. Adopted, with
 Deferred: **the home button may open a DM the person made themselves** (Element's #/user/…?action=chat
 reuses the direct chat in their m.direct; @pm creates its own with is_direct, so that is the usual
 one; a person-opened DM gets no My Hagency, and the panel's chat links point to @pm's own chat).
+Re-check (GPT, the fix commit): two blocking, two medium. Adopted, with tests:
+- **@pm's replaced chat lost its protection** (a newer chat overwrote the record). Every chat My
+  Hagency was put in is kept on disk (console_personal.had_panel) and stays refused if it changes.
+  test_my_hagency (test_a_chat_pm_replaced_since_is_still_refused).
+- **A new slot could take another agent's given name** (codex → codex2 while another agent is
+  called codex2). Slots skip given names too. test_a_new_slot_never_takes_another_agents_given_name.
+- **Resending a code could change a finished agent's AI.** Only an unfinished one takes the new
+  choice, after the account check. test_a_finished_agent_keeps_its_ai_when_its_code_is_resent.
+- **Keys of letters (or digits) only.** A word of 32+ characters counts too.
+  test_a_long_word_of_letters_only_is_a_key_too.
+Rejected: **catching every possible key** (a short or split key can't be told from a model name;
+@pm never asks for one, says where it goes, and refuses what looks like one; a model ID with a
+40-character hash in it is refused as the price); **two renames of one person racing past the
+name check** (5 per hour per person, one at a time on the server: the window is a person against
+themselves); **multi-word names in "remove my agent NAME"** (the panel's buttons cover them).

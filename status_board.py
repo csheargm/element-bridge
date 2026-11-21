@@ -140,6 +140,8 @@ class Boards:
                     and not console_personal.is_personal_chat(self, room))   # My Hagency there: personal cards
                 or not await room_state.is_moderator(self.client, room, self.user_id)):   # creators too (v12)
             return
+        if console_personal.is_personal_chat(self, room):
+            console_personal.had_panel(self)[room_id] = console_personal.owner_of(self, room)   # refused for good if it changes
         if await panel.add_to_room(self.client, room_id):
             self.boards[room_id] = {**board, "panel": True}
             self.save_boards()

@@ -38,7 +38,7 @@ class MyHagency(unittest.TestCase):
         self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.dm_rooms, self.lp.pending, self.said = PM, {ANNA: "!dm"}, {}, []
-        self.lp._welcomes, self.lp._direct_chats = {}, {}
+        self.lp._welcomes, self.lp._direct_chats, self.lp._personal_chats = {}, {}, {}
         self.lp.agent_online, self.lp.ever_connected = (lambda a: True), (lambda a: True)
         self.lp.client = SimpleNamespace(rooms={"!dm": chat("!dm", ANNA), "!old": chat("!old", ANNA, safe=False)}, user_id=PM)
 
@@ -66,6 +66,17 @@ class MyHagency(unittest.TestCase):
         self.lp.client.rooms["!dm"].users[BETTY] = 0
         self.assertEqual(asyncio.run(console.act(self.lp, "!dm", BETTY, "mode", "off")), console_personal.NOT_PRIVATE)
         self.assertEqual(asyncio.run(console.view(self.lp, "!dm", BETTY)), {"error": console_personal.NOT_PRIVATE})
+
+    def test_a_chat_pm_replaced_since_is_still_refused(self):
+        """GPT re-check: @pm makes a newer chat when the old one stopped being safe; the old one's panel
+        must not become a project panel then."""
+        self.lp.boards, self.lp.board_file = {}, Path(tempfile.mkdtemp()) / "b.json"
+        with mock.patch.object(panel, "add_to_room", mock.AsyncMock(return_value=True)), \
+                mock.patch("room_state.is_moderator", mock.AsyncMock(return_value=True)):
+            asyncio.run(self.lp.ensure_panel("!dm"))
+        self.lp.dm_rooms[ANNA] = "!newer"
+        self.lp.client.rooms["!dm"].users[BETTY] = 0
+        self.assertEqual(asyncio.run(console.act(self.lp, "!dm", BETTY, "mode", "off")), console_personal.NOT_PRIVATE)
 
     def test_a_chat_with_anyone_else_in_it_is_never_personal(self):
         self.lp.client.rooms["!dm"].users[BETTY] = 0

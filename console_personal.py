@@ -24,9 +24,19 @@ NOT_PRIVATE = ("This chat isn't private any more, so its Hagency panel does noth
 
 
 def is_dm(loop, room) -> bool:
-    """One of @pm's own private chats with a person, safe now or not (GPT review: a chat that stopped
-    being private is refused, never treated as a project room)."""
-    return getattr(room, "room_id", None) in (getattr(loop, "dm_rooms", None) or {}).values()
+    """One of @pm's own private chats with a person, safe now or not, and also one it replaced since
+    (GPT review: a chat that stopped being private is refused, never treated as a project room)."""
+    rid = getattr(room, "room_id", None)
+    return rid in (getattr(loop, "dm_rooms", None) or {}).values() or rid in had_panel(loop)
+
+
+def had_panel(loop) -> dict:
+    """room → person: every chat My Hagency was put in (on disk: kept when @pm makes a newer chat)."""
+    if "_personal_chats" not in loop.__dict__:
+        from bridge import ROOT
+        from saved_dict import SavedDict
+        loop._personal_chats = SavedDict(ROOT / "data" / "personal-chats.json")
+    return loop._personal_chats
 
 
 def owner_of(loop, room) -> str | None:

@@ -135,6 +135,27 @@ class ReviewFixes(flows.Provisioning):
         for model in ("qwen2.5-coder:7b", "meta-llama/llama-3.1-70b-instruct", "hf.co/org/m:Q4_K_M"):
             self.assertIsInstance(pm_kinds.from_words(f"ollama {model}"), dict, model)   # real names still pass
 
+    def test_a_long_word_of_letters_only_is_a_key_too(self):
+        self.assertEqual(pm_kinds.from_words("ollama " + "q" * 40), pm_kinds.NO_KEYS)
+
+    def test_a_new_slot_never_takes_another_agents_given_name(self):
+        """GPT re-check: codex's old slot retired, another agent called codex2: codex must not get slot codex2."""
+        self.tell("add another agent called codex")
+        registry_removal.forget_agent(CX, "cx-codex-agent")
+        registry.add_agent(CX, "other")
+        registry.update(CX, "other", display="codex2")
+        self.assertEqual(registry.add_agent(CX, "codex")["label"], "codex3")
+
+    def test_a_finished_agent_keeps_its_ai_when_its_code_is_resent(self):
+        registry.add_agent(CX, "lo", picked={"agent_kind": "ollama", "model": "llama3.2"})
+        registry.update(CX, "lo", ready=True)
+        with mock.patch.object(remote_agent.setup_accounts, "ensure_user", return_value=("pw", False)), \
+                mock.patch.object(remote_agent.setup_accounts, "shared_secret", return_value="s"), \
+                mock.patch.object(remote_agent, "load_env", return_value={}), \
+                mock.patch.object(remote_agent, "open_dm", return_value="!d"):
+            flows.Provisioning.real_provision(CX, "lo", {"agent_kind": "claude"})
+        self.assertEqual(registry.find(CX, "lo")["agent_kind"], "ollama")
+
     def test_a_malformed_port_is_refused_as_on_their_computer(self):
         self.assertIsNone(pm_kinds.clean_url("https://example.com:bad/v1"))
 
