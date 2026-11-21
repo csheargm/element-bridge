@@ -19,6 +19,16 @@ def is_personal_chat(loop, room) -> bool:
             and set(room.users) <= {loop.user_id, person})
 
 
+NOT_PRIVATE = ("This chat isn't private any more, so its Hagency panel does nothing. Your settings are in a new "
+               "chat with Product Manager: say \"hi\" to it.")
+
+
+def is_dm(loop, room) -> bool:
+    """One of @pm's own private chats with a person, safe now or not (GPT review: a chat that stopped
+    being private is refused, never treated as a project room)."""
+    return getattr(room, "room_id", None) in (getattr(loop, "dm_rooms", None) or {}).values()
+
+
 def owner_of(loop, room) -> str | None:
     """The person whose My Hagency this room is, or None (not a personal chat)."""
     if not is_personal_chat(loop, room):
@@ -28,9 +38,11 @@ def owner_of(loop, room) -> str | None:
 
 def refusal(loop, room, user: str, action: str) -> str | None:
     """Why `user` may not do `action` here (a personal chat), or None (go ahead, or not a personal chat)."""
+    if not is_dm(loop, room):
+        return None
     owner = owner_of(loop, room)
     if owner is None:
-        return None
+        return NOT_PRIVATE
     if owner != user:
         return NOT_YOURS
     return None if action in ACTIONS else ROOM_ONLY
@@ -38,8 +50,9 @@ def refusal(loop, room, user: str, action: str) -> str | None:
 
 def view(loop, room, user: str, mine: list, can_add: bool, extra: dict) -> dict:
     """The personal cards' state only (console.view gives `mine`, `can_add` and the shared fields)."""
-    if owner_of(loop, room) != user:
-        return {"error": NOT_YOURS}
+    owner = owner_of(loop, room)
+    if owner != user:
+        return {"error": NOT_PRIVATE if owner is None else NOT_YOURS}
     return {"personal": True, "room": TITLE, "user": user.split(":")[0].lstrip("@"), "agents": mine,
             "can_add": can_add, "pm_chat": room.room_id, "repo": None, "moderator": False, "waiting": None,
             "html": "", **extra}

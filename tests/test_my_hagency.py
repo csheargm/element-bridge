@@ -61,6 +61,12 @@ class MyHagency(unittest.TestCase):
             self.assertEqual(asyncio.run(console.act(self.lp, "!dm", ANNA, "rename", "Helper", "anna-agent")), "renamed")
         rename.assert_awaited_once()
 
+    def test_a_chat_that_stopped_being_private_is_refused_never_a_project_room(self):
+        """GPT review: someone joined, and the panel there served project settings to them."""
+        self.lp.client.rooms["!dm"].users[BETTY] = 0
+        self.assertEqual(asyncio.run(console.act(self.lp, "!dm", BETTY, "mode", "off")), console_personal.NOT_PRIVATE)
+        self.assertEqual(asyncio.run(console.view(self.lp, "!dm", BETTY)), {"error": console_personal.NOT_PRIVATE})
+
     def test_a_chat_with_anyone_else_in_it_is_never_personal(self):
         self.lp.client.rooms["!dm"].users[BETTY] = 0
         self.assertIsNone(console_personal.owner_of(self.lp, self.lp.client.rooms["!dm"]))

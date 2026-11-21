@@ -123,8 +123,9 @@ class MoreAgents(Renaming):
         label = registry.clean_label(typed) if typed else None
         if label != (typed or "").strip().lower():
             label = None                      # never silently a different name than the one typed
-        same = next((a for a in have if registry.name_of(a).lower() == label), None) if label else None
-        again = same is not None and not same["first"]   # theirs already: finished if it failed, its code resent
+        same = next((a for a in have if registry.called(a, label)), None) if label else None   # any of its names
+        again = (same is not None and not same["first"]   # theirs already: finished if it failed, its code resent;
+                 and registry.name_of(same).lower() == label)   # never by another one's slot name (GPT review)
         if len(have) >= registry.per_person() and not again:
             naming.pop(person, None)
             return await self._tell(dm, f"You have {len(have)} agents, the most one person can have here.")

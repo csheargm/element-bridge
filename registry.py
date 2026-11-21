@@ -178,6 +178,12 @@ def name_of(agent: dict) -> str:
     return agent.get("display") or agent["label"]
 
 
+def called(agent: dict, word: str) -> bool:
+    """`word` names this agent: its account, its slot or the name its person gave it (GPT review: every
+    lookup by a typed name uses this one rule, and no two of a person's agents share any of them)."""
+    return str(word).lower() in (agent["localpart"], agent["label"], name_of(agent).lower())
+
+
 def agents_of(person: str, people: dict | None = None) -> list[dict]:
     """All of a person's agents, their first one first; [] if they have none."""
     person = person_id(person)
@@ -254,7 +260,7 @@ def _add_agent(person: str, label: str, kind: str, picked: dict) -> dict:
         raise ValueError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
     if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label):
         raise ValueError("an agent's name is one short word: letters and digits, up to 9, starting with a letter")
-    if any(name_of(a).lower() == label for a in have):   # names are unique among their agents NOW only
+    if any(called(a, label) for a in have):   # names are unique among their agents NOW only
         raise ValueError(f"you already have an agent called {label}")
     if len(have) >= per_person():
         raise ValueError(f"you have {len(have)} agents, the most one person can have here")

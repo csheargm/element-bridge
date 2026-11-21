@@ -121,7 +121,7 @@ class Presence(Removal):                # pm_remove.py: Remove, and forgetting d
         password: its computer is signed out for good."""
         remote = [a for a in registry.agents_of(person) if a["agent"] == registry.REMOTE and registry.owns(person, a["localpart"])]
         if name:
-            remote = [a for a in remote if name.lower() in (a["localpart"], a["label"])]
+            remote = [a for a in remote if registry.called(a, name)]
         if len(remote) > 1:
             await self.say(room_id, "Which one? Say \"disconnect my agent NAME\" with one of: "
                                     + ", ".join(a["label"] for a in remote) + ". (Or use Disconnect in the console.)")

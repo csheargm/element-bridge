@@ -121,6 +121,44 @@ class PanelPicker(unittest.TestCase):
         self.assertEqual(pm_kinds.from_panel(picked), ("lo", {"agent_kind": "ollama", "model": "llama3.2"}))
 
 
+class ReviewFixes(flows.Provisioning):
+    """GPT review of the picker and reusable names: each adopted point, as a test."""
+    def tell(self, words):
+        self.run_(self.lp.on_welcome_text(SimpleNamespace(room_id="!dm"), text(CX, words)))
+        return self.said[-1][1]
+
+    def test_keys_without_a_prefix_or_in_a_url_or_an_extra_field_are_refused(self):
+        for how in ("ollama a8F3kQ9zL2mN7pR4tV6wX1yB", "remote https://x.example/v1/a8F3kQ9zL2mN7pR4tV6wX1yB m"):
+            self.assertEqual(pm_kinds.from_words(how), pm_kinds.NO_KEYS, how)
+        extra = json.dumps({"name": "rm", "agent_kind": "remote", "model": "m", "base_url": OPENROUTER, "api_key": "x"})
+        self.assertEqual(pm_kinds.from_panel(extra)[1], pm_kinds.NO_KEYS)
+        for model in ("qwen2.5-coder:7b", "meta-llama/llama-3.1-70b-instruct", "hf.co/org/m:Q4_K_M"):
+            self.assertIsInstance(pm_kinds.from_words(f"ollama {model}"), dict, model)   # real names still pass
+
+    def test_a_malformed_port_is_refused_as_on_their_computer(self):
+        self.assertIsNone(pm_kinds.clean_url("https://example.com:bad/v1"))
+
+    def test_another_agents_slot_name_is_never_taken_or_resent(self):
+        self.tell("add another agent called codex")
+        registry_removal.forget_agent(CX, "cx-codex-agent")
+        self.tell("add another agent called codex")                        # slot codex2, called codex
+        self.made.clear()
+        answer = self.tell("add another agent called codex2 using claude")
+        self.assertIn("already have an agent called codex2", answer)
+        self.assertEqual(self.made, [])                                     # codex's code was never resent
+        self.assertEqual([a["localpart"] for a in self.lp.removable(CX, "codex")], ["cx-codex2-agent"])
+
+    def test_finishing_an_unfinished_agent_takes_the_ai_chosen_now(self):
+        registry.add_agent(CX, "lo", picked={"agent_kind": "ollama", "model": "bad"})
+        found = registry.find(CX, "lo")
+        with mock.patch.object(remote_agent.setup_accounts, "ensure_user", return_value=("pw", True)), \
+                mock.patch.object(remote_agent.setup_accounts, "shared_secret", return_value="s"), \
+                mock.patch.object(remote_agent, "load_env", return_value={}), \
+                mock.patch.object(remote_agent, "open_dm", return_value="!d"):
+            flows.Provisioning.real_provision(CX, "lo", {"agent_kind": "ollama", "model": "llama3.2"})
+        self.assertEqual(registry.find(CX, found["localpart"])["model"], "llama3.2")
+
+
 class Describe(unittest.TestCase):
     def test_what_my_agents_shows(self):
         self.assertEqual(pm_kinds.describe({"agent_kind": "claude"}), "Claude Code")

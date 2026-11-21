@@ -1171,3 +1171,25 @@ its capabilities request** (not any first message); **ELEMENT_ORIGIN is validate
 app on the list can overlay the signed-in panel and induce clicks (that is trusting Element's own
 apps, which hold the person's Matrix session anyway); Element's nginx sends no X-Frame-Options today,
 so Caddy's one value is final.
+
+## GPT review of feat/agent-picker (AI picker, reusable names, My Hagency, home button, R15)
+GPT (Codex) on feat/remove-repo..HEAD: two blocking, three medium. Adopted, with tests:
+- **Blocking: a key without a known prefix (or in a URL path) passed as a model or URL**, and an
+  extra `api_key` field in the panel's JSON was silently dropped. A long mixed letters-and-digits
+  piece counts as a key too (model names and paths are short words), and any extra field refuses.
+  test_agent_picker ReviewFixes (test_keys_without_a_prefix_…).
+- **Blocking: another agent's slot name shadowed names.** After codex came back as slot codex2,
+  adding "codex2" resent codex's code; chat remove / disconnect / rename looked up slots only. One
+  rule now (registry.called: account, slot or given name), used by every typed lookup, and no two
+  of a person's agents share any of those names (add and rename refuse). test_another_agents_slot_…,
+  test_rename_agent (test_a_name_another_of_their_agents_has_is_refused).
+- **Medium: a personal chat that stopped being private fell through to project handling.** @pm's
+  own chats with a person are always My Hagency or refused (NOT_PRIVATE), never a project room.
+  test_my_hagency (test_a_chat_that_stopped_being_private_…).
+- **Medium: the picker took URLs ADR 0008's client refuses (a malformed port), and finishing an
+  unfinished agent kept its old choice.** The port is checked; the choice made now is recorded.
+  test_a_malformed_port_…, test_finishing_an_unfinished_agent_takes_the_ai_chosen_now.
+- R4: console.act was at 52 lines; Add an agent moved into console.add_agent.
+Deferred: **the home button may open a DM the person made themselves** (Element's #/user/…?action=chat
+reuses the direct chat in their m.direct; @pm creates its own with is_direct, so that is the usual
+one; a person-opened DM gets no My Hagency, and the panel's chat links point to @pm's own chat).

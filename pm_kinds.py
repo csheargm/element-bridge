@@ -29,12 +29,27 @@ HOW = ("Say which AI it runs, for example \"add another agent called pi using cl
        "ollama [model], remote <base URL> <model>).")
 
 
+LONG_RUN = 20                                 # a key-like piece: this long, letters and digits mixed
+
+
+def looks_like_key(text: str) -> bool:
+    """A key someone pasted: a known key prefix, or a long piece of mixed letters and digits (model names and
+    URL paths are short words: llama3.2, openai/gpt-4o, api/v1). GPT review: plain keys had no prefix."""
+    pieces = re.split(r"[/:._@+\-\s?=&]+", str(text))
+    return bool(KEY_RE.search(text)) or any(len(p) >= LONG_RUN and re.search(r"[A-Za-z]", p) and re.search(r"\d", p)
+                                           for p in pieces)
+
+
 def clean_url(text: str) -> str | None:
     """An https endpoint, or http on their own computer (no user, query, fragment, quotes, spaces or
     backslashes), or None."""
     url = str(text).strip().rstrip("/")
     try:
         parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    try:
+        parts.port                            # a malformed port: refused here as on their computer (ADR 0008)
     except ValueError:
         return None
     local = parts.scheme == "http" and parts.hostname in LOCAL_HOSTS
@@ -64,7 +79,7 @@ def choice(kind: str, model: str = "", base_url: str = "") -> dict | str:
 
 def from_words(text: str) -> dict | str:
     """"claude", "ollama llama3.2", "remote https://… openai/gpt-4o" → the choice, or why not."""
-    if KEY_RE.search(text):
+    if looks_like_key(text):
         return NO_KEYS
     words = text.strip().rstrip(".!").split()
     for size in (3, 2, 1):                   # the longest name first: "a local model", "claude code"
@@ -89,7 +104,7 @@ def from_panel(value: str) -> tuple[str, dict | str | None]:
     if not isinstance(data, dict):
         return "", HOW
     text = {k: data.get(k) if isinstance(data.get(k), str) else "" for k in ("name", *FIELDS)}
-    if any(KEY_RE.search(v) for v in text.values()):
+    if set(data) - set(text) or any(looks_like_key(v) for v in text.values()):   # an api_key field included
         return text["name"].strip(), NO_KEYS
     if not text["agent_kind"]:
         return text["name"].strip(), None

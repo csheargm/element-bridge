@@ -42,7 +42,7 @@ class Removal:
 
     def removable(self, person: str, name: str | None) -> list[dict]:
         mine = [a for a in registry.agents_of(person) if a["agent"] == registry.REMOTE and registry.owns(person, a["localpart"])]
-        return [a for a in mine if name.lower() in (a["localpart"], a["label"])] if name else mine
+        return [a for a in mine if registry.called(a, name)] if name else mine
 
     async def ask_removal(self, room_id: str, person: str, name: str | None) -> None:
         found = self.removable(person, name)

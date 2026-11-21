@@ -71,6 +71,7 @@ class Base(unittest.TestCase):
 
 class Provisioning(Base):
     """remote_agent's set-up faked (the account and the code): what the add flows need (test_agent_picker too)."""
+    real_provision = staticmethod(remote_agent.provision_more)          # before setUp fakes it
     def setUp(self):
         super().setUp()
         self.made = []

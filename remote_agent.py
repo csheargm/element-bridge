@@ -127,6 +127,8 @@ def provision_more(person: str, label: str, picked: dict | None = None) -> str:
                 found = registry.add_agent(person, label, picked=picked)   # pm_kinds.py: the AI it runs
             except ValueError as e:
                 raise AccountError(str(e)) from e
+        elif picked:                          # finishing an unfinished one: the AI chosen now (GPT review)
+            registry.update(person, found["localpart"], **{k: picked.get(k, "") for k in pm_kinds.FIELDS})
         agent = found["localpart"]
         if found["agent"] != registry.REMOTE or registry.claimants(agent) != [person]:
             raise AccountError("that agent's account name is taken here; choose another name")
