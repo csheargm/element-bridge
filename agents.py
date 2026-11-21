@@ -131,7 +131,7 @@ def _parse_claude(stdout: str) -> AgentResult:
 def _denied_tools(data: dict) -> tuple[str, ...]:
     """The names (never the inputs: they can hold paths or secrets) of tools Claude Code refused."""
     names = [d.get("tool_name") for d in data.get("permission_denials") or [] if isinstance(d, dict)]
-    return tuple(dict.fromkeys(n for n in names if isinstance(n, str) and TOOL_NAME_RE.match(n)))
+    return tuple(dict.fromkeys(n for n in names if isinstance(n, str) and TOOL_NAME_RE.fullmatch(n)))   # GPT review: "Bash\n" passed match()
 
 
 def _provider_argv(kind: str):

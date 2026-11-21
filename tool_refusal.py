@@ -13,12 +13,14 @@ log = logging.getLogger("bridge")
 
 HOW_TO_URL = "https://github.com/csheargm/hagency-rooms/blob/master/docs/AGENT_TOOLS.md"
 MAX_SHOWN = 4
-BUILT_IN = {"WebSearch": "web search", "WebFetch": "opening web pages", "Edit": "editing files",
-            "Write": "writing files", "Bash": "running commands", "Read": "reading files"}
+BUILT_IN = {"WebSearch": "web search", "WebFetch": "web pages", "Edit": "file editing",
+            "Write": "file writing", "Bash": "the command line", "Read": "file reading"}
 MCP_RE = re.compile(r"^mcp__(?:claude_ai_)?(?P<server>[^_].*?)__")
-BLOCKED = "⚠️ I couldn't use {what}: your own Claude Code settings block it."
-NEEDS_OK = ("⚠️ I couldn't use {what} from this chat: it needs your OK first, and I can't ask for it "
-            "here. How to allow it: " + HOW_TO_URL)
+# Hagency allows the first kind itself, so a setting on their computer refused it (GPT review: say
+# so neutrally, the guide explains deny rules); anything else needs their OK given ahead of time.
+BLOCKED = "⚠️ I wasn't allowed to use {what}: a setting on your computer blocks it. How to change it: " + HOW_TO_URL
+NEEDS_OK = ("⚠️ I wasn't allowed to use {what} from this chat: it needs your OK first, and I can't ask "
+            "for it here. How to allow it: " + HOW_TO_URL)
 
 
 def friendly(tool: str) -> str:

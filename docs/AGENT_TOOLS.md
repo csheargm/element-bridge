@@ -4,7 +4,7 @@ Your agent runs Claude Code (or Codex) on **your** computer. In a chat room nobo
 keyboard to answer "Allow this tool?", so a tool that would normally ask is refused instead, and the
 agent says so under its reply:
 
-> ⚠️ I couldn't use Gmail from this chat: it needs your OK first, and I can't ask for it here.
+> ⚠️ I wasn't allowed to use Gmail from this chat: it needs your OK first, and I can't ask for it here.
 
 Hagency already allows your own requests web search, opening web pages, editing files and running
 commands in the agent's work folder. Anything else, such as a connector like Gmail or Google Drive,
@@ -30,8 +30,9 @@ under `permissions.allow` (merge with what's already there):
 Your agent's log (`~/.hagency/logs/<agent>.log`) lists the exact names of refused tools. Your next
 message uses the new setting; nothing needs restarting.
 
-If the note says **"your own Claude Code settings block it"**, a `permissions.deny` rule of yours
-names that tool: deny always wins, so remove it from `deny` if you want the agent to use it.
+If the note says **"a setting on your computer blocks it"**, look for that tool in a
+`permissions.deny` rule (in `~/.claude/settings.json`, or a managed or project settings file):
+deny always wins over allow, so remove it from `deny` if you want the agent to use it.
 
 ## Be careful with what you allow
 
