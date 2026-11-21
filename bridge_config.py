@@ -8,6 +8,7 @@ HAGENCY_HOMESERVER / HAGENCY_SERVER_NAME override the defaults without a file.
 """
 import json
 import os
+import re
 from pathlib import Path
 
 import identity
@@ -17,6 +18,18 @@ DEFAULT_HOMESERVER = "http://127.0.0.1:8648"
 DEFAULT_SERVER_NAME = "bridge.localhost"
 CREDENTIAL_KEYS = ("homeserver", "user_id", "password", "owner")
 ELEMENT_ORIGIN = os.environ.get("ELEMENT_ORIGIN", "http://localhost:8649")   # where people open Element
+# The Element apps that may show the Hagency panel (frame it, and talk to it over the widget API): ours,
+# Element Desktop (vector://vector: seen live, the panel was blank there) and Element's own web apps,
+# which people from other servers use. HAGENCY_PANEL_EMBEDDERS (spaces between) replaces the list;
+# ours is always in it. Never "*": the panel signs people in with a token from the app framing it.
+EMBEDDERS_DEFAULT = "vector://vector https://app.element.io https://develop.element.io https://staging.element.io"
+EMBEDDER_RE = re.compile(r"https://[a-z0-9.-]+(:\d{1,5})?|http://localhost(:\d{1,5})?|vector://vector")
+
+
+def panel_embedders() -> list[str]:
+    """ELEMENT_ORIGIN first, then each listed origin that is exactly one (a "*" or a path: dropped)."""
+    listed = os.environ.get("HAGENCY_PANEL_EMBEDDERS", EMBEDDERS_DEFAULT).split()
+    return list(dict.fromkeys([ELEMENT_ORIGIN, *(o for o in listed if EMBEDDER_RE.fullmatch(o))]))
 
 
 def load_credentials(path: str | None) -> dict:

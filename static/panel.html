@@ -38,7 +38,10 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:4px 0 8px}
 __SCRIPTS__
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
-const ELEMENT = __ELEMENT_ORIGIN__;
+// The Element apps allowed to frame the panel (panel.EMBEDDERS); ELEMENT: the one that does, from its
+// first message (Element speaks first), and from then on only that one.
+const EMBEDDERS = __EMBEDDERS__;
+let ELEMENT = null;
 const embedded = window.parent !== window && !!wid;
 let session = null;
 try { session = sessionStorage.getItem("hagency-session"); } catch (e) { /* storage blocked: signs in on each load */ }
@@ -75,7 +78,8 @@ const NAVIGATE = "org.matrix.msc2931.navigate", NAV_WAIT_MS = 4000;
 let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
-  if (ev.origin !== ELEMENT || ev.source !== window.parent || m.widgetId !== wid) return;
+  if (!EMBEDDERS.includes(ev.origin) || (ELEMENT && ev.origin !== ELEMENT) || ev.source !== window.parent || m.widgetId !== wid) return;
+  ELEMENT = ev.origin;
   if (m.api === "toWidget") {
     const ack = {api: "toWidget", widgetId: wid, requestId: m.requestId, action: m.action, data: {},
                  response: m.action === "capabilities" ? {capabilities: [NAVIGATE]} : {}};   // never echo credentials

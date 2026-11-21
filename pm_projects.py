@@ -112,7 +112,8 @@ class Projects(Finding, Joining, RepoRemoval):
             return
         await panel.add_to_room(self.client, resp.room_id)
         await self.say(resp.room_id, f"This is **{plain(name)}**. Next: pick its GitHub repo in the Hagency panel above "
-                                     "(or say \"@pm this room works on owner/name\"), then invite people: Room info → Invite.")
+                                     "(or say \"@pm this room works on owner/name\"), then invite people: Room info → Invite."
+                                     + panel.browser_note(resp.room_id))
         await self.say(origin.room_id, f"Made **{plain(name)}**: accept its invite on the left (under Invites), then pick "
                                        f"its GitHub repo in the Hagency panel at the top.{self.agent_note(person)}")
 

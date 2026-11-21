@@ -59,7 +59,7 @@ const send = async data => { listener({origin: element, source: ctx.parent, data
 @unittest.skipIf(NODE is None, "node not installed")
 class ChatLink(unittest.TestCase):
     def run_page(self, scenario: str) -> dict:
-        page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(ELEMENT)), re.S).group(1)
+        page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__EMBEDDERS__", json.dumps([ELEMENT])), re.S).group(1)
         cards = "\n".join(path.read_text() for path in panel.SCRIPTS.values())
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as h:
             h.write(HARNESS)

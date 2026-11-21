@@ -57,7 +57,7 @@ def card_js(call: str) -> str:
 @unittest.skipIf(NODE is None, "node not installed")
 class Banner(unittest.TestCase):
     def lines(self, views: list, result: str = pm_github.ON_CARD) -> list:
-        page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__ELEMENT_ORIGIN__", '"https://e"'), re.S).group(1)
+        page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__EMBEDDERS__", json.dumps(["https://e"])), re.S).group(1)
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as h:
             h.write(HARNESS)
         done = subprocess.run([NODE, h.name, page, panel.SCRIPTS["panel-github.js"].read_text(), json.dumps(views), result],

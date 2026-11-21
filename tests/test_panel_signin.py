@@ -80,7 +80,7 @@ class SignIn(unittest.TestCase):
         if node is None:
             self.skipTest("node not installed")
         self.node = node
-        page = panel.PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(panel.ELEMENT_ORIGIN))
+        page = panel.PAGE.replace("__EMBEDDERS__", json.dumps([panel.ELEMENT_ORIGIN]))
         self.script = re.search(r"<script>(.*)</script>", page, re.S).group(1)
 
     def run_page(self, scenario: str, routes: dict | None = None) -> list[str]:

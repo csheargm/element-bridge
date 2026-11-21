@@ -21,12 +21,15 @@
 		file_server
 	}
 	handle {
+		header X-Frame-Options SAMEORIGIN   # Element itself is never framed by another site
 		reverse_proxy element:80
 	}
+	# No X-Frame-Options for @pm's pages: the panel names the Element apps that may frame it in its own
+	# Content-Security-Policy (panel.EMBEDDERS: Element Desktop is vector://vector), which X-Frame-Options
+	# can't; the Connect page says frame-ancestors 'none' (connect_page.py).
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
-		X-Frame-Options SAMEORIGIN
 	}
 }
 

@@ -1144,3 +1144,21 @@ either way; a refusal is still kept while there is no login).
 Noted: navigation inside a running Element v1.12.35 was not exercised here (node stand-in for the
 widget API); the action name, data.uri and the lifecycle module's capabilities_approved were read
 from upstream, and the one screen check at the end covers it.
+
+## Panel framing: Element Desktop and Element's own apps (seen live, before its GPT review)
+The panel was blank in Element Desktop: its frame comes from `vector://vector`, and the panel allowed
+only `'self'` and our Element (frame-ancestors), with Caddy adding `X-Frame-Options SAMEORIGIN` to
+everything on the rooms name. Now one list (bridge_config.panel_embedders: ours, Element Desktop,
+app/develop/staging.element.io; HAGENCY_PANEL_EMBEDDERS / PANEL_EMBEDDERS replaces it, never `*`)
+sets the panel's frame-ancestors, and the page talks only to the first of those origins that speaks
+to it. X-Frame-Options stays on Element's own pages only (it can't name several origins; CSP
+frame-ancestors supersedes it); the Connect page keeps frame-ancestors 'none'.
+Why framing by more apps is safe (clickjacking): the panel does nothing until it is signed in, and
+inside a frame it signs in only with an OpenID token the framing Element app gives for its own
+signed-in person, which @pm verifies with our homeserver (so only our own people, and only as
+themselves); a page that isn't on the list gets no answer at all. Destructive clicks ask twice
+(Remove an agent, Remove repo). Element Desktop and other servers' Element apps never read our
+config.json, so they ask once (Continue / Allow) before showing the panel: a new room's first
+message says so and links the same panel in a browser (/console?room=…, signed in by link).
+Tests: tests.test_panel_framing (header values, the configurable list without a wildcard, Caddy,
+Element Desktop signs in, a page not on the list is never answered, the room message).

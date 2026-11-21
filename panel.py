@@ -8,13 +8,14 @@ import html
 import json
 import logging
 import os
+import urllib.parse
 from pathlib import Path
 
 import markdown
 from aiohttp import web
 
 import console
-from bridge_config import ELEMENT_ORIGIN
+from bridge_config import ELEMENT_ORIGIN, panel_embedders
 import remote_agent
 import github
 import identity
@@ -34,9 +35,18 @@ SCRIPTS = {"panel-agents.js": STATIC / "panel_agents.js",      # "My agents"
            "panel-github.js": STATIC / "panel_github.js"}      # "Connect GitHub" (pm_github.py)
 REFRESH_MS = 3000
 SIGNIN_MS = 20000                 # no answer from Element by then: the panel says so instead of "Signing in…"
-HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
+EMBEDDERS = panel_embedders()      # who may frame the panel (no X-Frame-Options: it can't name several)
+HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {' '.join(EMBEDDERS)}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+
+
+def browser_note(room_id: str) -> str:
+    """For a room's first message: Element Desktop and other servers' Element apps never read our
+    config.json, so they ask once before showing the panel; and the same panel opens in a browser."""
+    url = f"{console.public_url()}/console?room={urllib.parse.quote(room_id)}"
+    return (" (In Element Desktop or another server's Element, click Continue or Allow on the panel once. "
+            f"Or [open the Hagency panel in your browser]({url}).)")
 
 
 def widget_url() -> str:
@@ -100,7 +110,7 @@ async def start(loop) -> web.AppRunner | None:
     async def page(request):
         if not local_host(request):
             return web.Response(status=403)
-        return web.Response(text=PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(ELEMENT_ORIGIN)),
+        return web.Response(text=PAGE.replace("__EMBEDDERS__", json.dumps(EMBEDDERS)),
                             content_type="text/html", headers=HEADERS)
 
     def script(path):                     # the card scripts (SCRIPTS)
