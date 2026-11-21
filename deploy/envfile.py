@@ -31,11 +31,13 @@ RULES = {
     "REMOTE_PER_HOUR": r"[0-9]{1,4}",        # how many of their agents per hour (default 10)
     "GITHUB_APP_ID": r"[1-9][0-9]{0,11}",         # @pm's GitHub App (docs/GITHUB_APP.md); empty: no GitHub reads
     "GITHUB_APP_SLUG": r"[a-z0-9][a-z0-9-]{0,62}",   # its github.com/apps/<slug> name, for install links
+    "GITHUB_APP_CLIENT_ID": r"Iv[A-Za-z0-9.]{6,62}",  # its Client ID (public, not the secret): Connect GitHub
     "HAGENCY_REPOS": rf"{REPO}(,{REPO}){{0,49}}",   # the repos rooms may choose, comma-separated
 }
 SECRETS = {"POSTGRES_PASSWORD"}
 OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR",     # OPERATOR: empty until the operator has an account
-            "GITHUB_APP_ID", "GITHUB_APP_SLUG", "HAGENCY_REPOS"}  # the GitHub App: empty until it is registered
+            "GITHUB_APP_ID", "GITHUB_APP_SLUG", "GITHUB_APP_CLIENT_ID",   # the GitHub App: empty until
+            "HAGENCY_REPOS"}                                               # it is registered
 
 
 def read() -> dict:

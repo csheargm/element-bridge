@@ -25,6 +25,7 @@ from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
 from pm_chat import without_quote
+from pm_github import GitHubLink
 from pm_lobby import WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
 from redact import room_safe
@@ -61,7 +62,7 @@ def pointer(person: str) -> str:
     return (POINTER if identity.split(person)[1] == SERVER_NAME else POINTER_REMOTE).format(person=person)
 
 
-class Welcome(Lobby):
+class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answered first
     def welcomes(self) -> dict:
         """person → {"dm", "offer" (event id), "done" (buttons used)}, on disk: welcomed once."""
         if "_welcomes" not in self.__dict__:
@@ -171,7 +172,8 @@ class Welcome(Lobby):
 
     async def on_welcome_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was about getting an agent (answered here)."""
-        if await self.on_add_text(room, event) or await self.on_project_text(room, event):   # pm_agents, pm_projects
+        if await self.on_github_text(room, event) or await self.on_add_text(room, event) \
+                or await self.on_project_text(room, event):   # pm_github, pm_agents, pm_projects
             return True
         entry = self.welcomes().get(event.sender) or {}
         in_dm = room.room_id == entry.get("dm") or self.is_one_to_one(room, event.sender)   # pm_address.py

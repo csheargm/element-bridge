@@ -77,6 +77,7 @@ services:
       PM_BRAIN: "off"                     # no model keys on this server: @pm uses its phrase rules
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}   # @pm reads GitHub as its read-only App (docs/GITHUB_APP.md)
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-hagency-rooms}
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}   # Connect GitHub (device flow); public, not the secret
       GITHUB_APP_PRIVATE_KEY_PATH: /run/hagency-github/github-app.pem
       HAGENCY_REPOS: ${HAGENCY_REPOS:-}   # the repos rooms may choose
     volumes:

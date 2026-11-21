@@ -8,6 +8,7 @@ valid only on the repos it was minted for. Every request is recorded (method, pa
 import json
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -28,6 +29,11 @@ class FakeGitHub:
         self.token_ttl_s = 3600
         self.echo_auth = False                         # a misbehaving upstream: its errors repeat the credential
         self.tokens: dict[str, set] = {}               # token -> repos (lower) it may read
+        # Connect GitHub (github_link.py): the device flow on github.com, and GET /user with a user token
+        self.client_id, self.device_flow, self.interval = "Iv23liFAKECLIENT", True, 5
+        self.devices: dict[str, dict] = {}             # device code -> {"user_code", "answers": [...], "login", "id"}
+        self.user_tokens: dict[str, dict] = {}         # user token -> {"login", "id"}
+        self.user_ids: dict[str, int] = {}             # login -> id, as the permission endpoint reports it
         self.requests: list[tuple] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         threading.Thread(target=self.server.serve_forever, args=(0.05,), daemon=True).start()
@@ -56,10 +62,46 @@ class FakeGitHub:
         exp = datetime.fromtimestamp(time.time() + self.token_ttl_s, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         return 201, {"token": tok, "expires_at": exp}
 
+    # --- Connect GitHub: the device flow -------------------------------------------------
+    def approve(self, login: str, gid: int, answers=("authorization_pending",)) -> str:
+        """The next device code GitHub hands out: these poll answers first, then a user token for login."""
+        code = f"dev{len(self.devices)}"
+        self.devices[code] = {"user_code": f"ABCD-{1000 + len(self.devices)}", "answers": list(answers),
+                              "login": login, "id": gid, "issued": False}
+        return code
+
+    def device_code(self, body: dict) -> tuple[int, dict]:
+        if body.get("client_id") != self.client_id:
+            return 200, {"error": "incorrect_client_credentials"}
+        if not self.device_flow:
+            return 200, {"error": "device_flow_disabled"}
+        code = next((c for c, d in self.devices.items() if not d["issued"]), None) or self.approve("nobody", 0)
+        self.devices[code]["issued"] = True
+        return 200, {"device_code": code, "user_code": self.devices[code]["user_code"], "expires_in": 900,
+                     "interval": self.interval, "verification_uri": "https://github.com/login/device"}
+
+    def device_poll(self, body: dict) -> tuple[int, dict]:
+        device = self.devices.get(body.get("device_code"))
+        if device is None or body.get("client_id") != self.client_id or \
+                body.get("grant_type") != "urn:ietf:params:oauth:grant-type:device_code":
+            return 200, {"error": "incorrect_device_code"}
+        if device["answers"]:
+            return 200, {"error": device["answers"].pop(0)}
+        tok = f"ghu_fake{len(self.user_tokens)}"
+        self.user_tokens[tok] = {"login": device["login"], "id": device["id"]}
+        return 200, {"access_token": tok, "token_type": "bearer", "scope": ""}
+
     # --- endpoints ------------------------------------------------------------------------
     def answer(self, method: str, path: str, auth: str, body: dict) -> tuple[int, object]:
         route, _, _query = path.partition("?")
         parts = route.strip("/").split("/")
+        if route == "/login/device/code" and method == "POST":
+            return self.device_code(body)
+        if route == "/login/oauth/access_token" and method == "POST":
+            return self.device_poll(body)
+        if route == "/user" and method == "GET":
+            who = self.user_tokens.get(auth)
+            return (200, dict(who)) if who else (401, {"message": "Bad credentials"})
         if route.startswith("/app/installations/") and route.endswith("/access_tokens") and method == "POST":
             return self.mint(int(parts[2]), body) if self.app_ok(auth) else (401, {"message": "Bad credentials"})
         if len(parts) == 4 and parts[0] == "repos" and parts[3] == "installation":
@@ -98,7 +140,8 @@ class FakeGitHub:
             return 200, [{"type": "pull_request", "parameters": {"required_approving_review_count": 1}}]
         if len(rest) == 3 and rest[0] == "collaborators" and rest[2] == "permission":
             perm = self.permissions.get((repo, rest[1]))
-            return (200, {"permission": perm}) if perm else (404, {"message": "Not Found"})
+            user = {"login": rest[1], "id": self.user_ids.get(rest[1], 0)}
+            return (200, {"permission": perm, "user": user}) if perm else (404, {"message": "Not Found"})
         return 404, {"message": "Not Found"}
 
     def graphql(self, auth: str, body: dict) -> tuple[int, object]:
@@ -116,7 +159,11 @@ class FakeGitHub:
             def handle_one(self, method: str) -> None:
                 auth = self.headers.get("Authorization", "").removeprefix("Bearer ")
                 n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(n)) if n else {}
+                raw_body = self.rfile.read(n) if n else b""
+                if self.headers.get("Content-Type") == "application/x-www-form-urlencoded":
+                    body = dict(urllib.parse.parse_qsl(raw_body.decode()))      # github.com's sign-in endpoints
+                else:
+                    body = json.loads(raw_body) if raw_body else {}
                 fake.requests.append((method, self.path, auth))
                 status, data = fake.answer(method, self.path, auth, body)
                 if fake.echo_auth and status >= 400:

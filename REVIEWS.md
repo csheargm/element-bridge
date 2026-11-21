@@ -837,3 +837,41 @@ Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and w
 - (last re-check) Adopted: a network error while opening is handled like a refusal, and a listing
   that couldn't be taken back down is said ("set it to private again"). Not adopted: follow-me's
   room-name check for my chats (pre-existing, not part of this branch's addressing).
+
+## GPT review of Connect GitHub (R15, ADR 0007)
+
+Codex reviewed b21f5e0..46baf92 (11 points). Adopted, each verified in the code, with tests in
+test_github_link_more.py:
+- The code went to whatever chat the person typed in (a direct chat they made, where others could
+  be invited and read back): it now goes only to @pm's own private chat (`private_room`: only @pm
+  invites, history from the invite) and their own GitHub card.
+- The install wait after "App not installed" replied only for listed repos (a timeout naming the
+  repo, or a second answer once installed), which confirmed the name to someone without access: it
+  is now quiet unless it can bind.
+- Disconnect while GitHub was handing out a code didn't stop it: that code is now dropped unseen.
+- A Disconnect while the access check was in flight still let it pass: the link must be unchanged
+  after GitHub answers.
+- The permission check skipped the App token's renew-on-401; it now goes through `as_app`.
+- GitHub's own error text (stripped, but still free-form) could reach chat: only documented error
+  codes are named, anything else is "unexpected".
+- `slow_down` now takes GitHub's new interval when it gives one.
+- A link that couldn't be written to disk stayed in memory (and a failed unlink left memory and disk
+  apart): memory now matches the disk, and the person is told.
+- The panel's message line held the code and outlived the sign-in; repeat clicks re-sent it to the
+  chat: the line never holds the code now, and repeat clicks don't re-send it.
+Rejected or deferred:
+- Device-code phishing (someone else's code entered by the victim links the victim's GitHub to the
+  attacker): inherent to the device flow, which this change was asked to use. Documented in ADR 0007
+  with its real impact; the web flow (callback tied to the console session) is on the ROADMAP.
+- Install waits keep the first requester when a second moderator picks the same repo, and a retried
+  "discuss separately" choice loses `separate_from`: pre-existing install-wait behaviour (ADR 0004),
+  not changed here.
+- A monotonic deadline bounding the last token request: GitHub stops issuing tokens at expiry, and
+  each request is bounded by the 20 s HTTP timeout; a token that arrives is valid proof.
+- (re-check of the fixes, GPT) Adopted, with tests: each Connect click has its own pending marker,
+  so a click cancelled by Disconnect can't take over (or clear) a newer click's; a code isn't sent if
+  Disconnect came while the private chat was being opened; the bind re-checks, under the lock and
+  right before it writes, that the GitHub link the write check used is still the person's; a GitHub
+  error that isn't text counts as "unexpected". Rejected: the reply-timing difference between an
+  unlisted repo (no GitHub call) and a listed one (pre-existing since ADR 0004; padding the reply
+  time is out of scope).
