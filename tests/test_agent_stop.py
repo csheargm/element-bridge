@@ -18,6 +18,7 @@ from nio import RoomPutStateError, RoomPutStateResponse
 
 import agent_stop
 import bridge
+import bridge_voice
 import console
 import console_personal
 import matrix_calls
@@ -96,6 +97,12 @@ class AgentReadsTheSwitch(unittest.TestCase):
         async def broken(client, path):
             raise OSError("down")
         with mock.patch.object(matrix_calls, "get_json", broken), self.assertLogs("bridge", "WARNING"):
+            self.assertFalse(self.read())
+
+    def test_a_proxy_404_is_logged_not_taken_for_never_stopped(self):
+        async def page(client, path):
+            return 404, {}
+        with mock.patch.object(matrix_calls, "get_json", page), self.assertLogs("bridge", "WARNING"):
             self.assertFalse(self.read())
 
     def test_a_refused_read_is_logged_not_silent(self):
@@ -183,6 +190,39 @@ class OwnerStopsAndStartsTheirAgent(unittest.TestCase):
         asyncio.run(self.b.answer_locked(self.room, ev, "anna said by voice: what's the weather"))
         self.assertEqual(self.turns, [])
         self.assertEqual(len(self.sent), 1)
+
+    def test_planning_while_stopped_is_answered_so_nobody_waits(self):
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
+        self.b.run_task = mock.AsyncMock()
+        asyncio.run(self.b.task_unless_stopped("!dev", {"kind": "plan", "task_id": "p1"}))
+        self.b.run_task.assert_not_awaited()
+        result = self.sent[-1][1][bridge.github.RESULT_KEY]
+        self.assertEqual((result["kind"], result["task_id"]), ("plan", "p1"))
+        self.assertIn("stopped", result["error"])
+
+    def test_voice_is_never_transcribed_while_stopped(self):
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
+        listen = mock.AsyncMock(return_value="hi")
+        ev = SimpleNamespace(sender=ANNA, event_id="$a", source={"content": {}}, server_timestamp=int(time.time() * 1000))
+        self.room.joined_count = 2                                     # a private chat: clearly for me
+        with mock.patch.object(bridge_voice.voice, "listen", listen):
+            asyncio.run(self.b.hear(self.room, ev))
+        listen.assert_not_awaited()
+        self.assertEqual(len(self.sent), 1)                            # the one notice
+
+    def test_an_unaddressed_follow_up_stays_quiet_and_keeps_the_notice(self):
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
+        asyncio.run(self.b.answer_locked(self.room, msg(ANNA, "95130", "$f"), "anna: 95130", follow_up="$q"))
+        self.assertEqual(self.sent, [])
+        self.deliver(msg(ANNA, "anna-agent hi", "$h"))
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_button_waiting_for_its_turn_is_held_after_stop(self):
+        self.b.offers = lambda: {"$o": {"room": "!dev"}}
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
+        self.b.do = mock.AsyncMock(return_value=True)
+        asyncio.run(self.b.act_on("!dev", "$o", "✅"))
+        self.b.do.assert_not_awaited()
 
     def test_a_code_change_request_is_held_too(self):
         asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))

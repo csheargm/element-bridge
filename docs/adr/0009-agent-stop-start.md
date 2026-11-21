@@ -20,6 +20,9 @@ program on someone's computer.
     then. Otherwise @pm pauses the step for a person.
   - Answering with an error would pause the issue at once, and Start couldn't bring it back (GPT
     review).
+  - Planning and issue-filing tasks have no resend, so the agent answers those with "stopped"
+    and @pm tells whoever asked.
+  - Voice messages aren't transcribed while stopped.
 - **The switch is a state event in the Welcome room:** type `xyz.hagencylabs.agent.stopped`,
   state_key = `agent:` + the agent's Matrix ID (`agent_stop.switch_key`), content
   `{"stopped": bool}`. Matrix refuses a state_key that starts with `@` unless it is the sender's

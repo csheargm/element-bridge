@@ -168,7 +168,7 @@ class Bridge(BridgeVoice, BridgeCustom, bridge_followup.BridgeFollowUp, BridgeSt
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: str | None = None) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
-            if not await self.stopped_now(room, event):    # agent_stop.py: checked once it's my turn (text and voice)
+            if not await self.stopped_now(room, event, notify=not follow_up):   # agent_stop.py: at my turn (text, voice)
                 await self.answer(room, event, line, follow_up)
 
     async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: str | None = None) -> None:

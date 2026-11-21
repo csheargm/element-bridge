@@ -109,10 +109,10 @@ class BridgeCustom:
         offer = self.offers().get(event.reacts_to)
         if not offer or offer.get("room") != room.room_id or offer.get("done") or not is_private(room):
             return                            # only once, only where it was offered, only while private
+        if await self.stopped_now(room, None):   # agent_stop.py: a button click is work too
+            return
         if self.custom_busy().locked():
             await self.send(room.room_id, "I'm still busy with your last change; click again when it's done.")
-            return
-        if await self.stopped_now(room, None):   # agent_stop.py: a button click is work too
             return
         job = asyncio.create_task(self.act_on(room.room_id, event.reacts_to, event.key))
         self.tasks.add(job)
@@ -121,7 +121,7 @@ class BridgeCustom:
     async def act_on(self, rid: str, offer_id: str, key: str) -> None:
         async with self.custom_busy():
             offer = self.offers().get(offer_id) or {}
-            if offer.get("done"):
+            if offer.get("done") or await self.is_stopped():   # agent_stop.py: stopped while it waited
                 return
             try:
                 done = await self.do(rid, offer, key)
