@@ -15,9 +15,9 @@ from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Mego
                  RoomMessageAudio, RoomMessageText)
 
 import agents
+from agent_stop import BridgeStop
 from bridge_custom import BridgeCustom
 import bridge_followup
-from bridge_followup import BridgeFollowUp
 from bridge_voice import BridgeVoice
 import github
 import identity
@@ -38,7 +38,7 @@ CLOCK_SKEW_MS = 5_000        # tolerance when dropping events from before startu
 log = logging.getLogger("bridge")
 
 
-class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
+class Bridge(BridgeVoice, BridgeCustom, bridge_followup.BridgeFollowUp, BridgeStop):   # agent_stop.py: Stop / Start
     def __init__(self, owner: str, backend: str, allow_members: bool = False, buttons_only: bool = False):
         self.backend, self.allow_members, self.buttons_only = backend, allow_members, buttons_only
         self.owner_id = identity.person_id(owner, SERVER_NAME)     # full IDs only: should_ignore compares them
@@ -114,6 +114,8 @@ class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
         if reason:
             await self.refuse(room, event, reason)   # bridge_voice.py: "I only take requests from Betty"
             return
+        if await self.stopped_now(room, event):   # agent_stop.py: my owner stopped me (says so once)
+            return
         work = (self.change_code(room, event) if addressed and self.wants_change(room, event)
                 else self.answer_locked(room, event, line, follow_up=asked))
         task = asyncio.create_task(work)      # don't block sync; change_code: bridge_custom.py
@@ -137,7 +139,7 @@ class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
             log.info("already running %s; its result answers the resend too", step)
             return                         # the loop accepts the original's task_id for this step
         self.running_steps.add(step)
-        job = asyncio.create_task(self.run_task(room.room_id, task))
+        job = asyncio.create_task(self.task_unless_stopped(room.room_id, task))   # agent_stop.py
         job.add_done_callback(lambda _: self.running_steps.discard(step))
         self.tasks.add(job)
         job.add_done_callback(self.tasks.discard)

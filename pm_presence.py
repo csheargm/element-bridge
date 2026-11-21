@@ -21,6 +21,7 @@ import registry
 import remote_agent
 from bridge import ROOT, SERVER_NAME
 from pm_remove import Removal
+from pm_stop import StopStart
 from saved_dict import SavedDict
 from setup_accounts import AccountError
 
@@ -37,7 +38,7 @@ DISCONNECTED_MORE = ("Disconnected: {agent} can't sign in from its computer any 
                      "🔁 below for a new code and its Connect page.")
 
 
-class Presence(Removal):                # pm_remove.py: Remove, and forgetting deactivated accounts
+class Presence(Removal, StopStart):     # pm_remove.py: Remove, forgetting deactivated accounts; pm_stop.py
     def seen(self) -> dict:
         """agent localpart → {"online", "since", "ever", "alerted", "offer", "owner"}, on disk."""
         if "_seen" not in self.__dict__:
@@ -119,17 +120,10 @@ class Presence(Removal):                # pm_remove.py: Remove, and forgetting d
     async def disconnect(self, room_id: str, person: str, name: str | None = None) -> bool:
         """This remote agent of the person's (by name or label; None: their only one) gets a new
         password: its computer is signed out for good."""
-        remote = [a for a in registry.agents_of(person) if a["agent"] == registry.REMOTE and registry.owns(person, a["localpart"])]
-        if name:
-            remote = [a for a in remote if registry.called(a, name)]
-        if len(remote) > 1:
-            await self.say(room_id, "Which one? Say \"disconnect my agent NAME\" with one of: "
-                                    + ", ".join(a["label"] for a in remote) + ". (Or use Disconnect in the console.)")
+        found = await self.pick_remote(room_id, person, name, "disconnect")   # pm_stop.py
+        if found is None:
             return False
-        if not remote:
-            await self.say(room_id, f"You have no agent {'called ' + name + ' ' if name else ''}connected from your own computer here.")
-            return False
-        agent, first = remote[0]["localpart"], remote[0]["first"]
+        agent, first = found["localpart"], found["first"]
         remote_agent.CODES.revoke(person, None if first else agent)   # first, here on my own thread: no code can pick up the new password
         try:
             await asyncio.to_thread(remote_agent.disconnect, person, agent)

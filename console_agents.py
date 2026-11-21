@@ -22,6 +22,7 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
                           "display": a.get("display") or "", "runs": pm_kinds.describe(a),   # pm_rename, pm_kinds
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
+                          "stopped": a["stopped"], "hermes": a.get("agent_kind") == "hermes",   # pm_stop.py
                           "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
                           "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
     return found
