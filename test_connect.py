@@ -80,16 +80,16 @@ class Connect(unittest.TestCase):
             self.assertEqual(any("can be read by others" in str(c.args[0]) for c in out.call_args_list), noted)
 
     def test_which_cli(self):
-        with mock.patch.object(connect.shutil, "which", lambda b: True):
+        with mock.patch.object(connect.cli_path.shutil, "which", lambda b: True):
             self.assertEqual(connect.pick_backend("claude", "codex"), "claude")
             self.assertEqual(connect.pick_backend(None, "codex"), "codex")
-        with mock.patch.object(connect.shutil, "which", lambda b: None), self.assertRaises(SystemExit):
+        with mock.patch.object(connect.cli_path.shutil, "which", lambda b: None), self.assertRaises(SystemExit):
             connect.pick_backend("claude", None)                 # chosen, but not installed: before the code is used
-        with mock.patch.object(connect.shutil, "which", lambda b: b == "claude"):
+        with mock.patch.object(connect.cli_path.shutil, "which", lambda b: b == "claude"):
             self.assertEqual(connect.pick_backend(None, None), "claude")
-        with mock.patch.object(connect.shutil, "which", lambda b: None), self.assertRaises(SystemExit):
+        with mock.patch.object(connect.cli_path.shutil, "which", lambda b: None), self.assertRaises(SystemExit):
             connect.pick_backend(None, None)
-        with mock.patch.object(connect.shutil, "which", lambda b: True), \
+        with mock.patch.object(connect.cli_path.shutil, "which", lambda b: True), \
                 mock.patch.object(connect.sys.stdin, "isatty", lambda: True):
             answers = iter(["hermes", "Codex"])
             self.assertEqual(connect.pick_backend(None, None, ask=lambda _: next(answers)), "codex")
@@ -98,7 +98,7 @@ class Connect(unittest.TestCase):
         """GPT review 21: no CLI installed must not burn the one-time code."""
         home = tempfile.mkdtemp()
         with mock.patch.object(sys, "argv", ["connect.py", "ABCDE-FGHJK", "--home", home]), \
-                mock.patch.object(connect.shutil, "which", lambda b: None), \
+                mock.patch.object(connect.cli_path.shutil, "which", lambda b: None), \
                 mock.patch.object(connect, "redeem") as redeem, self.assertRaises(SystemExit):
             connect.main()
         redeem.assert_not_called()

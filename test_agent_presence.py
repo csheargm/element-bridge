@@ -117,7 +117,7 @@ class Connect(unittest.TestCase):
         (home / "credentials.json").write_text(json.dumps(saved or {"homeserver": "https://m.org", "user_id": f"@{AGENT}:m.org",
                                                                     "password": "pw", "owner": "newbie1", "agent": "codex"}))
         with mock.patch.object(sys, "argv", ["connect.py", "--home", str(home), *argv]), \
-                mock.patch.object(connect.shutil, "which", lambda b: True), \
+                mock.patch.object(connect.cli_path.shutil, "which", lambda b: True), \
                 mock.patch.object(connect.os, "execve") as execve, mock.patch("builtins.print") as out:
             connect.main()
         return execve, " ".join(str(c.args[0]) for c in out.call_args_list)

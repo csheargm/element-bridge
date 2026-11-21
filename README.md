@@ -36,8 +36,9 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
    with `%LOCALAPPDATA%\Hagency\app\.venv\Scripts\python.exe %LOCALAPPDATA%\Hagency\app\connect.py --stop`
    (it ends and removes the Scheduled Task).
-   Windows needs Claude Code from its installer (`claude.exe`) or a `codex.exe` on the PATH: the
-   agent starts the CLI without a shell, so npm's `.cmd` wrappers aren't enough yet.
+   On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
+   the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
+   the wrapper names (`cli_path.py`).
 5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): click ➕ under @pm's Connect
    message (or type "add another agent called codex" in @pm's chat, or **Add an agent** under My
    agents in the panel). @pm asks for a one-word name if you gave none, then sends that agent's own

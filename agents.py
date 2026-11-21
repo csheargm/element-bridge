@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import cli_path
 import lifecycle
 import owner_cli
 from workdirs import SESSION_FILE, SESSION_ID_RE
@@ -168,8 +169,9 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
     if session_id is not None and not (isinstance(session_id, str) and SESSION_ID_RE.match(session_id)):
         session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
 
-    proc = await asyncio.create_subprocess_exec(
-        *argv_fn(workdir, session_id, write, owner), cwd=workdir, env=agent_env(workdir),
+    program, *args = argv_fn(workdir, session_id, write, owner)
+    proc = await asyncio.create_subprocess_exec(       # Windows: npm's .cmd wrappers too, with no shell
+        *cli_path.command(program), *args, cwd=workdir, env=agent_env(workdir),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await lifecycle.communicate(proc, prompt.encode(), TURN_TIMEOUT_S)
