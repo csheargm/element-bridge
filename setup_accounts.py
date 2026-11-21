@@ -139,12 +139,22 @@ def mark_direct(token: str, user_id: str, other: str, room: str) -> None:
         api("PUT", path, direct, token=token)
 
 
+PW_KEY_PM = password_key(PM_BOT)
+
+
 def ensure_pm() -> None:
     """The public server: only @pm (people sign up themselves; their agents run on their computers).
-    Checked by signing in, so a fresh database gets @pm again; must run before the first sign-up."""
+    A fresh database gets @pm again; must run before the first sign-up. Usually no sign-in at all:
+    each start used three (this check, the name, loop.py) and a few deploys an hour used up
+    Synapse's per-account limit, so @pm couldn't sign in (2026-11-21)."""
     env = load_env()
+    me = urllib.parse.quote(f"@{PM_BOT}:{SERVER_NAME}")
+    profile = api("GET", f"/_matrix/client/v3/profile/{me}")
+    if PW_KEY_PM in env and profile.get("displayname") == DISPLAY_NAMES[PM_BOT]:
+        print(f"checked @{PM_BOT}:{SERVER_NAME}")     # exists with its name; loop.py's sign-in checks the password
+        return
     try:
-        password, created = ensure_user(env, PM_BOT, shared_secret(), verify=True)
+        password, created = ensure_user(env, PM_BOT, shared_secret(), verify="_status" in profile)   # missing: a fresh database
     except AccountError as e:
         raise SystemExit(str(e)) from e
     token = login(PM_BOT, password)

@@ -212,12 +212,24 @@ class PublicServerAccounts(unittest.TestCase):
                 mock.patch.object(setup_accounts, "shared_secret", return_value="s"), \
                 mock.patch.object(setup_accounts, "ensure_user", return_value=("pw", True)) as ensure, \
                 mock.patch.object(setup_accounts, "login", return_value="t"), \
-                mock.patch.object(setup_accounts, "api") as api, mock.patch("builtins.print"):
+                mock.patch.object(setup_accounts, "api", side_effect=[{"_status": 404}, {}, {}]) as api, \
+                mock.patch("builtins.print"):
             setup_accounts.ensure_pm()
         self.assertEqual(ensure.call_args.args[1:3], ("pm", "s"))
         self.assertTrue(ensure.call_args.kwargs["verify"])         # a fresh database gets @pm again
-        self.assertEqual(api.call_args_list[0].args[2], {"displayname": "Product Manager"})
+        self.assertEqual(api.call_args_list[1].args[2], {"displayname": "Product Manager"})
         self.assertEqual(api.call_args_list[-1].args[1], "/_matrix/client/v3/logout")
+
+    def test_an_existing_pm_with_its_name_needs_no_sign_in(self):
+        """Seen live: three sign-ins per start used up Synapse's per-account limit; @pm crash-looped."""
+        with mock.patch.object(setup_accounts, "load_env", return_value={"PW_PM": "pw"}), \
+                mock.patch.object(setup_accounts, "ensure_user") as ensure, \
+                mock.patch.object(setup_accounts, "login") as login, \
+                mock.patch.object(setup_accounts, "api", return_value={"displayname": "Product Manager"}), \
+                mock.patch("builtins.print"):
+            setup_accounts.ensure_pm()
+        ensure.assert_not_called()
+        login.assert_not_called()
 
 
 class EnsureUser(unittest.TestCase):
