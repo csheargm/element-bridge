@@ -103,6 +103,16 @@ class MyAgents(unittest.TestCase):
         self.assertNotIn("Code it runs", card)                         # nothing customized: nothing to say
         self.assertNotIn("official version", card)
 
+    def test_disconnect_only_for_one_that_has_connected(self):
+        """Screen test 4: a never-connected agent showed Disconnect; Remove and Rename stay."""
+        never = render("panel-agents.js", f"agentCards({json.dumps({'agents': [NEVER], 'can_add': False})})")
+        self.assertNotIn('data-a="disconnect"', never)
+        self.assertIn('data-a="remove"', never)
+        self.assertIn('data-a="rename"', never)
+        for seen in ({"connected": True}, {"online": True, "connected": True}):
+            html = render("panel-agents.js", f"agentCards({json.dumps({'agents': [{**NEVER, **seen}], 'can_add': False})})")
+            self.assertIn('data-a="disconnect"', html, seen)
+
     def test_a_connected_agent_gone_offline_gets_the_reconnect_hint(self):
         card = self.card([{**NEVER, "connected": True, "here": True, "invited": False}])
         self.assertIn("Run the connect line again on its computer", card)

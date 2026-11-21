@@ -9,7 +9,10 @@ function agentSeg(name, agent, values, current) {
 function agentStatus(a) {
   if (!a.remote) return `<span class="chip">Runs on this server</span>`;
   const word = a.online === true ? "Online" : !a.connected ? "Not connected yet" : "Offline";
-  return `<span class="chip">${word}</span> <button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>
+  // Screen test: one that never connected had a Disconnect button (nothing to disconnect); Remove and Rename stay.
+  const disconnect = a.online === true || a.connected
+    ? `<button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>` : "";
+  return `<span class="chip">${word}</span> ${disconnect}
     ${removeButton(a)}`;
 }
 // Remove is for good, so it asks twice in the page (Element's widget frame may block confirm()).
