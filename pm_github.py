@@ -30,6 +30,8 @@ CODE = ("To connect your GitHub account, open {url} and enter the code **{code}*
         "minutes). GitHub asks you to authorize **Hagency Rooms**: I read only your GitHub username, then "
         "throw the sign-in away. Enter this code only if you asked for it yourself.")
 OFF = "This server doesn't use Connect GitHub: your agent's own GitHub login counts here."
+# Screen test: Connect GitHub in the panel, then "connect my github" in the chat posted the same code twice.
+STILL = "The GitHub code I sent above still works for {minutes} more minute{s}: enter it at {url}."
 ON_CARD = "Your code is on the GitHub card (and in our private chat)."
 CANCELLED = "Cancelled the GitHub sign-in."
 
@@ -80,8 +82,13 @@ class GitHubLink:
                 return flow, False, None
         minutes = max(1, round((flow["expires_at"] - time.time()) / 60))
         text = CODE.format(url=flow["url"], code=flow["user_code"], minutes=minutes)
-        told = await self.tell_github(person, text, flow) if fresh or resend else None
-        return text, True, told
+        if not (fresh or resend):
+            return text, True, None
+        posted = flow.get("told")             # the chat this code is already in (tell_github)
+        if not fresh and posted and posted == await self.private_room(person):   # never the same code twice there
+            still = STILL.format(minutes=minutes, s="" if minutes == 1 else "s", url=flow["url"])
+            return text, True, await self.tell_github(person, still, flow)
+        return text, True, await self.tell_github(person, text, flow)
 
     async def new_github_flow(self, person: str) -> dict | str:
         """A new device code for `person` and its background wait; or why not (a str to tell them)."""
@@ -173,6 +180,8 @@ class GitHubLink:
                 return None
             if room is not None:
                 await self.say(room, text)
+                if flow is not None:
+                    flow["told"] = room       # start_github: asked again, "the code above" instead
                 return room
         except RuntimeError as e:     # Matrix refused (SendError): the panel still shows it to them
             log.warning("couldn't tell %s about GitHub: %s", person, room_safe(e))
