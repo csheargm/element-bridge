@@ -23,7 +23,13 @@ class Base(unittest.TestCase):
         fed_https._cache.clear()
         fed_openid._tries.clear()
         fed_https._own[:] = [0.0, ()]
+        fed_https._own_by_name.clear()
         self.addCleanup(fed_https._own.__setitem__, slice(None), [0.0, ()])
+        self.addCleanup(fed_https._own_by_name.clear)
+        import setup_accounts                 # this server's name as the tests' World knows it (CI has no .env)
+        p = mock.patch.object(setup_accounts, "SERVER_NAME", "bridge.localhost")
+        p.start()
+        self.addCleanup(p.stop)
 
 
 class EgressAndDeadlines(Base):
