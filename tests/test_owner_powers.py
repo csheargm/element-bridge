@@ -11,6 +11,7 @@ from unittest import mock
 
 import agents
 import bridge
+import tool_refusal
 import workdirs
 from tests import ROOT
 
@@ -132,17 +133,19 @@ class OwnerTurn(unittest.TestCase):
         text, _, _ = self.run_claude({"result": "I couldn't search.", "session_id": "abcdef12-1",
                                       "permission_denials": denials})
         self.assertTrue(text.startswith("I couldn't search."))
-        self.assertIn("WebSearch, Bash: blocked by a deny rule in your Claude Code settings", text)
+        self.assertIn("I couldn't use web search or running commands: your own Claude Code settings block it.", text)
         for leaked in ("ghp_", "id_rsa", "bad name"):
             self.assertNotIn(leaked, text)
 
     def test_a_tool_outside_the_allowed_set_says_how_to_allow_it(self):
         text, _, _ = self.run_claude({"result": "no", "permission_denials": [{"tool_name": "mcp__x__y"}]})
-        self.assertIn('mcp__x__y: not allowed for chat turns; to allow it, add it to "permissions": {"allow"', text)
+        self.assertIn("I couldn't use x from this chat: it needs your OK first", text)
+        self.assertIn(tool_refusal.HOW_TO_URL, text)
+        self.assertNotIn("settings.json", text)                  # the how-to is on the docs page
 
     def test_only_denials_is_a_reply_not_an_empty_failure(self):
         text, _, _ = self.run_claude({"result": "", "permission_denials": [{"tool_name": "WebFetch"}]})
-        self.assertIn("WebFetch", text)
+        self.assertIn("opening web pages", text)
 
     def test_empty_reply_is_still_a_failure(self):
         with self.assertRaises(agents.AgentError):
