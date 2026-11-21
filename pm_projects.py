@@ -145,6 +145,26 @@ class Projects(Finding, Joining):
                                              room.display_name, repo if private else None)
         return f"This room is now {project_rooms.WORDS[value]}.{note}"
 
+    async def give_addresses(self) -> None:
+        """At start: listed and open rooms from before readable addresses existed get one (screen test:
+        "final project !5nbmn…" in the directory). The same rules as a visibility change (room_address.
+        follow): kept when the room has one, never a private repo's name, under the lock."""
+        for room_id, room in list(self.client.rooms.items()):
+            if project_rooms.is_front_door(room) or self.is_private_chat(room):
+                continue
+            async with self.lock:
+                try:
+                    if await project_rooms.visibility(self.client, room_id, strict=True) == project_rooms.PRIVATE:
+                        continue
+                    repo = (await room_state.binding_of(self.client, room_id, strict=True))[0]
+                except room_state.StateUnreadable as e:   # left as it is; the next start or visibility change retries
+                    log.warning("couldn't check %s's address: %s", room_id, e)
+                    continue
+                private = await project_rooms.repo_is_private(repo) if repo else False
+                note = await room_address.follow(self.client, room_id, True, room.display_name, repo if private else None)
+            if note:
+                log.info("address of %s:%s", room_id, note)
+
     async def close_for_private(self, room_id: str, repo: str) -> tuple[str | None, str]:
         """Before binding `repo` (under the lock): a room anyone can join (its real join rule, not my
         record) becomes listed if the repo is private; if that fails, the repo isn't set. (refusal, note)"""

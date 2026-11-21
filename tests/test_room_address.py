@@ -8,6 +8,7 @@ import urllib.parse
 from types import SimpleNamespace
 from unittest import mock
 
+import project_rooms
 import room_address
 from tests.test_projects import ANNA, PM, S, Base, project
 
@@ -145,6 +146,39 @@ class Address(Base):
         self.assertEqual(self.canonical(), f"#secret-one:{S}")
         with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
             self.assertEqual(run(self.lp.close_for_private("!a", "a/secret-one")), (None, ""))
+        self.assertEqual(self.canonical(), f"#project:{S}")
+        self.assertNotIn("secret", json.dumps(self.aliases))
+
+    # At start (pm_projects.give_addresses): screen test, "final project !5nbmn…" in the directory, a
+    # room listed before readable addresses existed. The same rules as a visibility change.
+    def listed_before(self, room_id="!a", value=project_rooms.LISTED, **more):
+        self.state.setdefault(room_id, {}).update({project_rooms.VISIBILITY_EVENT: ({"visibility": value}, PM), **more})
+
+    def test_at_start_a_room_listed_before_addresses_gets_one_once(self):
+        self.listed_before()
+        run(self.lp.give_addresses())
+        self.assertEqual((self.canonical(), self.aliases[f"#final-project:{S}"]), (f"#final-project:{S}", "!a"))
+        run(self.lp.give_addresses())                       # the next start: nothing more
+        self.assertEqual(sum(m == "PUT" and "/directory/room/" in p for m, p in self.calls), 1)
+
+    def test_at_start_open_rooms_too_never_private_ones_the_lobby_or_owners_addresses(self):
+        self.listed_before(value=project_rooms.OPEN)
+        self.lp.client.rooms["!b"] = project("!b", "quiet room")                 # private: no address
+        self.lp.client.rooms["!l"] = lobby = project("!l", "Lobby")
+        lobby.canonical_alias = project_rooms.LOBBY_ALIAS
+        self.listed_before("!l", project_rooms.OPEN)
+        self.lp.client.rooms["!c"] = project("!c", "chosen")
+        self.listed_before("!c", **{"m.room.canonical_alias": ({"alias": f"#ours:{S}"}, ANNA)})
+        run(self.lp.give_addresses())
+        self.assertEqual(self.canonical(), f"#final-project:{S}")
+        self.assertEqual(sorted(self.aliases.values()), ["!a", "!l"])           # !l: only its own #lobby
+
+    def test_at_start_a_private_repos_name_never_shows(self):
+        self.room.display_name = "Secret One tracker"
+        self.bind("!a", "a/secret-one")
+        self.listed_before()
+        with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
+            run(self.lp.give_addresses())
         self.assertEqual(self.canonical(), f"#project:{S}")
         self.assertNotIn("secret", json.dumps(self.aliases))
 
