@@ -38,6 +38,11 @@ class Headers(unittest.TestCase):
             self.assertEqual(bridge_config.panel_embedders(),
                              [bridge_config.ELEMENT_ORIGIN, "https://chat.example.org", DESKTOP])
 
+    def test_a_malformed_element_origin_never_reaches_the_policy(self):
+        with mock.patch.object(bridge_config, "ELEMENT_ORIGIN", "https://x.example; script-src *"), \
+                mock.patch.dict(os.environ, {"HAGENCY_PANEL_EMBEDDERS": "vector://vector"}):
+            self.assertEqual(bridge_config.panel_embedders(), [DESKTOP])
+
     def test_the_connect_page_is_never_framed_and_element_itself_only_by_itself(self):
         self.assertEqual(frame_ancestors(connect_page.PAGE_CSP), ["'none'"])
         rooms = (ROOT / "deploy" / "Caddyfile").read_text().split("{$ROOMS_DOMAIN} {")[1].split("\n}")[0]

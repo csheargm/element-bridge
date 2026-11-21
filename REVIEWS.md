@@ -1162,3 +1162,12 @@ config.json, so they ask once (Continue / Allow) before showing the panel: a new
 message says so and links the same panel in a browser (/console?room=…, signed in by link).
 Tests: tests.test_panel_framing (header values, the configurable list without a wildcard, Caddy,
 Element Desktop signs in, a page not on the list is never answered, the room message).
+GPT (Codex) on the commit: nothing blocking (frame-ancestors checks every ancestor; origin pinning,
+`vector://vector` as Element Desktop's origin, dropping X-Frame-Options from @pm's other responses
+and Caddy's header order all checked against upstream). Adopted: **pin the Element origin only on
+its capabilities request** (not any first message); **ELEMENT_ORIGIN is validated like the list**
+(it goes into the CSP and the page's script; test_a_malformed_element_origin_never_reaches_the_policy);
+**an empty PANEL_EMBEDDERS means ours only** (Compose's `-`, not `:-`). Noted, not changed: a framing
+app on the list can overlay the signed-in panel and induce clicks (that is trusting Element's own
+apps, which hold the person's Matrix session anyway); Element's nginx sends no X-Frame-Options today,
+so Caddy's one value is final.

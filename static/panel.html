@@ -39,7 +39,7 @@ __SCRIPTS__
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
 // The Element apps allowed to frame the panel (panel.EMBEDDERS); ELEMENT: the one that does, from its
-// first message (Element speaks first), and from then on only that one.
+// capabilities request (Element speaks first), and from then on only that one.
 const EMBEDDERS = __EMBEDDERS__;
 let ELEMENT = null;
 const embedded = window.parent !== window && !!wid;
@@ -78,7 +78,9 @@ const NAVIGATE = "org.matrix.msc2931.navigate", NAV_WAIT_MS = 4000;
 let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
-  if (!EMBEDDERS.includes(ev.origin) || (ELEMENT && ev.origin !== ELEMENT) || ev.source !== window.parent || m.widgetId !== wid) return;
+  if (!EMBEDDERS.includes(ev.origin) || ev.source !== window.parent || m.widgetId !== wid) return;
+  if (!ELEMENT && !(m.api === "toWidget" && m.action === "capabilities")) return;   // pinned by Element's first request
+  if (ELEMENT && ev.origin !== ELEMENT) return;
   ELEMENT = ev.origin;
   if (m.api === "toWidget") {
     const ack = {api: "toWidget", widgetId: wid, requestId: m.requestId, action: m.action, data: {},

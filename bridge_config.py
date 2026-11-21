@@ -27,9 +27,10 @@ EMBEDDER_RE = re.compile(r"https://[a-z0-9.-]+(:\d{1,5})?|http://localhost(:\d{1
 
 
 def panel_embedders() -> list[str]:
-    """ELEMENT_ORIGIN first, then each listed origin that is exactly one (a "*" or a path: dropped)."""
+    """ELEMENT_ORIGIN first, then each listed origin that is exactly one (a "*", a path or anything else
+    that isn't: dropped, ours too: GPT review, it goes into the CSP and the page's script)."""
     listed = os.environ.get("HAGENCY_PANEL_EMBEDDERS", EMBEDDERS_DEFAULT).split()
-    return list(dict.fromkeys([ELEMENT_ORIGIN, *(o for o in listed if EMBEDDER_RE.fullmatch(o))]))
+    return list(dict.fromkeys(o for o in (ELEMENT_ORIGIN, *listed) if EMBEDDER_RE.fullmatch(o)))
 
 
 def load_credentials(path: str | None) -> dict:
