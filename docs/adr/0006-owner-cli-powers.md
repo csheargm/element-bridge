@@ -104,10 +104,14 @@ for 30 minutes and for at most 5 messages.
   plan JSON must stay intact.
 - **Task folders** stay under `ROOT/rooms/<owner>/work/`, shared with `hagency_mcp.py`.
 
-**Per-room web grants.** The bridge's CLI no longer reads them: the owner's turns always have web,
-and locked turns never do. The grant record, @pm's "let my agent search the web here" and the panel
-toggle remain only for the hagency MCP `web_search`/`fetch_page` tools. Retiring them touches
-`console.py` and `panel.py`, which another change has open, so that is a follow-up.
+**Per-room web grants are retired.** The owner's turns always have web, and locked turns never do,
+so a per-room switch has nothing left to switch. The grant record (`capabilities.py`), the panel's
+web toggle and "uses:" chip, and @pm's grant code are gone. The hagency MCP `web_search` and
+`fetch_page` tools (Hermes) follow the same rule: the personal profile may use them in the room its
+owner is talking to it in (each request is still shown there), and the loop profile never may.
+"@pm let my agent search the web here" (or "stop letting…") is still recognised, but only answered:
+@pm explains that there is no switch and that the owner's own CLI settings are what limit it.
+Grant records already in rooms are ignored.
 
 ## Consequences
 - **What the owner's agent can do:** in a room, roughly what the owner's CLI can do at their

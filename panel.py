@@ -1,7 +1,7 @@
 """The Hagency side panel and console: a page @pm serves and adds to each project room as an
 Element widget (and at /console for phones and other clients). It shows the live Project status,
 what's waiting, the plan and whose agent is whose, and — once it knows who you are (console.py) —
-lets you change the room's mode, your agent's follow-me and web grant, and approve what you asked
+lets you change the room's mode, your agent's follow-me setting, and approve what you asked
 for, through @pm's own checks. Refreshed every few seconds; listens on 127.0.0.1 only (PANEL_HOST: the public server's container).
 """
 import html
@@ -185,17 +185,14 @@ def render(loop, room_id: str) -> str:
         items = "".join(f"<li><b>{html.escape(i['title'])}</b></li>" for i in plan)
         parts.append(f"<section class=card><h2>Current plan</h2><ol>{items}</ol></section>")
     agents = []
-    grants = loop.grants_cache.get(room_id, {}) if hasattr(loop, "grants_cache") else {}
     for user in sorted(room.users):
         owner = ownership.owner_id(user)
         if owner:
             here = "" if ownership.joined(room, owner) else " <span class=muted>(owner not here: idle)</span>"
             follow = registry.follow(owner, user.split(":")[0][1:])
-            caps = ", ".join(sorted(grants.get(user, {}))) or "project only"
             agents.append(f"<li><div><b>{html.escape(user.split(':')[0][1:])}</b> <span class=muted>· "
                           f"{html.escape(identity.shown_name(room, owner))}'s agent{here}</span></div>"
-                          f"<div><span class=chip>comes along: {html.escape(follow)}</span> "
-                          f"<span class=chip>uses: {html.escape(caps)}</span></div></li>")
+                          f"<div><span class=chip>comes along: {html.escape(follow)}</span></div></li>")
     parts.append("<section class=card><h2>Agents in this room</h2><ul class=agents>"
                  + ("".join(agents) or "<li class=muted>None yet</li>") + "</ul></section>")
     return "".join(parts)

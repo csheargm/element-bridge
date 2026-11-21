@@ -44,7 +44,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    Connect page and code. It runs beside the first one (`<you>-codex-agent`, its files in
    `~/.hagency/<its name>/`; stop it with `connect.py --name <its name> --stop`). The panel's My
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
-   first comes along by default) and web research. @pm never lets two of your agents review each
+   first comes along by default). @pm never lets two of your agents review each
    other: a review always needs a different person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
    new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top

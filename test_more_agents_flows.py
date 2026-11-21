@@ -228,7 +228,6 @@ class FollowAndConsole(Base):
     def test_the_console_lists_every_agent_with_its_own_settings(self):
         self.lp.client.rooms = {"!r": self.room(CX, CXC)}
         self.lp.is_person = lambda r, u: u == CX
-        self.lp.grants_cache = {"!r": {CXC: {"web": {}}}}
         self.lp.level = mock.AsyncMock(return_value="off")
         self.lp.pending = {}
         self.lp._seen = {"cx-codex-agent": {"online": True}}
@@ -240,7 +239,6 @@ class FollowAndConsole(Base):
         mine = {a["name"]: a for a in v["agents"]}
         self.assertEqual(list(mine), ["cx-agent", "cx-codex-agent"])
         self.assertEqual((mine["cx-agent"]["follow"], mine["cx-codex-agent"]["follow"]), ("always", "never"))
-        self.assertEqual((mine["cx-agent"]["web"], mine["cx-codex-agent"]["web"]), (False, True))
         self.assertEqual((mine["cx-codex-agent"]["online"], mine["cx-codex-agent"]["here"]), (True, True))
         self.assertTrue(v["can_add"])
 
@@ -253,9 +251,6 @@ class FollowAndConsole(Base):
                       asyncio.run(console.act(self.lp, "!r", BETTY, "follow", "never", "cx-codex-agent")))
         self.assertEqual(registry.follow(CX, "cx-codex-agent"), "ask")                  # never someone else's
         self.assertIn("don't have that agent", self.said[-1][1])
-        self.lp.client.room_get_state, self.lp.client.room_put_state = mock.AsyncMock(), mock.AsyncMock()
-        self.assertIn("isn't one of your agents", asyncio.run(console.act(self.lp, "!r", CX, "web", "on", "nope-agent")))
-        self.lp.client.room_put_state.assert_not_awaited()                               # GPT 24: never the first instead
 
 
 if __name__ == "__main__":

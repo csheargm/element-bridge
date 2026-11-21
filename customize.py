@@ -31,7 +31,7 @@ PY = str(ROOT / ".venv" / "bin" / "python")
 TEST_TIMEOUT_S = 600
 MAX_DIFF_FILES = 15
 # Code that decides who the agent obeys and what it may do: changes here get an extra red flag.
-SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "capabilities.py", "redact.py",
+SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "redact.py",
              "safe_fetch.py", "supervise.py", "customize.py", "lifecycle.py", "ownership.py", "github.py",
              "room_context.py", "room_state.py", "tasks.py", "registry.py", "saved_dict.py", "console.py",
              "pm_chat.py", "onboard.py", "setup_accounts.py", "panel.py", "hagency_mcp.py", "mcp_core.py",

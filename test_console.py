@@ -113,9 +113,6 @@ class Actions(unittest.TestCase):
         async def set_follow(r, user, value, agent=None):
             self.calls.append(("follow", user, value))
 
-        async def set_grant(r, user, cap, on, agent=None):
-            self.calls.append(("web", user, on))
-
         async def say(*a, **k):
             pass
 
@@ -123,8 +120,8 @@ class Actions(unittest.TestCase):
             return False
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}), change_level=change_level, say=say,
                                     is_person=lambda r, u: u in r.users and not u.split(":")[0].endswith("-agent"),
-                                    set_follow=set_follow, set_grant=set_grant, confirm=confirm, pending={},
-                                    grants_cache={}, level=lambda rid: asyncio.sleep(0, "off"),
+                                    set_follow=set_follow, confirm=confirm, pending={},
+                                    level=lambda rid: asyncio.sleep(0, "off"),
                                     agent_online=lambda agent: True if agent == "alice-at-matrix-org-a5829e99c7-agent" else None,
                                     user_id="@pm:" + BETTY.partition(":")[2])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
@@ -162,8 +159,13 @@ class Actions(unittest.TestCase):
 
     def test_everyone_sets_their_own_agent(self):
         self.assertEqual(self.act(BETTY, "follow", "never"), "ok")
-        self.assertEqual(self.act(BETTY, "web", "on"), "ok")
-        self.assertEqual(self.calls, [("follow", BETTY, "never"), ("web", BETTY, True)])
+        self.assertEqual(self.calls, [("follow", BETTY, "never")])
+
+    def test_the_retired_web_switch_is_gone(self):
+        """ADR 0006: the owner's agent always has the web when they ask it; no per-room toggle."""
+        self.assertEqual(self.act(BETTY, "web", "on"), "unknown action")
+        self.assertEqual(self.calls, [])
+        self.assertNotIn("web", asyncio.run(console.view(self.loop, "!r", BETTY)))
 
     def test_people_outside_the_room_and_odd_values_do_nothing(self):
         self.assertIn("not in that room", self.act(MALLORY, "mode", "off"))
@@ -180,8 +182,8 @@ class Actions(unittest.TestCase):
 
     def test_view_shows_my_role_and_my_agent(self):
         v = asyncio.run(console.view(self.loop, "!r", BETTY))
-        self.assertEqual((v["user"], v["moderator"], v["agent"], v["follow"], v["web"]),
-                         ("betty", False, "betty-agent", "always", False))
+        self.assertEqual((v["user"], v["moderator"], v["agent"], v["follow"]),
+                         ("betty", False, "betty-agent", "always"))
 
     def test_someone_from_another_server_sees_their_own_agent_never_a_namesakes(self):
         """GPT review 23: people from other servers sign in with a link and see their own agent."""
