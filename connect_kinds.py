@@ -107,7 +107,7 @@ def pending_for(kind: str, saved: dict, offered: dict) -> dict:
     """The sign-in with `kind` and only its own settings: the last ones if it ran this kind before,
     @pm's when @pm named this kind (or none); never another kind's (GPT review)."""
     keep = saved if saved.get("agent") == kind else {k: v for k, v in saved.items() if k not in KIND_SETTINGS}
-    offer = offered if offered.get("agent_kind") in (None, kind) else {}
+    offer = offered if offered.get("agent_kind") == kind else {}   # a model only with its kind (GPT re-check)
     return {**keep, **{k: offer[k] for k in KIND_SETTINGS if k in offer}, "agent": kind}
 
 

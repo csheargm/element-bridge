@@ -18,10 +18,20 @@ import pairing
 USED_KEEP_S = pairing.CODE_S
 REQUESTS_PER_MIN = 30
 STATES = ("waiting", "connected", "expired")
+
+
 class ClientLimiter(pairing.Limiter):
     """Wrong codes per client only: many clients' wrong guesses never stop anyone's status (GPT review)."""
     def blocked(self, client: str, now: float | None = None) -> bool:
         return len(self._recent(client, time.time() if now is None else now)) >= pairing.FAILS_PER_CLIENT
+
+    def failed(self, client: str, now: float | None = None) -> None:
+        """Recorded for this client only: no shared list that grows with every guesser (GPT re-check)."""
+        now = time.time() if now is None else now
+        self._recent(client, now).append(now)
+        if len(self.fails) > 10_000:          # many clients: forget the quiet ones
+            for c in [c for c, ts in self.fails.items() if not ts or ts[-1] <= now - pairing.FAIL_WINDOW_S]:
+                self.fails.pop(c, None)
 
 
 LIMIT = ClientLimiter()                      # wrong codes asked about here; not connect.py's limiter
@@ -56,8 +66,8 @@ def too_many(client: str, now: float | None = None) -> bool:
         for c in [c for c, ts in _asks.items() if not ts or ts[-1] <= now - 60]:
             _asks.pop(c, None)
     recent = [t for t in _asks.get(client, []) if t > now - 60]
-    if len(recent) >= REQUESTS_PER_MIN:      # refused asks aren't counted: the list stays bounded
+    if len(recent) >= REQUESTS_PER_MIN or LIMIT.blocked(client, now):   # refused asks aren't counted
         _asks[client] = recent
         return True
     _asks[client] = [*recent, now]
-    return LIMIT.blocked(client, now)
+    return False

@@ -199,7 +199,7 @@ def write_env(profile: Path, values: dict, key_name: str | None) -> None:
     lines = [ln for ln in lines if ln.split("=", 1)[0].strip() not in (*MATRIX_KEYS, *WIDENING_KEYS, key_name)]
     if key_name:
         lines += [ln for ln in (HERMES_HOME / ".env").read_text().splitlines() if ln.startswith(key_name + "=")]
-    if any("\n" in str(v) or "\r" in str(v) for v in values.values()):
+    if not all(one_line(v) for v in values.values()):
         raise ValueError("a Matrix setting has a line break in it")   # would add its own lines to .env
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
     os.fchmod(fd, 0o600)                     # an older .env keeps its mode otherwise (GPT review)
@@ -207,9 +207,16 @@ def write_env(profile: Path, values: dict, key_name: str | None) -> None:
         f.write("\n".join([*lines, *(f"{k}={v}" for k, v in values.items())]) + "\n")
 
 
+def one_line(value) -> bool:
+    """No line break of any kind (splitlines also splits at \\u2028, \\x1c...): it would add its own
+    lines to .env or the YAML (GPT re-check)."""
+    text = str(value)
+    return text.splitlines() in ([text], [])
+
+
 def _yaml_env(env: dict) -> str:
     """The MCP server's env block, each value single-quoted for YAML (a quote doubled; no line breaks)."""
-    if any("\n" in str(v) or "\r" in str(v) for v in env.values()):
+    if not all(one_line(v) for v in env.values()):
         raise ValueError("a setting for the hagency MCP server has a line break in it")
     return "\n".join(f"      {k}: '{str(v).replace(chr(39), chr(39) * 2)}'" for k, v in env.items())
 

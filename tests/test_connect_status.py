@@ -104,6 +104,7 @@ class Status(unittest.IsolatedAsyncioTestCase):
         for i in range(pairing.FAILS_TOTAL + 5):
             connect_status.LIMIT.failed(f"10.0.{i // 250}.{i % 250}", now=100)
         self.assertFalse(connect_status.too_many("192.0.2.1", now=101))
+        self.assertNotIn("*", connect_status.LIMIT.fails)                 # GPT re-check: no shared list to grow
 
     def test_refused_asks_are_not_piled_up(self):
         for _ in range(connect_status.REQUESTS_PER_MIN * 5):
@@ -143,8 +144,8 @@ class PageUnderNode(unittest.TestCase):
 
     def test_only_a_whole_code_is_asked_about(self):
         """GPT review: a code still being typed must not use up the wrong-code budget."""
-        got = self.run_js("['ABCD', 'ABCDE-FGH', 'ABCDE-FGHJK', 'ABCDEFGHJK', ''].map(m.pollable)")
-        self.assertEqual(got, ["", "", "ABCDE-FGHJK", "ABCDEFGHJK", ""])
+        got = self.run_js("['ABCD', 'ABCDE-FGH', 'ABCDE-FGHJK', 'ABCDEFGHJK', 'ABC-DEFGH-JK', ''].map(m.pollable)")
+        self.assertEqual(got, ["", "", "ABCDE-FGHJK", "ABCDEFGHJK", "ABC-DEFGH-JK", ""])
 
     def test_before_you_start_lists_the_chosen_kinds_needs(self):
         kinds = agent_kinds.kinds()

@@ -1138,3 +1138,19 @@ Not adopted:
   POST body, rate-limited.
 - **"@pm never supplies the kind":** that is the @pm side's part of the contract (another
   change). The `#kind=` on the page is only a pre-check hint.
+
+GPT re-check of the fixes (9 points). Adopted, with tests:
+- **JSON-escaped key:** the key is also cut out as a JSON error would spell it.
+- **Every kind of line break** (` `, `\x1c`... as `splitlines` sees them) is refused, and
+  checked on the whole saved sign-in before any profile file is written.
+- **Status limiter:**
+  - It keeps no shared `"*"` list, and quiet clients are forgotten.
+  - An ask refused for wrong codes isn't counted against the minute's budget.
+- **Polling:** the page polls a code with its dashes anywhere, as redemption accepts it.
+- **@pm's settings:** a model or address from @pm applies only with the kind @pm named.
+
+Not adopted:
+- **`#`/`${}` in a dotenv password:** the server generates these passwords (no such characters).
+  The Hermes dotenv quoting is unchanged from the server set-up.
+- **A hard-link swap of a profile's `.env`:** it needs another local account to write in the
+  owner's own `~/.hermes`. Symlinks are already refused (`O_NOFOLLOW`) and the mode forced to 0600.

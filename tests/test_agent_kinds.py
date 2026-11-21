@@ -174,6 +174,9 @@ class Turns(unittest.TestCase):
         reply, _ = self.turn("remote", REMOTE, out=json.dumps({"type": "item.completed", "item": {
             "type": "agent_message", "text": f"your key is {KEY}"}}).encode())
         self.assertEqual(reply, "your key is ***")
+        quoted = 'sk-"q\\uote'                                          # GPT re-check: as JSON would spell it
+        self.assertEqual(codex_provider.scrub(json.dumps({"error": quoted}), {codex_provider.KEY_ENV: quoted}),
+                         '{"error": "***"}')
 
     def test_a_key_is_only_sent_to_the_address_it_was_typed_for(self):
         """GPT review: during a reconnect the running bridge still has the old address."""

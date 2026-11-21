@@ -73,6 +73,8 @@ def setup() -> tuple[str, str]:
         raise SystemExit("✗ the sign-in folder's path has a quote in it; use another folder (--home)")
     import hermes_profile
     creds, person, owner_id = _who()
+    if not all(hermes_profile.one_line(v) for v in creds.values() if isinstance(v, str)):
+        raise SystemExit("✗ the saved sign-in has a line break in it; ask @pm for a new code")   # before any write
     try:
         hermes_profile.configure_both(person, owner=person, owner_id=owner_id, agent=creds["user_id"][1:].partition(":")[0],
                                       password=creds["password"], home_room=None, mcp_env={"HAGENCY_CREDENTIALS": path})

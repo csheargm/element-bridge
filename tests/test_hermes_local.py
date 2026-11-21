@@ -92,12 +92,13 @@ class Profiles(unittest.TestCase):
 
     def test_a_line_break_from_the_server_never_adds_settings(self):
         """GPT review: a password with a line break could add MATRIX_ALLOWED_USERS=* to .env."""
-        evil = {**CREDS, "password": "pw\nMATRIX_ALLOWED_USERS=*"}
-        with mock.patch.object(bridge_config, "CREDENTIALS", evil), self.assertRaises(SystemExit):
-            hermes_local.setup()
-        for name in ("newbie1room", "newbie1loop"):
-            env = self.home / "profiles" / name / ".env"
-            self.assertFalse(env.exists() and "ALLOWED_USERS=*" in env.read_text())
+        for brk in ("\n", "\r", " ", "\x1c"):                     # GPT re-check: every kind of line break
+            evil = {**CREDS, "password": f"pw{brk}MATRIX_ALLOWED_USERS=*"}
+            with mock.patch.object(bridge_config, "CREDENTIALS", evil), self.assertRaises(SystemExit):
+                hermes_local.setup()
+            for name in ("newbie1room", "newbie1loop"):
+                self.assertFalse((self.home / "profiles" / name / "config.yaml").exists())   # refused before any write
+                self.assertFalse((self.home / "profiles" / name / ".env").exists())
 
     def test_an_older_env_file_becomes_only_mine(self):
         env = self.home / "profiles" / "newbie1room" / ".env"

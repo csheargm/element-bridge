@@ -166,6 +166,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(pending("remote", saved, {})["base_url"], "https://a.example/v1")
         self.assertNotIn("model", pending("remote", {**SIGN_IN}, {"agent_kind": "ollama", "model": "qwen3:8b"}))
         self.assertEqual(pending("ollama", {**SIGN_IN}, {"agent_kind": "ollama", "model": "qwen3:8b"})["model"], "qwen3:8b")
+        self.assertNotIn("model", pending("ollama", {**SIGN_IN}, {"model": "qwen3:8b"}))   # GPT re-check: only with its kind
 
     def test_pms_model_survives_a_missing_tool(self):
         """GPT review: stopped for a missing tool, the rerun still has @pm's model."""

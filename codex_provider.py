@@ -14,6 +14,7 @@ address gets no key (GPT review: a reconnect could otherwise send a new key to a
 Model and base_url come from the credentials file (checked again here).
 """
 import hashlib
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -120,4 +121,8 @@ def session_tag(kind: str, creds: dict) -> str:
 def scrub(text: str, extra_env: dict) -> str:
     """A reply or error with the key (should the service or the CLI ever echo it) cut out."""
     key = extra_env.get(KEY_ENV)
-    return text.replace(key, "***") if key else text
+    if not key:
+        return text
+    for spelling in (key, json.dumps(key)[1:-1]):   # also as a JSON error would spell it (GPT re-check)
+        text = text.replace(spelling, "***")
+    return text
