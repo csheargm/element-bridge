@@ -77,9 +77,13 @@ class AskToJoin(Base):
         run(self.lp.on_knock(self.room, NEW, "$k"))
         q, req = next(iter(self.lp._join_requests.items()))
         self.member_ids[("!a", NEW)] = "$k2"                                              # withdrawn, knocked again
+        self.assertTrue(run(self.lp.ask_to_join("!a", NEW, knock="$k2")))                  # new buttons for the new knock
         run(self.lp.on_join_reaction(SimpleNamespace(room_id=req["dm"]), click(req["moderator"], "👎", q)))
         self.lp.client.room_kick.assert_not_called()
         self.assertIn("no longer stands", self.said[-1][1])
+        knocks = [r["knock"] for r in self.lp._join_requests.values()]
+        self.assertEqual(sorted(knocks), ["$k2", "$k2"])            # GPT re-check: the old knock settles, the renewed one stays
+        self.assertNotIn(q, self.lp._join_requests)
         run(self.lp.ask_to_join("!b", NEW))                                                # (no such room: nothing)
         self.members[("!a", f"@carl:{S}")] = "join"                                         # already in
         self.lp._ask_limits = {"pairs": {}, "people": {}, "all": []}
@@ -248,6 +252,7 @@ class MyPrivateChat(Base):
 
     def test_an_agent_on_this_server_has_no_code(self):
         self.dm.users = {PM: None, ANNA: None}
+        self.lp.dm_rooms = {ANNA: "!dm"}
         self.say_in_dm("resend me the code", ANNA)
         self.lp.choose.assert_not_called()
         self.assertIn("no code", self.said[-1][1])
@@ -257,6 +262,15 @@ class MyPrivateChat(Base):
         self.assertEqual(self.lp.addressed_text(event, self.dm), "send me my console link")
         self.assertEqual(self.lp.addressed_text(event, self.dm.__class__(room_id="!x", users={PM: None, NEW: None, ANNA: None},
                                                                           invited_users={})), None)   # three people: say @pm
+
+    def test_a_room_named_like_my_chat_is_not_my_chat(self):
+        """GPT review: a room's name is anyone's choice; only my own records count."""
+        room = project("!p", "Product Manager")
+        room.users = {PM: None, NEW: None}
+        event = SimpleNamespace(sender=NEW, body="stop", source={"content": {"body": "stop"}})
+        self.assertIsNone(self.lp.addressed_text(event, room))
+        self.lp._direct_chats["!p"] = ANNA                                                 # recorded for someone else
+        self.assertIsNone(self.lp.addressed_text(event, room))
 
     def test_a_project_room_with_a_repo_is_not_a_private_chat(self):
         room = project("!p", "Proj")

@@ -176,6 +176,16 @@ class RoomPerRepo(Base):
         run(self.lp.set_repo(self.b, ANNA, REPO))                         # !a let go: !b now runs it
         self.assertFalse(run(self.lp.on_conflict_reaction(self.b, SimpleNamespace(sender=ANNA, key="➕", reacts_to=offer))))
 
+    def test_a_rebind_never_brings_back_a_mode_a_stop_just_turned_off(self):
+        """GPT re-check: the level kept on a same-repo rebind is read under the binding lock."""
+        self.state["!a"][github.LEVEL_EVENT] = (room_state.content("autonomous", REPO), PM)
+        self.lp.level = lambda rid: room_state.level(self.lp.client, rid)
+
+        async def race():
+            await asyncio.gather(self.lp.change_level("!a", "off"), self.lp.bind("!a", REPO))
+        run(race())
+        self.assertEqual(self.state["!a"][github.LEVEL_EVENT][0]["level"], "off")
+
     def test_an_unreadable_room_never_lets_a_second_room_run_the_repo(self):
         """GPT re-check: a failed read of the primary must not look like "no primary"."""
         real = self.lp.client.room_get_state
@@ -269,6 +279,17 @@ class Visibility(Base):
         self.assertIn("couldn't update the room directory", run(self.lp.set_visibility(self.room, ANNA, "private")))
         self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": "invite"})   # closed first
         self.assertEqual(self.state["!a"][project_rooms.VISIBILITY_EVENT][0], {"visibility": "open"})   # record last
+
+    def test_an_opening_that_fails_at_the_join_rule_takes_the_listing_back_down(self):
+        """GPT re-check: never recorded or listed as open when anyone-can-join didn't happen."""
+        real = self.lp.client.room_put_state
+
+        async def refuse_rule(rid, kind, content, state_key=""):
+            return SimpleNamespace(status_code="M_FORBIDDEN") if kind == "m.room.join_rules" else await real(rid, kind, content, state_key)
+        self.lp.client.room_put_state = refuse_rule
+        self.assertIn("couldn't change who can join", run(self.lp.set_visibility(self.room, ANNA, "open")))
+        self.assertNotIn(project_rooms.VISIBILITY_EVENT, self.state.get("!a", {}))
+        self.assertEqual(json.loads(self.lp.client.send.call_args.args[2]), {"visibility": "private"})   # unlisted again
 
     def test_a_private_repos_room_never_has_public_history(self):
         self.bind("!a")

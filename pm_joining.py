@@ -133,5 +133,6 @@ class Joining:
         return True
 
     def settle(self, req: dict) -> None:
-        for eid in [e for e, r in self.join_requests().items() if r["room"] == req["room"] and r["person"] == req["person"]]:
+        for eid in [e for e, r in self.join_requests().items()      # this request only: never a renewed knock's
+                    if (r["room"], r["person"], r.get("knock")) == (req["room"], req["person"], req.get("knock"))]:
             self.join_requests().pop(eid, None)

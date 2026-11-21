@@ -826,3 +826,11 @@ Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and w
   visibility change; the hourly code limit covers "resend" (🔌 and "bring my own" use the
   provisioning path's own limits); the pointer says the chat is open even if Synapse's auto-join
   gave up (rare; the invite is still there).
+- (re-check of the whole-branch fixes, GPT) Adopted, with tests: the level a same-repo rebind keeps
+  is read under the binding lock, and "stop" on an unbound room is decided there too (a rebind can't
+  bring back a mode a stop just turned off); "my private chat" is decided by my own records (my
+  chats, Welcome's offer, chats a person opened with me, each for that one person), never a room's
+  name; a stale click settles only its own knock, never the renewed one; an opening that fails at
+  the join rule takes the listing back down and records nothing.
+  Rejected: migrating rooms that stored "runs_in" in state: that format never left this branch
+  (nothing was deployed with it).

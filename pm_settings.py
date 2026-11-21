@@ -157,7 +157,7 @@ class Settings(Projects):
             return BUSY
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
         keep = current == repo and runs_in is None
-        failed = await self.write_level(rid, await self.level(rid) if keep else "off", repo, runs_in is not None)
+        failed = await self.write_level(rid, None if keep else "off", repo, runs_in is not None)   # None: as it is, read under the lock
         if failed:
             return failed
         if runs_in:                               # which room runs it: mine to know, not this room's state
@@ -207,11 +207,10 @@ class Settings(Projects):
         change cancels a confirmation still waiting (it was asked for under the old mode)."""
         if self.pending.get(room_id, {}).get("kind", "autonomous") in ("autonomous", "mode"):
             self.pending.pop(room_id, None)
-        if level == "off" and not await room_state.bound(self.client, room_id):
-            return None                       # stopping never binds a room to the repo (anyone may stop)
-        return await self.write_level(room_id, level)
+        return await self.write_level(room_id, level, unbound_ok=level == "off")   # stopping never binds a room (anyone may stop)
 
-    async def write_level(self, room_id: str, level: str, repo: str | None = None, discussion=KEEP) -> str | None:
+    async def write_level(self, room_id: str, level: str | None, repo: str | None = None, discussion=KEEP,
+                          unbound_ok: bool = False) -> str | None:
         """Write the room's level (and repo): callers have checked that a moderator asked. A room that only
         discusses a repo another room runs never leaves "off". Every binding write reads and writes under
         one short lock (not the poll's), so a "stop" can't write back a repo a rebind just replaced."""
@@ -219,7 +218,8 @@ class Settings(Projects):
             bound_repo, bound_discussion = await room_state.binding_of(self.client, room_id)   # one read
             repo = repo or bound_repo
             if repo is None:
-                return NO_REPO
+                return None if unbound_ok else NO_REPO
+            level = level or await self.level(room_id)   # "keep the level": the one in force now, not before the lock
             only_discusses = bound_discussion if discussion is KEEP else discussion
             if only_discusses and level != "off":
                 return RUN_ELSEWHERE

@@ -112,7 +112,7 @@ class Talk(unittest.TestCase):
 
     def test_stopping_an_unbound_room_doesnt_bind_it(self):
         """GPT review 9: a contributor's "off" wrote the repo binding."""
-        with mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=False)):
+        with mock.patch.object(room_state, "binding_of", mock.AsyncMock(return_value=(None, False))):
             self.tell(BETTY, "@pm stop")
         self.assertEqual(self.levels, [])
 

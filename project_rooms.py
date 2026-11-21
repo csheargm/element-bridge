@@ -109,16 +109,18 @@ async def apply(client: AsyncClient, room_id: str, value: str, current: str = OP
         return None if hasattr(r, "event_id") else \
             f"⚠️ I couldn't change who can join ({getattr(r, 'status_code', r)}); am I a moderator here?"
 
-    async def listing() -> str | None:
-        if not await publish(client, room_id, DIRECTORY[value] == "public"):
-            return "⚠️ I couldn't update the room directory; please try again."
-        saved = await client.room_put_state(room_id, VISIBILITY_EVENT, {"visibility": value})
-        return None if hasattr(saved, "event_id") else f"⚠️ I couldn't save the setting: {getattr(saved, 'status_code', saved)}"
-    steps = (rule, listing) if RANK[value] <= RANK.get(current, RANK[OPEN]) else (listing, rule)
-    for step in steps:
+    async def directory() -> str | None:
+        ok = await publish(client, room_id, DIRECTORY[value] == "public")
+        return None if ok else "⚠️ I couldn't update the room directory; please try again."
+
+    closing = RANK[value] <= RANK.get(current, RANK[OPEN])
+    for step in ((rule, directory) if closing else (directory, rule)):
         if failed := await step():
+            if not closing and step is rule:  # opening stopped halfway: take the listing back down
+                await publish(client, room_id, DIRECTORY[current] == "public" if current in DIRECTORY else False)
             return failed
-    return None
+    saved = await client.room_put_state(room_id, VISIBILITY_EVENT, {"visibility": value})   # last: what is in force
+    return None if hasattr(saved, "event_id") else f"⚠️ I couldn't save the setting: {getattr(saved, 'status_code', saved)}"
 
 
 async def history_safe(client: AsyncClient, room_id: str) -> str | None:

@@ -174,7 +174,7 @@ class Welcome(Lobby):
         if await self.on_add_text(room, event) or await self.on_project_text(room, event):   # pm_agents, pm_projects
             return True
         entry = self.welcomes().get(event.sender) or {}
-        in_dm = room.room_id == entry.get("dm") or self.is_one_to_one(room, event.sender)
+        in_dm = room.room_id == entry.get("dm") or self.is_one_to_one(room, event.sender)   # pm_address.py
         text = without_quote(event.body) if in_dm else self.addressed_text(event, room)
         if text is None:
             return False
