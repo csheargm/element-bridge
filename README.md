@@ -211,6 +211,10 @@ run from).
   never shown in a listing.
 - **Open**: listed, and anyone joins directly. Not for a room on a private GitHub repo.
 
+A listed or open room gets a readable address made from its name (`#final-project:<server>`,
+numbered if taken, never a private repo's name), unless its owners already gave it one; @pm removes
+the address it made when the room goes back to private.
+
 `@pm` understands from context. Every message addressed to it goes to an understanding step
 (`pm_brain.py`): the recent conversation, the message being replied to, what's waiting for
 approval, the plan and the board. The model picks one action from a fixed list and writes a

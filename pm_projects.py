@@ -21,6 +21,7 @@ from nio import MatrixRoom, ReactionEvent, RoomMessageText, RoomPreset
 import panel
 import project_rooms
 import registry
+import room_address
 import room_state
 from bridge import ROOT, SERVER_NAME
 from pm_joining import ASKED, Joining
@@ -162,7 +163,11 @@ class Projects(Joining):
                       or (private and await project_rooms.history_safe(self.client, room.room_id))
                       or await project_rooms.apply(self.client, room.room_id, value,
                                                    await project_rooms.visibility(self.client, room.room_id)))
-        return failed or f"This room is now {project_rooms.WORDS[value]}."
+            if failed:
+                return failed
+            note = await room_address.follow(self.client, room.room_id, value != project_rooms.PRIVATE,
+                                             room.display_name, repo if private else None)
+        return f"This room is now {project_rooms.WORDS[value]}.{note}"
 
     async def close_for_private(self, room_id: str, repo: str) -> tuple[str | None, str]:
         """Before binding `repo` (under the lock): a room anyone can join (its real join rule, not my

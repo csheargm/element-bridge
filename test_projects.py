@@ -234,7 +234,8 @@ class Visibility(Base):
             answer = run(self.lp.set_visibility(self.room, ANNA, value))
             self.assertTrue(answer.startswith(f"This room is now {value}"), answer)
             self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": rule})
-            self.assertEqual(json.loads(self.lp.client.send.call_args.args[2]), {"visibility": listed})
+            listing = [c.args for c in self.lp.client.send.call_args_list if "/directory/list/" in c.args[1]][-1]
+            self.assertEqual(json.loads(listing[2]), {"visibility": listed})
             self.assertEqual(run(project_rooms.visibility(self.lp.client, "!a")), value)
 
     def test_only_moderators_and_never_open_on_a_private_repo(self):
