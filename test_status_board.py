@@ -147,5 +147,41 @@ class Board(unittest.TestCase):
         self.assertEqual(fresh.load_boards()["!r"]["event_id"], "$e1")
 
 
+
+class PanelFirst(unittest.TestCase):
+    """The owner: the side panel only came once a repo was bound, yet it is where the repo is picked."""
+    PM = "@pm:bridge.localhost"
+
+    def setUp(self):
+        _p = mock.patch.object(room_state, "repo_of", mock.AsyncMock(return_value=None))   # no repo yet
+        _p.start()
+        self.addCleanup(_p.stop)
+        self.b = Boards()
+        self.b.client, self.b.state, self.b.open_issues, self.b.grants_cache = FakeClient(), {}, {}, {}
+        self.b.board_file = Path(tempfile.mkdtemp()) / "boards.json"
+        self.b.boards, self.b.user_id, self.b.dm_rooms = {}, self.PM, {}
+        self.b.is_welcome_room = lambda room: room.room_id == "!welcome"
+
+    def room(self, room_id="!r", pm_level=50, name="Our project", users=("@anna:bridge.localhost",)):
+        levels = SimpleNamespace(get_user_level=lambda u: pm_level if u == self.PM else 100)
+        return SimpleNamespace(room_id=room_id, name=name, power_levels=levels, users={self.PM: 0, **{u: 0 for u in users}})
+
+    def test_as_soon_as_i_am_a_moderator_with_no_repo_and_once(self):
+        self.b.client.rooms = {"!r": self.room()}
+        asyncio.run(self.b.refresh_boards())
+        self.assertEqual(self.b.client.widget["name"], "Hagency")
+        self.assertTrue(self.b.boards["!r"]["panel"])
+        self.b.client.widget = None
+        asyncio.run(self.b.refresh_boards())
+        self.assertIsNone(self.b.client.widget)
+
+    def test_not_before_i_am_a_moderator_nor_in_welcome_or_my_private_chats(self):
+        self.b.dm_rooms = {"@anna:bridge.localhost": "!dm"}
+        self.b.client.rooms = {"!r": self.room(pm_level=0), "!welcome": self.room("!welcome"),
+                               "!dm": self.room("!dm"), "!old": self.room("!old", name="Hagency (private)")}
+        asyncio.run(self.b.refresh_boards())
+        self.assertFalse(hasattr(self.b.client, "widget"))
+
+
 if __name__ == "__main__":
     unittest.main()

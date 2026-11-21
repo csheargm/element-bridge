@@ -52,6 +52,10 @@ class Base(unittest.TestCase):
             self.buttons.append((room_id, event_id, key))
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.private_room = mock.AsyncMock(return_value="!dm")
+        self.admins = set()
+        a = mock.patch.object(pm_welcome.server_admins, "is_admin", lambda who: who in self.admins)
+        a.start()
+        self.addCleanup(a.stop)
 
     def run_(self, coro):
         return asyncio.run(coro)
@@ -138,6 +142,13 @@ class Greeting(Base):
         self.lp.say = say
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
         self.assertIn(("!welcome", NEW), seen)
+
+    def test_the_servers_admins_are_not_welcomed(self):
+        """Seen live: the owner's admin account got "Welcome, owner!"."""
+        self.admins.add(NEW)
+        self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
+        self.assertEqual(self.said, [])
+        self.lp.private_room.assert_not_called()
 
     def test_only_once(self):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))

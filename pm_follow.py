@@ -40,9 +40,10 @@ class Follow:
         if users.get(self.user_id, 0) >= room_state.MODERATOR_LEVEL:
             return
         try:
-            await self.say(room.room_id, "Hi! I'm the Product Manager. To run this project I need to be a "
-                                         "moderator: Room settings → Roles & Permissions → make **Product Manager** "
-                                         "a Moderator. Then talk to me, or say \"help\".")
+            await self.say(room.room_id, "Hi! I'm the Product Manager. This room was made where I'm not a moderator "
+                                         "by default, so I need you to make me one, once: Room settings → Roles & "
+                                         "Permissions → **Product Manager** → Moderator. Then the Hagency panel appears "
+                                         "at the top of this room, where you pick the project's repo.")
         except RuntimeError as e:             # loop.SendError
             log.error("couldn't greet %s: %s", room.room_id, e)   # the room still works once I'm a moderator
 
@@ -63,9 +64,7 @@ class Follow:
             log.error("follow-me failed for %s in %s: %s", person, room.room_id, e)
 
     async def bring_agent(self, room: MatrixRoom, person: str) -> None:
-        mine = set(room.users) <= {self.user_id, person} and (room.room_id in getattr(self, "dm_rooms", {}).values()
-                                                               or getattr(room, "name", None) in pm_settings.CHAT_NAMES)
-        if self.is_welcome_room(room) or mine:
+        if self.is_welcome_room(room) or pm_settings.is_my_chat(room, self.user_id, getattr(self, "dm_rooms", {})):
             return                            # Welcome (everyone's first room) and my private chats, old or new: no agents
         agent = ownership.agent_id(person)
         local = person.split(":")[0].lstrip("@")

@@ -48,6 +48,12 @@ def is_safe_chat(room: MatrixRoom) -> bool:
     return getattr(room, "history_visibility", "") == HISTORY and room.power_levels.defaults.invite >= PM_ONLY
 
 
+def is_my_chat(room: MatrixRoom, me: str, dm_rooms: dict) -> bool:
+    """One of my private chats with someone (now or an older one): never a project room."""
+    return len(room.users) <= 2 and me in room.users and (room.room_id in dm_rooms.values()
+                                                           or getattr(room, "name", None) in CHAT_NAMES)
+
+
 class Settings:
     async def set_repo(self, room: MatrixRoom, sender: str, repo: str) -> str:
         """One room, one repo: the owner or a maintainer names it; never swapped under running work.

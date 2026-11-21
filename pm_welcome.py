@@ -19,6 +19,7 @@ import identity
 import registry
 import remote_agent
 import remote_people
+import server_admins
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
@@ -95,6 +96,8 @@ class Welcome:
     async def greet_from_welcome(self, welcome_id: str, person: str) -> None:
         """The private offer, plus ONE line in Welcome naming them: Element lists my private chat as
         an invite to accept, which newcomers miss, so the buttons would go unseen."""
+        if identity.split(person)[1] == SERVER_NAME and await asyncio.to_thread(server_admins.is_admin, person):
+            return                            # the server's admins (@owner): no "Welcome, owner!"
         if person not in self.welcomes() and await self.greet(person) is None:
             return                            # greeted once; a failure is retried at the next join or start
         entry, pointing = self.welcomes()[person], self.__dict__.setdefault("_pointing", set())

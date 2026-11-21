@@ -136,7 +136,7 @@ async function refresh() {
   if (document.activeElement && document.activeElement.id === "repo") return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
-  $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">No project repo yet</span>`;
+  $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
   $("who").innerHTML = `<span class="chip">${esc(s.user)}</span> <span class="chip role">${s.moderator ? "Owner / maintainer" : "Contributor"}</span>`;
   let h = "";
   if (s.waiting && s.waiting.mine) h += `<section class="card attn"><h2>Waiting for you</h2><div class="set"><div>${esc(cap(s.waiting.kind))}${
@@ -144,7 +144,7 @@ async function refresh() {
     <button class="primary" data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div></section>`;
   h += `<div class="grid"><section class="card"><h2>Mode</h2>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}
     <div class="hint">${esc(MODES[s.mode] || "")}${s.moderator ? "" : " Only the owner or a maintainer can change it."}</div></section>
-    <section class="card"><h2>Project repo</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
+    <section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
     value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
     ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
   if (s.agent) h += `<div class="grid"><section class="card"><h2>My agent · ${esc(s.agent)}</h2>

@@ -21,6 +21,7 @@ import capabilities
 import github
 from loop_progress import num
 import panel
+import pm_settings
 import room_state
 
 log = logging.getLogger("loop")
@@ -94,6 +95,7 @@ class Boards:
     async def refresh_boards(self) -> None:
         now = time.time()
         for room_id in list(self.client.rooms):
+            await self.ensure_panel(room_id)  # as soon as I'm a moderator: it's where the repo is picked
             repo = await room_state.repo_of(self.client, room_id)
             if repo is None:
                 continue                      # not a project room (no repo yet)
@@ -125,6 +127,18 @@ class Boards:
                                         "published": await self.publish(room_id, text, repo),
                                         **{k: board[k] for k in ("announced", "panel") if k in board}}
                 self.save_boards()
+
+    async def ensure_panel(self, room_id: str) -> None:
+        """The side panel, once per project room, as soon as I may add it (a moderator), repo or not.
+        Never in Welcome or my private chats."""
+        room, board = self.client.rooms.get(room_id), self.boards.get(room_id, {})
+        if (board.get("panel") or room is None or self.is_welcome_room(room)
+                or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
+                or room.power_levels.get_user_level(self.user_id) < room_state.MODERATOR_LEVEL):
+            return
+        if await panel.add_to_room(self.client, room_id):
+            self.boards[room_id] = {**board, "panel": True}
+            self.save_boards()
 
     async def publish(self, room_id: str, text: str, repo: str) -> bool:
         """The same status as room state, so every agent in the room can read it (room_context.py)."""
