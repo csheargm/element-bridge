@@ -21,12 +21,17 @@ from bridge_config import SERVER_NAME
 from local_signup import WELCOME_ALIAS
 
 STOP_TYPE = "xyz.hagencylabs.agent.stopped"
+KEY_PREFIX = "agent:"     # Matrix refuses a state_key starting with "@" unless it is the sender's own ID
 REPLY = ("I'm stopped right now. {owner} can start me again in the Hagency panel "
          "(My agents → Start), or by telling Product Manager \"start my agent\".")
-TASK_LINE = "{kind} skipped: my owner stopped me (Start in the Hagency panel)"
 PM_ID = f"@{github.PM_BOT}:{SERVER_NAME}"
 
 log = logging.getLogger("bridge")
+
+
+def switch_key(agent_id: str) -> str:
+    """The state_key of an agent's switch (@pm writes it, the agent reads it): never a bare user ID."""
+    return KEY_PREFIX + agent_id
 
 
 def stopped_in(event: dict) -> bool:
@@ -44,21 +49,26 @@ async def read_stopped(client, agent_id: str) -> bool:
         if welcome is None:
             return False
         path = (f"/_matrix/client/v3/rooms/{urllib.parse.quote(welcome)}/state/{STOP_TYPE}/"
-                f"{urllib.parse.quote(agent_id)}?format=event")
+                f"{urllib.parse.quote(switch_key(agent_id))}?format=event")
         status, event = await matrix_calls.get_json(client, path)
     except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:
         # Fails open, on purpose: Stop is the owner's own pause, not a security control (only they direct
         # this agent anyway), and a network hiccup must not silence an agent nobody stopped. Logged.
         log.warning("couldn't check whether my owner stopped me: %s", e)
         return False
-    return status == 200 and stopped_in(event)   # 404: never stopped; 403: not in Welcome (an old account)
+    if status == 404:
+        return False                          # never stopped
+    if status != 200 or "sender" not in event:   # 403: not in Welcome (an old account); not an event envelope
+        log.warning("couldn't read my stop switch (HTTP %s): answering as if running", status)
+        return False
+    return stopped_in(event)
 
 
 class BridgeStop:
     """Mixed into bridge.Bridge: the stop check before a reply or a loop task."""
 
-    async def stopped_now(self, room: MatrixRoom, event: RoomMessageText) -> bool:
-        """True while stopped; then it says so once per room, until it is started again."""
+    async def stopped_now(self, room: MatrixRoom, event: RoomMessageText | None) -> bool:
+        """True while stopped; then it says so once per room (a reply to `event` if one), until started again."""
         told = self.__dict__.setdefault("_told_stopped", set())
         if not await read_stopped(self.client, self.user_id):
             told.clear()                      # started again: a later Stop says so once more
@@ -69,10 +79,10 @@ class BridgeStop:
         return True
 
     async def task_unless_stopped(self, room_id: str, task: dict) -> None:
-        """run_task, or (stopped) the loop's answer that this step was skipped, so it never waits on me."""
-        if not await read_stopped(self.client, self.user_id):
-            await self.run_task(room_id, task)
+        """run_task, or (stopped) nothing: as for an offline agent, @pm's loop asks again once after
+        its step timeout (a resend Start lets through), then pauses the step for a person. An error
+        result instead would pause the issue at once, and Start couldn't bring it back (GPT review)."""
+        if await read_stopped(self.client, self.user_id):
+            log.info("stopped by my owner: not taking %s #%s yet", task.get("kind"), task.get("issue") or task.get("pr"))
             return
-        result = {"kind": task.get("kind"), "issue": task.get("issue"), "task_id": task.get("task_id"),
-                  "error": "agent stopped", "line": TASK_LINE.format(kind=task.get("kind"))}
-        await self.send(room_id, result["line"], extra={github.RESULT_KEY: result})
+        await self.run_task(room_id, task)

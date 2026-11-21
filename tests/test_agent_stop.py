@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.parse
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,12 +49,14 @@ class Switch:
 
     async def get(self, client, path):
         self.reads += 1
-        key = path.split(f"/state/{agent_stop.STOP_TYPE}/")[1].split("?")[0].replace("%40", "@").replace("%3A", ":")
+        key = urllib.parse.unquote(path.split(f"/state/{agent_stop.STOP_TYPE}/")[1].split("?")[0])
         found = self.events.get(key)
         return (200, found) if found else (404, {"errcode": "M_NOT_FOUND"})
 
     async def put(self, room_id, event_type, content, state_key=""):
         assert room_id == WELCOME and event_type == agent_stop.STOP_TYPE
+        if state_key.startswith("@") and state_key != PM:   # Matrix's auth rule (GPT review: every write was refused)
+            return RoomPutStateError("M_FORBIDDEN")
         self.events[state_key] = {"sender": PM, "content": content}
         return RoomPutStateResponse(event_id="$s", room_id=room_id)
 
@@ -74,17 +77,18 @@ class AgentReadsTheSwitch(unittest.TestCase):
         return asyncio.run(agent_stop.read_stopped(self.client, AGENT))
 
     def test_only_pm_can_stop_an_agent(self):
-        self.switch.events[AGENT] = {"sender": f"@mallory:{S}", "content": {"stopped": True}}
+        key = agent_stop.switch_key(AGENT)
+        self.switch.events[key] = {"sender": f"@mallory:{S}", "content": {"stopped": True}}
         self.assertFalse(self.read())
-        self.switch.events[AGENT] = {"sender": PM, "content": {"stopped": True}}
+        self.switch.events[key] = {"sender": PM, "content": {"stopped": True}}
         self.assertTrue(self.read())
-        self.switch.events[AGENT] = {"sender": PM, "content": {"stopped": "yes"}}   # only a real true
+        self.switch.events[key] = {"sender": PM, "content": {"stopped": "yes"}}   # only a real true
         self.assertFalse(self.read())
 
     def test_never_stopped_or_not_signed_in_means_running(self):
         self.assertFalse(self.read())                                        # 404
         self.client.access_token = ""
-        self.switch.events[AGENT] = {"sender": PM, "content": {"stopped": True}}
+        self.switch.events[agent_stop.switch_key(AGENT)] = {"sender": PM, "content": {"stopped": True}}
         self.assertFalse(self.read())
         self.assertEqual(self.switch.reads, 1)                               # no call without a sign-in
 
@@ -92,6 +96,12 @@ class AgentReadsTheSwitch(unittest.TestCase):
         async def broken(client, path):
             raise OSError("down")
         with mock.patch.object(matrix_calls, "get_json", broken), self.assertLogs("bridge", "WARNING"):
+            self.assertFalse(self.read())
+
+    def test_a_refused_read_is_logged_not_silent(self):
+        async def refused(client, path):
+            return 403, {"errcode": "M_FORBIDDEN"}
+        with mock.patch.object(matrix_calls, "get_json", refused), self.assertLogs("bridge", "WARNING"):
             self.assertFalse(self.read())
 
 
@@ -156,14 +166,29 @@ class OwnerStopsAndStartsTheirAgent(unittest.TestCase):
         self.deliver(msg(ANNA, "anna-agent hi again", "$3"))
         self.assertEqual(len(self.turns), 1)                                 # answers again
 
-    def test_a_loop_task_while_stopped_is_answered_as_skipped(self):
+    def test_a_loop_task_waits_while_stopped_and_its_resend_runs_after_start(self):
         asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
         self.b.run_task = mock.AsyncMock()
-        asyncio.run(self.b.task_unless_stopped("!dev", {"kind": "build", "issue": 7, "task_id": "t1"}))
+        task = {"kind": "build", "issue": 7, "task_id": "t1"}
+        asyncio.run(self.b.task_unless_stopped("!dev", task))
         self.b.run_task.assert_not_awaited()
-        body, extra = self.sent[-1]
-        self.assertEqual(extra[bridge.github.RESULT_KEY]["error"], "agent stopped")
-        self.assertEqual(extra[bridge.github.RESULT_KEY]["task_id"], "t1")   # the loop isn't left waiting
+        self.assertEqual(self.sent, [])      # no error result: that would pause the issue for good (GPT review)
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, False))
+        asyncio.run(self.b.task_unless_stopped("!dev", {**task, "task_id": "t2"}))   # the loop's resend
+        self.b.run_task.assert_awaited_once()
+
+    def test_voice_and_work_queued_before_stop_are_held_too(self):
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
+        ev = msg(ANNA, "what's the weather", "$v")    # on_voice and a queued text both end in answer_locked
+        asyncio.run(self.b.answer_locked(self.room, ev, "anna said by voice: what's the weather"))
+        self.assertEqual(self.turns, [])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_code_change_request_is_held_too(self):
+        asyncio.run(self.lp.set_stopped("!dm", ANNA, None, True))
+        self.b.go_back = mock.AsyncMock()
+        asyncio.run(self.b.change_code(self.room, msg(ANNA, "anna-agent go back to the official version", "$c")))
+        self.b.go_back.assert_not_awaited()
 
     def test_a_failed_write_says_so_and_records_nothing(self):
         async def refused(*a, **k):

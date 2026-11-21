@@ -13,7 +13,7 @@ from nio import RoomPutStateResponse
 
 import matrix_calls
 import registry
-from agent_stop import STOP_TYPE
+from agent_stop import STOP_TYPE, switch_key
 from bridge import SERVER_NAME
 from local_signup import WELCOME_ALIAS
 
@@ -21,8 +21,8 @@ log = logging.getLogger("loop")
 STOP_RE = re.compile(r"^\W*(please\W+)?(?P<verb>stop|start|pause|resume) my "
                      r"(agent(\s+(?P<name>[a-z0-9-]+))?|(?P<label>[a-z0-9]+) agent)\W*$", re.I)
 STOPPED = ("Stopped: **{agent}** stays connected, but it ignores messages and tasks until you click **Start** in "
-           "the Hagency panel (or say \"start my agent\"). If it still answers, its computer runs older code: "
-           "run its connect line there once more to update it.")
+           "the Hagency panel (or say \"start my agent\"). Project work given to it meanwhile waits: I ask it again "
+           "once later. If it still answers, its computer runs older code: run its connect line there once more to update it.")
 STARTED = "Started: **{agent}** answers again."
 HERMES = ("**{agent}** runs Hermes, which can't be stopped from here yet. On its computer, run "
           "`~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop` (and the connect line to start it again).")
@@ -59,10 +59,11 @@ class StopStart:
         if found.get("agent_kind") == "hermes":
             await self.say(room_id, HERMES.format(agent=agent))
             return False
-        if not await self.write_stopped(agent, stop):
-            await self.say(room_id, FAILED.format(verb=verb))
-            return False
-        registry.update(person, None if found["first"] else agent, stopped=stop)
+        async with self.__dict__.setdefault("_stop_lock", asyncio.Lock()):   # the switch and its copy, in one order
+            if not await self.write_stopped(agent, stop):
+                await self.say(room_id, FAILED.format(verb=verb))
+                return False
+            registry.update(person, None if found["first"] else agent, stopped=stop)
         await self.say(room_id, (STOPPED if stop else STARTED).format(agent=agent))
         return True
 
@@ -71,7 +72,7 @@ class StopStart:
         try:
             welcome = await matrix_calls.room_of_alias(self.client, WELCOME_ALIAS)
             resp = None if welcome is None else await self.client.room_put_state(
-                welcome, STOP_TYPE, {"stopped": stop}, state_key=f"@{agent}:{SERVER_NAME}")
+                welcome, STOP_TYPE, {"stopped": stop}, state_key=switch_key(f"@{agent}:{SERVER_NAME}"))
         except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:   # the caller tells the owner
             log.error("couldn't write %s's stop switch: %s", agent, e)
             return False

@@ -64,6 +64,8 @@ class BridgeCustom:
 
     async def change_code(self, room: MatrixRoom, event) -> None:
         rid, text = room.room_id, event.body.strip()
+        if await self.stopped_now(room, event):   # agent_stop.py: my owner stopped me
+            return
         if GO_BACK.search(text):
             await self.go_back(rid)
             return
@@ -109,6 +111,8 @@ class BridgeCustom:
             return                            # only once, only where it was offered, only while private
         if self.custom_busy().locked():
             await self.send(room.room_id, "I'm still busy with your last change; click again when it's done.")
+            return
+        if await self.stopped_now(room, None):   # agent_stop.py: a button click is work too
             return
         job = asyncio.create_task(self.act_on(room.room_id, event.reacts_to, event.key))
         self.tasks.add(job)

@@ -114,8 +114,6 @@ class Bridge(BridgeVoice, BridgeCustom, bridge_followup.BridgeFollowUp, BridgeSt
         if reason:
             await self.refuse(room, event, reason)   # bridge_voice.py: "I only take requests from Betty"
             return
-        if await self.stopped_now(room, event):   # agent_stop.py: my owner stopped me (says so once)
-            return
         work = (self.change_code(room, event) if addressed and self.wants_change(room, event)
                 else self.answer_locked(room, event, line, follow_up=asked))
         task = asyncio.create_task(work)      # don't block sync; change_code: bridge_custom.py
@@ -170,7 +168,8 @@ class Bridge(BridgeVoice, BridgeCustom, bridge_followup.BridgeFollowUp, BridgeSt
 
     async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: str | None = None) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
-            await self.answer(room, event, line, follow_up)
+            if not await self.stopped_now(room, event):    # agent_stop.py: checked once it's my turn (text and voice)
+                await self.answer(room, event, line, follow_up)
 
     async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: str | None = None) -> None:
         """Answer from the room's reality: live project status, everyone's recent conversation, and a
