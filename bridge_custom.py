@@ -34,7 +34,7 @@ def edit_prompt(request: str) -> str:
     return ("You are changing the code of Hagency Rooms, the program that connects you to this chat. This folder "
             "is your owner's private copy: the running version is not affected until they choose to use it.\n"
             f"Your owner asks: {request}\n\nRules: edit only files in this folder. Keep the change small and in the "
-            "existing style. Add or update a unittest (test_*.py) for the new behaviour. Never weaken the owner-only "
+            "existing style. Add or update a unittest (tests/test_*.py) for the new behaviour. Never weaken the owner-only "
             "check, the agent sandbox settings or secret handling unless the request explicitly asks for that, and "
             "never touch .env or credentials. Don't create links, .gitattributes or .pth files. Reply with 2-4 short "
             "plain lines saying what you changed.")
