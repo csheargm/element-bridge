@@ -24,6 +24,7 @@ from aiohttp import web
 
 import customize
 import github
+import github_link
 import github_setup
 import ownership
 import project_rooms
@@ -142,7 +143,7 @@ async def view(loop, room_id: str, user: str) -> dict:
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
-            "follow": registry.follow(user) if agent else None,
+            "follow": registry.follow(user) if agent else None, "github": github_link.status(user),   # pm_github.py
             "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
             "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
             "remote": bool(agent and registry.load().get(user, {}).get("agent") == registry.REMOTE),   # on their computer
@@ -186,6 +187,8 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
         dm = await loop.private_room(user)
         return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"
+    if action == "github":                # pm_github.py: Connect / Disconnect GitHub, for themselves only
+        return await loop.github_action(user, value)
     if action == "repo":
         return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
     if action == "check":

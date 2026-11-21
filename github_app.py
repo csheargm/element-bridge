@@ -196,10 +196,10 @@ async def installed(repo: str) -> bool:
     return True
 
 
-async def permission(repo: str, login: str) -> str:
-    """A GitHub user's access to `repo` (admin / write / read / none), read as the App.
-    TODO(deferred): bind checks still use the person's agent identity (pm_settings.may_write) until
-    a Matrix user can prove their GitHub login; then may_write calls this with that login."""
+async def permission(repo: str, login: str, github_id: int | None = None) -> str:
+    """A GitHub user's access to `repo` (admin / write / read / none), read as the App. With
+    `github_id` (github_link.py: the account a person proved is theirs), the user GitHub reports must
+    have that id, else "none": a username renamed and taken by someone else never passes."""
     if not github.LOGIN_RE.match(login or ""):
         raise github.GitHubError("not a GitHub username")
     status, data = await call("GET", f"/repos/{_check_repo(repo)}/collaborators/{login}/permission", await token(repo))
@@ -207,4 +207,7 @@ async def permission(repo: str, login: str) -> str:
         return "none"
     if status != 200 or not isinstance(data, dict):
         raise _fail(status, data, f"{login}'s access to {repo}")
+    user = data.get("user")
+    if github_id is not None and (not isinstance(user, dict) or user.get("id") != github_id):
+        return "none"
     return str(data.get("permission") or "none")

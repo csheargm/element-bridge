@@ -15,6 +15,7 @@ from nio import MatrixRoom, RoomPreset
 import console
 import github
 import github_app
+import github_link
 import github_setup
 import registry
 import room_state
@@ -41,10 +42,27 @@ NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderator
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
 
+NOT_CONNECTED = ("First connect your GitHub account, so I know it's yours: click **Connect GitHub** in the Hagency "
+                 "panel, or say \"connect my github\" in our private chat. Then ask again.")
+
+
+def refusal(name: str) -> str:
+    if not github_app.configured():
+        return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
+                "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+    return (f"I can't use {name} for this room. This server must list it (its operator sets HAGENCY_REPOS), the "
+            f"Hagency Rooms GitHub App must be on it (read-only; the repo's owner clicks Install: "
+            f"{github_app.install_url()}), and your connected GitHub account must be able to write there. If the "
+            "App is being installed now, I'll finish setting up this room once it's there.")
+
+
 async def may_write(user: str, repo: str) -> bool:
-    """The person's own agent's GitHub account can write to `repo`: so binding a room to a repo needs
-    real access to it, not just a room of one's own (anyone can create a room). A read with that
-    agent's identity; nothing is changed."""
+    """The person can write to `repo`: so binding a room to a repo needs real access to it, not just a
+    room of one's own (anyone can create a room). With the GitHub App (the public server) that is the
+    GitHub account they connected (github_link.py, ADR 0007), read as the App; else their own agent's
+    GitHub identity (local dev: gh). Reads only; nothing is changed."""
+    if github_app.configured():
+        return await github_link.may_write(user, repo)
     agent = registry.agent_of(user)           # by full ID: @anna:elsewhere is not our anna
     if not registry.owns(user, agent):
         return False
@@ -90,9 +108,15 @@ class Settings(Projects):
             return "Only the room owner or a maintainer can choose this room's repo."
         if not github.REPO_RE.match(name):
             return "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\"."
-        if repo is None or not await may_write(sender, repo):    # one answer for both: never confirms a name
-            return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
-                    "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+        if github_app.configured() and github_link.link_of(sender) is None:
+            return NOT_CONNECTED                  # before the repo is looked at: says nothing about it
+        try:
+            allowed = repo is not None and await may_write(sender, repo)
+        except github_app.NotInstalled:           # access is read as the App: not until it's there
+            self.watch_install(room, sender, repo)
+            allowed = False
+        if not allowed:                           # one answer for each: never confirms a name
+            return refusal(name)
         missing = await self.app_missing(room, sender, repo)
         if missing:
             return missing
@@ -112,14 +136,17 @@ class Settings(Projects):
                 return None
         except github.GitHubError as e:          # its text never carries the key or a token
             return f"I can't check {repo} on GitHub right now ({str(e)[:160]}); please try again in a minute."
-        watch = self.install_watches.get(room.room_id)
-        if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
-            self.stop_install_watch(room.room_id)
-            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
+        self.watch_install(room, sender, repo)
         minutes = INSTALL_RECHECK_S * INSTALL_RECHECKS // 60
         return (f"One step first: install the Hagency Rooms GitHub App on {repo} (read-only; the repo's owner or "
                 f"an org admin clicks Install): {github_app.install_url()}\nI'll look again every "
                 f"{INSTALL_RECHECK_S} seconds for {minutes} minutes and finish setting up this room once it's there.")
+
+    def watch_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
+        watch = self.install_watches.get(room.room_id)
+        if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
+            self.stop_install_watch(room.room_id)
+            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
 
     async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
         """After an install link: once the App is on `repo`, ask again for the person (every check

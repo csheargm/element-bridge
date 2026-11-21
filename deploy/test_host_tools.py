@@ -153,10 +153,13 @@ class EnvUpgrade(unittest.TestCase):
         body = base64.encodebytes(b"\x30\x82\x04\xac" + b"\x01" * 1196).decode()   # one DER SEQUENCE, not a real key
         key.write_text(f"-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n")
         key.chmod(0o600)
-        good = {"GITHUB_APP_ID": "123456", "GITHUB_APP_SLUG": "hagency-rooms", "HAGENCY_REPOS": "a/b,c-d/e.f"}
-        bad = {"GITHUB_APP_ID": "0", "GITHUB_APP_SLUG": "../x", "HAGENCY_REPOS": "a/b c/d"}
+        good = {"GITHUB_APP_ID": "123456", "GITHUB_APP_SLUG": "hagency-rooms", "HAGENCY_REPOS": "a/b,c-d/e.f",
+                "GITHUB_APP_CLIENT_ID": "Iv23liAbCdEf012345"}
+        bad = {"GITHUB_APP_ID": "0", "GITHUB_APP_SLUG": "../x", "HAGENCY_REPOS": "a/b c/d",
+               "GITHUB_APP_CLIENT_ID": "0123456789abcdef0123456789abcdef01234567"}   # a client secret's shape
         self.assertEqual(envfile.validate({**base, **good}), [])
-        self.assertEqual(len(envfile.validate({**base, **bad})), 3)
+        self.assertEqual(len(envfile.validate({**base, **bad})), 4)
+        self.assertEqual(envfile.validate({**base, **good, "GITHUB_APP_CLIENT_ID": ""}), [])   # optional
         key.unlink()
         self.assertEqual(envfile.validate({**base, **good}), [])      # `get` and configure_synapse never read the key
         key.write_text(f"-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n")
@@ -187,6 +190,7 @@ class EnvUpgrade(unittest.TestCase):
         compose = (Path(__file__).parent / "docker-compose.yml").read_text()
         self.assertIn("./secrets:/run/hagency-github:ro", compose)               # the key: read-only, never in .env
         self.assertIn("GITHUB_APP_PRIVATE_KEY_PATH: /run/hagency-github/github-app.pem", compose)
+        self.assertIn("GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}", compose)   # Connect GitHub (ADR 0007)
         self.assertIn("secrets/", (Path(__file__).parent / ".gitignore").read_text())
 
 
