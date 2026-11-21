@@ -152,7 +152,8 @@ def _agents(person: str, info: dict) -> list[dict]:
              "localpart": _text(info.get("agent_user"), LOCALPART_RE.fullmatch) or identity.agent_localpart(person, SERVER_NAME),
              "ready": info.get("ready") is True,
              "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
-             "disconnected": info.get("disconnected"), "display": _text(info.get("display"))}   # pm_rename.py
+             "disconnected": info.get("disconnected"), "display": _text(info.get("display")),   # pm_rename.py
+             **_picked(info)}                 # the AI it runs (pm_first.py), as a further agent's
     found, labels = ([], set()) if info.get(FIRST_GONE) is True else ([first], {first["label"]})
     for e in info.get(MORE) if isinstance(info.get(MORE), list) else []:
         label = e.get("label") if isinstance(e, dict) else None

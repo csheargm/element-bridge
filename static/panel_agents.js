@@ -62,12 +62,21 @@ function agentRow(a, version, several) {
     ${a.first && version ? `<li><div class="hint">Code it runs: your own version (${esc(version)})</div>
       <button data-a="goback" data-v="">Go back to official</button></li>` : ""}`;
 }
+// The picker for their FIRST agent too (console_agents.first_pick: none yet, or none has connected; screen
+// test: a newcomer could only get Codex or Claude Code). No name: the first agent has its own.
+function firstPick(s) {
+  const again = s.agents.length > 0;
+  return `<div class="set"><div class="field">${kindPicker(s.kinds)}<button data-a="add" data-v="">${
+    again ? "Use this AI" : "Get my agent"}</button></div>
+    <div class="hint">${again ? "Not connected yet, so you can still choose the AI it runs" : "Choose the AI your agent runs"}:
+    @pm sends its Connect page ${s.personal ? "here, in this chat" : "in " + chatLink("your private chat")}. ${KEY_NOTE}</div></div>`;
+}
+const KEY_NOTE = "A remote model's API key is asked for on your computer when it connects, never here.";
 function agentCards(s) {
-  if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
-  const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
+  if (!s.agents || (!s.agents.length && !s.can_add && !s.first_pick)) return "";   // none, and none to add
+  const add = s.first_pick ? firstPick(s) : s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
     ${kindPicker(s.kinds)}<button data-a="add" data-v="">Add an agent</button></div>
-    <div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}. A remote model's API key is asked
-    for on your computer when it connects, never here.</div></div>` : "";
+    <div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}. ${KEY_NOTE}</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
     <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
 }

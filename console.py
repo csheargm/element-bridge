@@ -23,7 +23,6 @@ import urllib.request
 from aiohttp import web
 
 import agent_kinds
-import pm_kinds
 import console_personal
 import console_repo
 import customize
@@ -35,6 +34,7 @@ import project_rooms
 import registry
 import room_state
 from bridge_config import ELEMENT_ORIGIN
+from console_agents import add_agent, can_add, first_pick, my_agents   # My agents: kept apart (file size)
 from setup_accounts import HS, SERVER_NAME
 
 SESSION_S = 12 * 3600
@@ -114,27 +114,6 @@ def redeem(code: str) -> tuple[str, str] | None:
     return (user, room) if user and time.time() < expires else None
 
 
-def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
-    """"My agents": each agent registered to exactly `user` (by full ID), the first first."""
-    found = []
-    for a in registry.agents_of(user):
-        if registry.owns(user, a["localpart"]):
-            aid = f"@{a['localpart']}:{SERVER_NAME}"
-            found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
-                          "display": a.get("display") or "", "runs": pm_kinds.describe(a),   # pm_rename, pm_kinds
-                          "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
-                          "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
-                          "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
-    return found
-
-
-def can_add(user: str, mine: list) -> bool:
-    """"Add an agent" shows: one of theirs has connected (as ➕ in @pm's chat: pm_agents.send_code), or they
-    removed their last (a new name then), and there's room for more."""
-    working = any(a["connected"] or not a["remote"] for a in mine)
-    return (working or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
-
-
 async def view(loop, room_id: str, user: str) -> dict:
     """What this user may see and change in this room."""
     room = loop.client.rooms.get(room_id)
@@ -148,9 +127,9 @@ async def view(loop, room_id: str, user: str) -> dict:
     mine = my_agents(loop, room, room_id, user)
     if console_personal.is_dm(loop, room):   # My Hagency: their personal cards only (or refused)
         return console_personal.view(loop, room, user, mine, can_add(user, mine),
-                                     {"kinds": agent_kinds.kinds(), "github": github_link.status(user),
+                                     {"kinds": agent_kinds.kinds(), "github": github_link.status(user), "first_pick": first_pick(loop, user),
                                       "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None})
-    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.kinds(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "first_pick": first_pick(loop, user), "kinds": agent_kinds.kinds(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
@@ -224,15 +203,6 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
             return "that's no longer what's waiting; look again"   # approve exactly what you saw
         return "ok" if await loop.confirm(room, user) else "nothing of yours is waiting for approval"
     return "unknown action"
-
-
-async def add_agent(loop, user: str, value: str) -> str:
-    """Add an agent: a name, or the picker's JSON with the AI it runs (pm_kinds.from_panel)."""
-    name, picked = pm_kinds.from_panel(value)
-    if isinstance(picked, str):
-        return picked
-    dm = await loop.private_room(user)
-    return await loop.start_add(dm, user, name or None, picked) if dm else "I couldn't open a private chat with you"
 
 
 def allowed(request, post: bool) -> bool:

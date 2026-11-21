@@ -18,6 +18,7 @@ from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
 import pm_kinds
 import connect_page
+import pm_first
 import registry
 import remote_agent
 from bridge import ROOT
@@ -171,6 +172,7 @@ class MoreAgents(Renaming):
         kind = (registry.find(person, agent) or {}).get("agent_kind")   # the AI it runs (picker); none: as before
         event_id = await self.say(chat, BRING_REPLY.format(
             agent=agent or registry.agent_of(person), where=pm_kinds.where(kind), code=code,
-            link=connect_page.page_link(code, kind), line=remote_agent.install_line(code, kind)) + (ADD_HINT if more else ""))
+            link=connect_page.page_link(code, kind), line=remote_agent.install_line(code, kind))
+            + (ADD_HINT if more else pm_first.choose_hint(kind) if agent is None else ""))   # the first: its AI (pm_first.py)
         if more:
             await self.offer_add(chat, event_id, person)

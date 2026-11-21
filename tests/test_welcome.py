@@ -244,7 +244,7 @@ class Buttons(Base):
 
     def test_bring_your_own_creates_the_agent_and_sends_one_line_with_a_code(self):
         self.assertTrue(self.click("🔌"))
-        self.provision.assert_called_once_with(NEW)
+        self.provision.assert_called_once_with(NEW, None)
         room_id, body = self.said[0]
         self.assertEqual(room_id, "!dm")
         self.assertRegex(body, r"curl -fsSL http://localhost:8650/connect\.sh \| sh -s -- [A-Z2-9]{5}-[A-Z2-9]{5}")
@@ -295,7 +295,7 @@ class Buttons(Base):
             self.assertTrue(await self.lp.on_welcome_text(DM, text(NEW, "I'll bring my own")))
             await asyncio.gather(*self.lp.busy)
         self.run_(bring())
-        self.provision.assert_called_once_with(NEW)
+        self.provision.assert_called_once_with(NEW, None)
 
     def test_one_set_up_at_a_time_per_person(self):
         async def twice():
@@ -360,7 +360,7 @@ class Asking(Base):
             await self.lp.choose("!dm", evil, "🔌")
             await asyncio.gather(*self.lp.busy)
         self.run_(bring())
-        provision.assert_called_once_with(evil)                  # the full ID: never our newbie1
+        provision.assert_called_once_with(evil, None)                # the full ID: never our newbie1
         self.assertNotIn("newbie1", [v["person"] for v in remote_agent.CODES.codes.values()])
 
     def test_project_requests_that_mention_an_agent_go_on_to_the_usual_chat(self):
