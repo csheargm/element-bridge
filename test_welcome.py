@@ -44,7 +44,7 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy, self.lp._welcomes = PM, 0, set(), {}
-        self.lp._add_offers = {}                      # pm_agents.py: never the real data folder
+        self.lp._add_offers, self.lp._seen = {}, {}   # pm_agents.py, pm_presence.py: never the real data folder
         self.lp._lobby_greeted, self.lp._join_requests = {}, {}   # pm_lobby.py, pm_joining.py: the same
         self.said, self.buttons = [], []
 
@@ -257,6 +257,22 @@ class Buttons(Base):
         self.assertIn(f"Your code: `{code}`", body)
         self.assertIn(f"sh -s -- {code}`", body)
         self.assertLess(body.index("/connect/start#"), body.index("curl -fsSL"))
+
+    def test_no_second_agent_offer_before_the_first_one_connected(self):
+        """Screen test: a newcomer's very first Connect message ended with "Want another agent too? Click
+        ➕ below." Only once one of their agents has connected; then "resend me the code" offers ➕."""
+        self.click("🔌")
+        self.assertNotIn("Want another agent", self.said[-1][1])
+        self.assertNotIn("➕", [b[2] for b in self.buttons])
+        registry.update(NEW, None, agent=registry.REMOTE, ready=True)           # what provision writes
+        self.lp._seen[registry.agent_of(NEW)] = {"online": False, "ever": True}   # it connected once
+
+        async def resend():
+            await self.lp.on_welcome_text(DM, text(NEW, "resend me the code"))
+            await asyncio.gather(*self.lp.busy)
+        self.run_(resend())
+        self.assertIn("Want another agent", self.said[-1][1])
+        self.assertEqual(self.buttons[-1][2], "➕")
 
     def test_each_button_counts_once(self):
         self.click("🔌")

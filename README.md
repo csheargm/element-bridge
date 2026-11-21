@@ -39,9 +39,9 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
    the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
    the wrapper names (`cli_path.py`).
-5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): click ➕ under @pm's Connect
-   message (or type "add another agent called codex" in @pm's chat, or **Add an agent** under My
-   agents in the panel). @pm asks for a one-word name if you gave none, then sends that agent's own
+5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): once your first one has
+   connected, click ➕ under @pm's Connect message (or type "add another agent called codex" in
+   @pm's chat, or **Add an agent** under My agents in the panel). @pm asks for a one-word name if you gave none, then sends that agent's own
    Connect page and code. It runs beside the first one (`<you>-codex-agent`, its files in
    `~/.hagency/<its name>/`; stop it with `connect.py --name <its name> --stop`). The panel's My
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
