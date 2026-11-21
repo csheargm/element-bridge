@@ -2,9 +2,6 @@
 then @pm checks their write access to a repo through that link. GitHub (github.com's sign-in and the
 API) is the local fake in tests/fake_github_api.py. Run: .venv/bin/python -m unittest test_github_link"""
 import asyncio
-import json
-import shutil
-import subprocess
 import tempfile
 import time
 import unittest
@@ -15,7 +12,6 @@ from unittest import mock
 import console
 import github_app
 import github_link
-import panel
 import pm_github
 import pm_settings
 import project_rooms
@@ -83,7 +79,7 @@ class Connect(LinkCase):
 
         async def flow():
             answer = await console.act(self.lp, "!r", ANNA, "github", "connect")
-            self.assertIn("ABCD-1000", answer)                                       # the panel's message
+            self.assertEqual(answer, pm_github.ON_CARD)       # the line under the buttons: never the code (it'd stay)
             self.assertEqual(github_link.status(ANNA)["code"], "ABCD-1000")         # the card shows it too
             self.assertEqual(github_link.status(ANNA)["url"], "https://github.com/login/device")
             self.assertIsNone(github_link.status("@betty:bridge.localhost")["code"])   # only Anna sees hers
@@ -230,8 +226,8 @@ class WriteAccess(LinkCase):
             self.assertFalse(asyncio.run(github_link.may_write(ANNA, REPO)))
 
 
-class ConnectThenBind(BindingSetup):
-    """The whole flow on the public server: not connected → Connect GitHub → the room is bound."""
+class BindCase(BindingSetup):
+    """A room on the public server with the real checks: Anna's link and her access, as GitHub says."""
 
     def setUp(self):
         super().setUp()
@@ -246,6 +242,11 @@ class ConnectThenBind(BindingSetup):
             self.addCleanup(p.stop)
         self.fake.permissions[(OTHER, "anna-gh")] = "write"        # what GitHub reports for maintain too
         self.fake.user_ids["anna-gh"] = ANNA_ID
+
+
+
+class ConnectThenBind(BindCase):
+    """The whole flow on the public server: not connected → Connect GitHub → the room is bound."""
 
     def test_not_connected_then_connected_binds(self):
         self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.NOT_CONNECTED)
@@ -271,28 +272,6 @@ class ConnectThenBind(BindingSetup):
             await asyncio.wait_for(task, 5)
         asyncio.run(flow())
         self.assertEqual(self.written, [room_state.content("off", OTHER)])
-
-
-@unittest.skipUnless(shutil.which("node"), "node isn't installed: the card's script is not run")
-class PanelCard(unittest.TestCase):
-    """The GitHub card (static/panel_github.js) for each state, run in node; every value escaped."""
-
-    def card(self, github):
-        esc = """const esc = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));"""
-        script = f"{esc}\n{panel.GITHUB_JS.read_text()}\nprocess.stdout.write(githubCard({json.dumps({'github': github})}));"
-        done = subprocess.run([shutil.which("node"), "-e", script], capture_output=True, text=True, timeout=20)
-        self.assertEqual(done.returncode, 0, done.stderr[-500:])
-        return done.stdout
-
-    def test_each_state(self):
-        self.assertEqual(self.card(None), "")                                      # off on this server
-        self.assertIn('data-a="github" data-v="connect"', self.card({"login": None, "code": None, "url": None}))
-        waiting = self.card({"login": None, "code": "ABCD-1000", "url": "https://github.com/login/device"})
-        self.assertIn("ABCD-1000", waiting)
-        self.assertNotIn('data-v="connect"', waiting)
-        done = self.card({"login": "<anna>", "code": None, "url": None})
-        self.assertIn("GitHub: <b>@&lt;anna&gt;</b> ✓", done)
-        self.assertIn('data-v="disconnect">Disconnect GitHub', done)
 
 
 if __name__ == "__main__":

@@ -64,12 +64,29 @@ def link_of(user: str) -> dict | None:
     return None                   # nothing (or a damaged entry): not connected, fail closed
 
 
+def _change(user: str, entry: dict | None) -> bool:
+    """Write (or with None, remove) a link: memory and disk agree, or GitHubError and nothing changed."""
+    saved = links()
+    before = saved.get(user)
+    try:
+        if entry is not None:
+            saved[user] = entry
+        elif user in saved:
+            saved.pop(user)
+    except OSError as e:          # the disk refused: put memory back the way the disk has it
+        dict.pop(saved, user, None)
+        if before is not None:
+            dict.__setitem__(saved, user, before)
+        raise github.GitHubError(f"I couldn't save your GitHub link ({type(e).__name__})") from None
+    return before is not None
+
+
 def save_link(user: str, login: str, github_id: int) -> None:
-    links()[user] = {"login": login, "id": github_id, "at": int(time.time())}
+    _change(user, {"login": login, "id": github_id, "at": time.time()})
 
 
 def unlink(user: str) -> bool:
-    return links().pop(user, None) is not None
+    return _change(user, None)
 
 
 def status(user: str) -> dict | None:
@@ -101,8 +118,14 @@ async def post(path: str, fields: dict) -> dict:
     return await asyncio.to_thread(_post, path, fields)
 
 
+KNOWN_ERRORS = {"authorization_pending", "slow_down", "access_denied", "expired_token", "device_flow_disabled",
+                "incorrect_client_credentials", "incorrect_device_code", "unsupported_grant_type"}
+
+
 def _error(data: dict) -> str:
-    return re.sub(r"[^a-z0-9_]", "", str(data.get("error", "")))[:40]   # GitHub's error code, nothing else
+    """GitHub's documented error code, or "unexpected": its own text never reaches a person or a log."""
+    error = data.get("error")
+    return "" if error is None else error if error in KNOWN_ERRORS else "unexpected"
 
 
 async def start() -> dict:
@@ -142,8 +165,9 @@ async def wait_for_login(flow: dict, sleep=asyncio.sleep) -> tuple[str, int]:
             return await who(token)       # its one use: the token goes no further than this
         if error == "authorization_pending":
             continue
-        if error == "slow_down":
-            flow["interval"] += SLOW_DOWN_S
+        if error == "slow_down":            # GitHub's new interval when it names one, else 5 s more
+            told = data.get("interval")
+            flow["interval"] = max(flow["interval"] + SLOW_DOWN_S, told if isinstance(told, int) else 0)
             continue
         if error == "access_denied":
             raise LinkFailed("You declined on GitHub, so nothing was connected.")
@@ -154,13 +178,15 @@ async def wait_for_login(flow: dict, sleep=asyncio.sleep) -> tuple[str, int]:
 
 async def may_write(user: str, repo: str) -> bool:
     """`user` connected a GitHub account that can push to `repo` (write, maintain or admin), read as
-    the App (NotInstalled when it isn't on `repo` yet). The account GitHub reports must still be the one they proved (by id): a renamed and
-    re-registered username never passes for someone else."""
+    the App (NotInstalled when it isn't on `repo` yet). The account GitHub reports must still be the
+    one they proved (by id): a renamed and re-registered username never passes for someone else. A
+    Disconnect (or a new account) while GitHub answers counts: the link must be unchanged after."""
     link = link_of(user)
     if link is None:
         return False
     try:
-        return await github_app.permission(repo, link["login"], link["id"]) in WRITE
+        can = await github_app.permission(repo, link["login"], link["id"]) in WRITE
+        return can and link_of(user) == link
     except github_app.NotInstalled:
         raise                     # the caller offers the install link (pm_settings.choose_repo)
     except github.GitHubError as e:

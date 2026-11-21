@@ -28,8 +28,9 @@ link from a Matrix user to a GitHub account, made with clicks (GUI first: the Ha
 - **Choosing a repo** says "connect your GitHub first" before it looks at the repo (so it says nothing
   about which repos the server allows). Every other refusal uses the same words, which name all three
   conditions (the server lists it, the App is on it, your account can write). When the App isn't on
-  the repo yet, access can't be read, so @pm waits for the install as before and then runs every
-  check again.
+  the repo yet, access can't be read, so @pm waits for the install quietly: it binds once the App is
+  there and the person can write, and otherwise says nothing more (a second reply would confirm the
+  repo is listed).
 - **Limits.** One sign-in per person at a time (asking again shows the same code; two clicks at once
   ask GitHub once). At most 5 new codes per person per hour and 40 for the server (GitHub
   rate-limits an App's device codes). Polls follow GitHub's interval and `slow_down`. A code is
@@ -42,8 +43,14 @@ link from a Matrix user to a GitHub account, made with clicks (GUI first: the Ha
 - The user token isn't revoked (that needs the client secret, which the server doesn't hold).
   GitHub App user tokens expire after 8 hours unless the owner turned expiry off, and @pm drops it
   at once.
-- Device-code phishing: someone could send a person their own code and ask them to enter it. GitHub
-  shows the App's name and the person must type the code; @pm's message says to enter a code only if
-  you asked for it yourself. The worst case is that someone binds a room to a repo the victim can
-  write to; agents still can't push without their own access.
+- Device-code phishing (accepted risk of the device flow): someone could send a person their own code
+  and ask them to enter it. GitHub shows the same App name either way; @pm's message says to enter a
+  code only if you asked for it yourself. The worst case: the attacker binds a room to a repo the
+  victim can write to, and what @pm reads there (issues, PRs, checks; for a private repo too) shows
+  in that room. Agents still can't push without their own access. GitHub's web flow (a callback tied
+  to the console session) would close this; it needs a client secret on the server and a callback
+  URL, so it is a follow-up (ROADMAP).
+- Codes go only to @pm's own private chat (only @pm invites; history from the invite) and the
+  person's own GitHub card, never to a chat someone else made. The line under the panel's buttons
+  never holds the code, so it can't outlive the sign-in.
 - A link isn't re-checked against GitHub until the next bind. Disconnecting is one click.

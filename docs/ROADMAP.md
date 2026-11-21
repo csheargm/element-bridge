@@ -43,6 +43,9 @@ So other people can try it.
 - Let a repo's GitHub owner add it from the console. This needs proof that the Matrix user
   controls that GitHub repo (for example, a one-time code they commit or put in a repo topic).
   Without that proof, only the server operator adds repos (`HAGENCY_REPOS`).
+- Connect GitHub with GitHub's web flow (a callback tied to the console session) instead of the
+  device flow, which can be phished with someone else's code (ADR 0007). Needs a client secret and a
+  callback URL on the server.
 - Two-sided agent ownership for agents from other servers (federation).
 - Idempotent retries for resent steps (GPT reviews 4 #6, 5 #5).
 - Kill the model CLI's whole process group on timeout (GPT review 6 #5).

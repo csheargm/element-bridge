@@ -113,7 +113,7 @@ class Settings(Projects):
         try:
             allowed = repo is not None and await may_write(sender, repo)
         except github_app.NotInstalled:           # access is read as the App: not until it's there
-            self.watch_install(room, sender, repo)
+            self.watch_install(room, sender, repo, quiet=True)
             allowed = False
         if not allowed:                           # one answer for each: never confirms a name
             return refusal(name)
@@ -142,13 +142,15 @@ class Settings(Projects):
                 f"an org admin clicks Install): {github_app.install_url()}\nI'll look again every "
                 f"{INSTALL_RECHECK_S} seconds for {minutes} minutes and finish setting up this room once it's there.")
 
-    def watch_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
+    def watch_install(self, room: MatrixRoom, sender: str, repo: str, quiet: bool = False) -> None:
+        """quiet: their access isn't known yet (it's read as the App), so the wait says nothing unless
+        it can bind: a reply only for listed repos would confirm the name (GPT review, Connect GitHub)."""
         watch = self.install_watches.get(room.room_id)
         if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
             self.stop_install_watch(room.room_id)
-            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
+            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo, quiet)))
 
-    async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
+    async def await_install(self, room: MatrixRoom, sender: str, repo: str, quiet: bool = False) -> None:
         """After an install link: once the App is on `repo`, ask again for the person (every check
         re-runs: moderator, allowed repo, write access). The wait stays registered until it ends, so
         a newer choice in the room cancels it even during that last bind (GPT review, GitHub App)."""
@@ -161,13 +163,23 @@ class Settings(Projects):
                 except github.GitHubError as e:  # GitHub unreachable for a moment: the next look may work
                     log.warning("install re-check for %s: %s", repo, str(e)[:160])
             else:
+                if quiet:
+                    return
                 await self.say(room.room_id, f"I still don't see the Hagency Rooms app on {repo}. Once it's "
                                              f"installed, say \"@pm this room works on {repo}\" again.")
+                return
+            if quiet and not await self.may_bind_quietly(sender, repo):
                 return
             await self.set_repo(room, sender, repo)
         finally:
             if self.install_watches.get(room.room_id, ("", None))[1] is asyncio.current_task():
                 del self.install_watches[room.room_id]     # (a newer wait may have replaced this one)
+
+    async def may_bind_quietly(self, sender: str, repo: str) -> bool:
+        try:
+            return await may_write(sender, repo)
+        except github_app.NotInstalled:   # gone again already: stay quiet, they can ask again
+            return False
 
     def stop_install_watch(self, rid: str) -> None:
         watch = self.install_watches.get(rid)

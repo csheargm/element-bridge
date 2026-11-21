@@ -202,7 +202,7 @@ async def permission(repo: str, login: str, github_id: int | None = None) -> str
     have that id, else "none": a username renamed and taken by someone else never passes."""
     if not github.LOGIN_RE.match(login or ""):
         raise github.GitHubError("not a GitHub username")
-    status, data = await call("GET", f"/repos/{_check_repo(repo)}/collaborators/{login}/permission", await token(repo))
+    status, data = await as_app(_check_repo(repo), "GET", f"/repos/{repo}/collaborators/{login}/permission")
     if status == 404:
         return "none"
     if status != 200 or not isinstance(data, dict):
