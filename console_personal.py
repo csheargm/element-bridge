@@ -1,10 +1,10 @@
 """My Hagency: the Hagency panel at the top of a person's private chat with @pm (Product Manager), with
-only their personal cards: My agents (add with the AI picker, rename, remove, disconnect, comes along),
+only their personal cards: My agents (add with the AI picker, rename, remove, stop / start, disconnect, comes along),
 and Connect GitHub. No room cards there, and only that person can use it: the chat is @pm's own with
 them (pm_settings.private_room: only @pm invites; nobody else is in it), checked on every view and
 action. The same widget URL as in project rooms, so the same pre-approval (deploy/element_home.py).
 """
-ACTIONS = ("follow", "add", "github", "rename", "remove", "disconnect", "goback")   # console.act's personal ones
+ACTIONS = ("follow", "add", "github", "rename", "remove", "disconnect", "stop", "start", "goback")   # console.act's personal ones
 ROOM_ONLY = "This is your own Hagency panel; a project room's settings are in that room's panel."
 NOT_YOURS = "This is someone else's chat with Product Manager."
 TITLE = "My Hagency"

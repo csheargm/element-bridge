@@ -64,6 +64,8 @@ class BridgeCustom:
 
     async def change_code(self, room: MatrixRoom, event) -> None:
         rid, text = room.room_id, event.body.strip()
+        if await self.stopped_now(room, event):   # agent_stop.py: my owner stopped me
+            return
         if GO_BACK.search(text):
             await self.go_back(rid)
             return
@@ -107,6 +109,8 @@ class BridgeCustom:
         offer = self.offers().get(event.reacts_to)
         if not offer or offer.get("room") != room.room_id or offer.get("done") or not is_private(room):
             return                            # only once, only where it was offered, only while private
+        if await self.stopped_now(room, None):   # agent_stop.py: a button click is work too
+            return
         if self.custom_busy().locked():
             await self.send(room.room_id, "I'm still busy with your last change; click again when it's done.")
             return
@@ -117,7 +121,7 @@ class BridgeCustom:
     async def act_on(self, rid: str, offer_id: str, key: str) -> None:
         async with self.custom_busy():
             offer = self.offers().get(offer_id) or {}
-            if offer.get("done"):
+            if offer.get("done") or await self.is_stopped():   # agent_stop.py: stopped while it waited
                 return
             try:
                 done = await self.do(rid, offer, key)

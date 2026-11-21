@@ -201,6 +201,9 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
         done = await loop.disconnect(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't disconnect it (see my message)"
+    if action in ("stop", "start"):       # pm_stop.py: paused or resumed, still signed in on its computer
+        done = await loop.set_stopped(await loop.private_room(user) or room_id, user, agent or None, action == "stop")
+        return "ok" if done else f"couldn't {action} it (see my message)"
     if action == "approve":
         if loop.pending.get(room_id, {}).get("event_id") != value:
             return "that's no longer what's waiting; look again"   # approve exactly what you saw

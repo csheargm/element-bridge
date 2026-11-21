@@ -73,6 +73,8 @@ class BridgeVoice:
             await voice.replied_to_sender(self.client, room.room_id, event) == self.user_id)
         if not self.owner_here(room) or (event.sender != self.owner_id and not self.allow_members and not sure):
             return                            # nothing I'd act on: never spend this computer transcribing it
+        if await self.stopped_now(room, event, notify=sure):   # agent_stop.py: never transcribed while stopped
+            return
         try:
             text = await voice.listen(self.client, event)
         except (voice.VoiceError, OSError, RuntimeError, ValueError) as e:

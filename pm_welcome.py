@@ -32,6 +32,7 @@ from pm_first import BRING, HOUSE, FirstAgent, picked_from
 from pm_github import GitHubLink
 from pm_lobby import WELCOME_NAME, WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
+from pm_stop import STOP_RE, wants_stop
 from pm_remove import REMOVE_RE
 from saved_dict import SavedDict
 
@@ -199,6 +200,8 @@ class Welcome(Lobby, GitHubLink, FirstAgent):   # pm_github.py: Connect GitHub, 
             await self.ask_removal(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_remove.py
         elif m := DISCONNECT_RE.search(text):
             await self.disconnect(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_presence.py
+        elif m := STOP_RE.search(text):
+            await self.set_stopped(room.room_id, event.sender, m.group("name") or m.group("label"), wants_stop(m.group("verb")))
         elif WANT_RE.search(text):
             await self.offer_again(room, event.sender)
         else:

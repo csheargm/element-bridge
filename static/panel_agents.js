@@ -1,5 +1,5 @@
 // "My agents" in the Hagency panel and console (panel.py serves this as /panel-agents.js).
-// A person may have several agents (ADR 0005): each has its own Online/Offline, Disconnect, Remove and
+// A person may have several agents (ADR 0005): each has its own Online/Offline, Stop/Start, Disconnect, Remove and
 // "comes along" setting. Every value shown comes from /console/state and is escaped here;
 // every change goes through @pm's own checks (console.act).
 function agentSeg(name, agent, values, current) {
@@ -12,8 +12,19 @@ function agentStatus(a) {
   // Screen test: one that never connected had a Disconnect button (nothing to disconnect); Remove and Rename stay.
   const disconnect = a.online === true || a.connected
     ? `<button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>` : "";
-  return `<span class="chip">${word}</span> ${disconnect}
+  return `<span class="chip">${word}</span>${a.stopped ? ' <span class="chip">Stopped</span>' : ""} ${stopButton(a)} ${disconnect}
     ${removeButton(a)}`;
+}
+// Stop / Start (pm_stop.py): it stays signed in on its computer and ignores messages until Start. Only for
+// one that has connected; Hermes answers through its own gateways, so it is stopped on its computer.
+function stopButton(a) {
+  if (a.hermes || !(a.online === true || a.connected || a.stopped)) return "";
+  return a.stopped ? `<button data-a="start" data-v="" data-g="${esc(a.name)}">Start</button>`
+    : `<button data-a="stop" data-v="" data-g="${esc(a.name)}">Stop</button>`;
+}
+function stopHint(a) {
+  if (a.stopped) return '<div class="hint">Stopped: it ignores messages and tasks until you click Start.</div>';
+  return a.hermes && a.online === true ? '<div class="hint">To stop a Hermes agent, run <code>connect.py --stop</code> on its computer.</div>' : "";
 }
 // Remove is for good, so it asks twice in the page (Element's widget frame may block confirm()).
 let removeArmed = {agent: "", until: 0};
@@ -62,7 +73,7 @@ function agentRow(a, version, several, personal) {
     + (a.runs ? ` <span class="chip">${esc(a.runs)}</span>` : "");   // the AI it runs (pm_kinds.describe)
   const where = a.here ? ' <span class="chip">in this room</span>'
     : a.invited ? ' <span class="chip">invited to this room</span>' : "";
-  return `<li><div>${title}${where}${agentHint(a, personal)}</div>
+  return `<li><div>${title}${where}${agentHint(a, personal)}${stopHint(a)}</div>
     <div>${agentStatus(a)}</div></li>${renameRow(a)}
     <li><div class="hint">Comes along when I join a project room${a.first ? "" : " (or invite it yourself)"}</div>${agentSeg("follow", a.name, ["always", "ask", "never"], a.follow)}</li>
     ${a.first && version ? `<li><div class="hint">Code it runs: your own version (${esc(version)})</div>
