@@ -75,7 +75,7 @@ let openidRequest = null, gotCredentials = false, capable = false, expired = 0;
 // the widget API's navigate (MSC2931; pre-approved for our panel only: deploy/element_home.py), else (or
 // if Element refuses) a matrix.to link in a new tab.
 const NAVIGATE = "org.matrix.msc2931.navigate", NAV_WAIT_MS = 4000;
-let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
+let canNavigate = false, navRequest = null, navHref = "", pmChat = null, inPmChat = false;   // inPmChat: My Hagency
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
   if (!EMBEDDERS.includes(ev.origin) || ev.source !== window.parent || m.widgetId !== wid) return;
@@ -118,7 +118,7 @@ async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
   $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error);
   msgMark = action === "github" && value === "connect" ? "pending" : "";
-  if (msgMark && pmChat) $("msg").innerHTML = esc($("msg").textContent) + " " + pmChatLink("Open our private chat");
+  if (msgMark && pmChat && !inPmChat) $("msg").innerHTML = esc($("msg").textContent) + " " + pmChatLink("Open our private chat");
   refresh(); }
 function pmChatLink(text) {
   if (!pmChat) return esc(text);           // no private chat with @pm yet: plain words
@@ -163,7 +163,7 @@ async function show() {
       return ++expired > 2 ? failed(NO_ANSWER) : start(); }
     s = await r.json(); } catch (e) { return failed(OFFLINE); }
   if (s.error) return failed(s.error);
-  expired = 0; clearTimeout(watchdog); pmChat = s.pm_chat || null;
+  expired = 0; clearTimeout(watchdog); pmChat = s.pm_chat || null; inPmChat = !!s.personal;
   if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
   const typing = document.activeElement && document.activeElement.id;
   const sameCode = typing === "ghcode" && s.github && s.github.code === $("ghcode").value;   // a code gone: redrawn
