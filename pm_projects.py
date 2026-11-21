@@ -7,7 +7,7 @@
 ONE PROJECT ROOM PER REPO: @pm's loop runs per room, so two rooms on one repo would hand the same
 GitHub issues out twice. When a room picks a repo another room already runs, I answer with
 🙋 "Ask to join that room" and ➕ "Make a separate room anyway": a separate room may discuss the
-repo, but its mode stays off (room_state.runs_in). I never name the other room here: people in this
+repo, but its mode stays off (room_state.is_discussion). I never name the other room here: people in this
 room may not be allowed to know it (GPT review). The check and the bind happen under one lock.
 Mixed into pm_settings.Settings (client, user_id, say, offer_thumb, addressed_text, room_repos, choose_repo).
 """
@@ -21,10 +21,10 @@ from nio import MatrixRoom, ReactionEvent, RoomMessageText, RoomPreset
 import panel
 import project_rooms
 import room_state
-from bridge import SERVER_NAME
-from pm_chat import without_quote
+from bridge import ROOT, SERVER_NAME
 from pm_joining import ASKED, Joining
 from project_rooms import plain
+from saved_dict import SavedDict
 
 log = logging.getLogger("loop")
 ASK, SEPARATE = "🙋", "➕"
@@ -32,6 +32,7 @@ ROOMS_PER_HOUR = 3
 MAX_LISTED = 20
 MAX_SCANNED = 300              # "find a project" reads at most this many rooms
 LOOKUPS_PER_HOUR = 5           # "ask to join owner/name" per person
+FINDS_PER_HOUR = 3             # "find a project" per person (each reads many rooms)
 OFFER_S = 86400                # a 🙋/➕ question is answerable for a day
 MAKE_RE = re.compile(r"^\W*(please\s+)?(make|create|start|set up|open)\s+(me\s+)?(a\s+)?(new\s+)?project(\s+room)?"
                      r"(\s+(called|named)\s+(?P<name>[^\n]{1,60}?))?[\s.!]*$", re.I)
@@ -57,15 +58,13 @@ class Answer(str):
 class Projects(Joining):
     async def on_project_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was one of the project commands (answered here)."""
-        text = self.addressed_text(event, room)
-        if text is None and room.room_id in getattr(self, "dm_rooms", {}).values():
-            text = without_quote(event.body)          # my private chat: no need to say "@pm"
+        text = self.addressed_text(event, room)       # my private chat with them: no need to say "@pm"
         if text is None:
             return False
         if m := MAKE_RE.match(text):
             await self.make_project_room(room, event.sender, (m.group("name") or "").strip(" \"'"))
         elif FIND_RE.match(text):
-            await self.say(room.room_id, await self.find_projects())
+            self.in_background(self.answer_find(room.room_id, event.sender))   # never holds up the sync loop
         elif m := ASK_RE.search(text):
             await self.say(room.room_id, ASKED)       # first, and the same words either way: never confirms a room
             self.in_background(self.ask_by_repo(m.group("repo"), event.sender, room.room_id))
@@ -114,6 +113,17 @@ class Projects(Joining):
         await self.say(origin.room_id, f"Made **{plain(name)}**: accept its invite on the left (under Invites), then pick "
                                        "its GitHub repo in the Hagency panel at the top. Your agent comes along when you join.")
 
+    async def answer_find(self, room_id: str, person: str) -> None:
+        recent = [t for t in self.__dict__.setdefault("_finds", {}).get(person, []) if time.time() - t < 3600]
+        if len(recent) >= FINDS_PER_HOUR:
+            await self.say(room_id, "I just listed them; they're also under Explore rooms in Element.")
+            return
+        self._finds[person] = [*recent, time.time()]
+        try:
+            await self.say(room_id, await self.find_projects())
+        except (RuntimeError, OSError) as e:  # SendError, network: they can ask again
+            log.error("couldn't list projects for %s: %s", person, e)
+
     async def find_projects(self) -> str:
         lines = []
         for rid, room in list(self.client.rooms.items())[:MAX_SCANNED]:
@@ -128,26 +138,31 @@ class Projects(Joining):
                 + "\n\nThey're also under Explore rooms in Element.")
 
     async def set_visibility(self, room: MatrixRoom, sender: str, value: str) -> str:
-        if not await room_state.is_moderator(self.client, room, sender):
-            return "Only the room owner or a maintainer can change who can find and join this room."
-        from pm_settings import is_my_chat    # here: pm_settings imports this module
-        if (getattr(room, "canonical_alias", None) in project_rooms.FRONT_DOORS
-                or is_my_chat(room, self.user_id, getattr(self, "dm_rooms", {}))):
+        if getattr(room, "canonical_alias", None) in project_rooms.FRONT_DOORS or self.is_private_chat(room):
             return "Only project rooms have this setting."
         async with self.lock:                 # never between a private repo's bind and its closing
-            try:                              # an unreadable binding never counts as "no repo" (GPT review)
+            try:                              # read now, under the lock: never a cached role or "no repo" on a failed read
+                who = await room_state.standing(self.client, room.room_id, sender)
+                if who["membership"] != "join" or not who["moderator"]:
+                    return "Only the room owner or a maintainer can change who can find and join this room."
                 repo = (await room_state.binding_of(self.client, room.room_id, strict=True))[0]
             except room_state.StateUnreadable:
                 return "I couldn't read this room's settings just now; please try again."
-            refused = project_rooms.refusal(value, value == project_rooms.OPEN and await project_rooms.repo_is_private(repo))
-            failed = refused or await project_rooms.apply(self.client, room.room_id, value)
+            private = await project_rooms.repo_is_private(repo) if repo else False
+            failed = (project_rooms.refusal(value, private)
+                      or (private and await project_rooms.history_safe(self.client, room.room_id))
+                      or await project_rooms.apply(self.client, room.room_id, value,
+                                                   await project_rooms.visibility(self.client, room.room_id)))
         return failed or f"This room is now {project_rooms.WORDS[value]}."
 
     async def close_for_private(self, room_id: str, repo: str) -> tuple[str | None, str]:
         """Before binding `repo` (under the lock): a room anyone can join (its real join rule, not my
         record) becomes listed if the repo is private; if that fails, the repo isn't set. (refusal, note)"""
-        if (await project_rooms.join_rule(self.client, room_id) != "public"
-                or not await project_rooms.repo_is_private(repo)):
+        if not await project_rooms.repo_is_private(repo):
+            return None, ""
+        if unsafe := await project_rooms.history_safe(self.client, room_id):   # nobody outside reads its history
+            return f"{unsafe} I haven't set the repo.", ""
+        if await project_rooms.join_rule(self.client, room_id) != "public":
             return None, ""
         failed = await project_rooms.apply(self.client, room_id, project_rooms.LISTED)
         if failed:
@@ -160,10 +175,16 @@ class Projects(Joining):
         for rid in list(self.client.rooms):
             if rid == exclude or (rid in self.room_repos and (self.room_repos[rid] or "").lower() != repo.lower()):
                 continue                      # a room the poll has seen on another repo (refreshed every poll)
-            found, runs_in = await room_state.binding_of(self.client, rid, strict=True)   # unreadable: raises
-            if found and found.lower() == repo.lower() and not runs_in:
+            found, discussion = await room_state.binding_of(self.client, rid, strict=True)   # unreadable: raises
+            if found and found.lower() == repo.lower() and not discussion:
                 return rid
         return None
+
+    def discussions(self) -> dict:
+        """discussion room → the room that runs its repo (on disk; never in the rooms' own state)."""
+        if "_discussions" not in self.__dict__:
+            self._discussions = SavedDict(ROOT / "data" / "discussions.json")
+        return self._discussions
 
     def room_name(self, room_id: str) -> str:
         room = self.client.rooms.get(room_id)

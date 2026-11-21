@@ -36,7 +36,7 @@ NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner
 INSTALL_RECHECK_S = 30        # after an install link: look again this often...
 INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
 BUSY = "Work is still running on the current repo; say \"stop\" and let it finish first."
-KEEP = object()               # write_level: keep the room's "runs in another room" as it is
+KEEP = object()               # write_level: keep the room's "only discusses its repo" as it is
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
@@ -157,9 +157,13 @@ class Settings(Projects):
             return BUSY
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
         keep = current == repo and runs_in is None
-        failed = await self.write_level(rid, await self.level(rid) if keep else "off", repo, runs_in)
+        failed = await self.write_level(rid, await self.level(rid) if keep else "off", repo, runs_in is not None)
         if failed:
             return failed
+        if runs_in:                               # which room runs it: mine to know, not this room's state
+            self.discussions()[rid] = runs_in
+        elif rid in self.discussions():           # (no write when there's nothing to forget)
+            self.discussions().pop(rid, None)
         if current != repo:                       # a plan made for the old repo is never filed in the new one
             self.pending.pop(rid, None)
             self.plans.pop(rid, None)
@@ -207,17 +211,19 @@ class Settings(Projects):
             return None                       # stopping never binds a room to the repo (anyone may stop)
         return await self.write_level(room_id, level)
 
-    async def write_level(self, room_id: str, level: str, repo: str | None = None, runs_in=KEEP) -> str | None:
+    async def write_level(self, room_id: str, level: str, repo: str | None = None, discussion=KEEP) -> str | None:
         """Write the room's level (and repo): callers have checked that a moderator asked. A room that only
-        discusses a repo another room runs (runs_in) never leaves "off"."""
-        bound_repo, bound_runs_in = await room_state.binding_of(self.client, room_id)   # one read: both agree
-        repo = repo or bound_repo
-        if repo is None:
-            return NO_REPO
-        other = bound_runs_in if runs_in is KEEP else runs_in
-        if other and level != "off":
-            return RUN_ELSEWHERE
-        resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo, other))
+        discusses a repo another room runs never leaves "off". Every binding write reads and writes under
+        one short lock (not the poll's), so a "stop" can't write back a repo a rebind just replaced."""
+        async with self.__dict__.setdefault("_binding_lock", asyncio.Lock()):
+            bound_repo, bound_discussion = await room_state.binding_of(self.client, room_id)   # one read
+            repo = repo or bound_repo
+            if repo is None:
+                return NO_REPO
+            only_discusses = bound_discussion if discussion is KEEP else discussion
+            if only_discusses and level != "off":
+                return RUN_ELSEWHERE
+            resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo, only_discusses))
         if not hasattr(resp, "event_id"):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":    # a room someone made: I joined at power 0
                 return NEED_POWER

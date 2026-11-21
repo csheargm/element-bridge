@@ -114,7 +114,7 @@ class Binding(AppCase):
             self.repo = room_state.repo_in(content)
             return RoomPutStateResponse("$s", room_id)
         lp.say, lp.client = say, SimpleNamespace(room_put_state=put_state, rooms={})
-        v = mock.patch("project_rooms.join_rule", mock.AsyncMock(return_value="invite"))   # pm_projects.py
+        v = mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=False))   # pm_projects.py
         v.start()
         self.addCleanup(v.stop)
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),

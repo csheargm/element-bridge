@@ -20,6 +20,7 @@ import intents
 import logging
 
 import pm_brain
+from pm_address import Addressing, without_quote  # noqa: F401 - without_quote: other modules import it from here
 from saved_dict import SavedDict
 import room_state
 
@@ -52,38 +53,9 @@ def replied_to(event: RoomMessageText) -> str | None:
     return reply.get("event_id") if isinstance(reply, dict) else None
 
 
-def without_quote(body: str) -> str:
-    """A reply's body starts with the quoted message ("> <@someone> text", then a blank line): read
-    only what the person wrote, so "ok" in a reply to any message is just "ok"."""
-    lines = body.strip().splitlines()
-    while lines and lines[0].startswith(">"):
-        lines.pop(0)
-    return "\n".join(lines).strip()
-
-
-class Chat:
+class Chat(Addressing):
     generation: dict                     # room → bumped by "stop" (cancels in-flight decisions)
     pending: dict           # room → the autonomous switch waiting for a ✅
-
-    def is_one_to_one(self, room, person: str) -> bool:
-        """A chat where only that person and I are joined (not a project room with a repo, where they may
-        think aloud): everything they say there is to me."""
-        joined = set(getattr(room, "users", None) or {}) - set(getattr(room, "invited_users", None) or {})
-        return joined == {self.user_id, person} and room.room_id not in (getattr(self, "room_repos", None) or {})
-
-    def addressed_text(self, event: RoomMessageText, room=None) -> str | None:
-        """The message without its "@pm" / "Product Manager" address, or None if not for me. In a
-        one-to-one chat with me every message is for me (seen live: "resend me the code" got no answer)."""
-        if room is not None and self.is_one_to_one(room, event.sender):
-            m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", without_quote(event.body), re.I | re.S)
-            return m.group(2) if m else without_quote(event.body)
-        mentions = event.source.get("content", {}).get("m.mentions", {})
-        ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
-        mentioned = isinstance(ids, list) and self.user_id in ids
-        m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", without_quote(event.body), re.I | re.S)
-        if m:
-            return m.group(2)
-        return without_quote(event.body) if mentioned else None
 
     async def on_human(self, room: MatrixRoom, event: RoomMessageText) -> None:
         body, sender = without_quote(event.body), event.sender

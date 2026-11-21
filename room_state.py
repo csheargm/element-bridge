@@ -50,22 +50,22 @@ def repo_in(content: dict) -> str | None:
     return github.allowed_repo(repo)     # also when someone wrote the state by hand: only allowed repos
 
 
-def runs_in(content: dict) -> str | None:
-    """The room that runs this room's repo, when this one only discusses it (one project room per
-    repo: a separate room may talk about the repo but never runs the build loop for it)."""
-    other = content.get("runs_in") if isinstance(content, dict) else None
-    return other if isinstance(other, str) and other.startswith("!") else None
+def is_discussion(content: dict) -> bool:
+    """This room only discusses its repo, which another room runs (one project room per repo: a
+    separate room may talk about the repo but never runs its build loop). Only a flag: which room runs
+    it is kept by @pm (pm_projects.discussions), never in this room's state, which its members read."""
+    return isinstance(content, dict) and content.get("discussion") is True
 
 
 def level_of(content: dict) -> str:
     """The loop level in a LEVEL_EVENT's content; a room without a repo, or one that only discusses
     a repo another room runs, is off."""
-    lvl = content.get("level") if repo_in(content) and not runs_in(content) else None
+    lvl = content.get("level") if repo_in(content) and not is_discussion(content) else None
     return lvl if lvl in github.LEVELS else "off"
 
 
-def content(level: str, repo: str, runs_in_room: str | None = None) -> dict:
-    return {"level": level, "repos": [repo], "repo": repo, **({"runs_in": runs_in_room} if runs_in_room else {})}
+def content(level: str, repo: str, discussion: bool = False) -> dict:
+    return {"level": level, "repos": [repo], "repo": repo, **({"discussion": True} if discussion else {})}
 
 
 async def repo_of(client: AsyncClient, room_id: str) -> str | None:
@@ -73,11 +73,11 @@ async def repo_of(client: AsyncClient, room_id: str) -> str | None:
     return repo_in(await read_binding(client, room_id))
 
 
-async def binding_of(client: AsyncClient, room_id: str, strict: bool = False) -> tuple[str | None, str | None]:
-    """(repo, the room that runs it if this one only discusses it), from ONE read of the binding;
-    strict: an unreadable room raises StateUnreadable instead of looking unbound."""
+async def binding_of(client: AsyncClient, room_id: str, strict: bool = False) -> tuple[str | None, bool]:
+    """(repo, whether this room only discusses it), from ONE read of the binding; strict: an
+    unreadable room raises StateUnreadable instead of looking unbound."""
     content = await read_binding(client, room_id, strict)
-    return repo_in(content), runs_in(content)
+    return repo_in(content), is_discussion(content)
 
 
 def creators_in(events: list) -> set:
@@ -109,9 +109,9 @@ async def standing(client: AsyncClient, room_id: str, user: str) -> dict:
     return found
 
 
-async def runs_in_of(client: AsyncClient, room_id: str) -> str | None:
-    """The room that runs this room's repo, when this room only discusses it (else None)."""
-    return runs_in(await read_binding(client, room_id))
+async def discussion_of(client: AsyncClient, room_id: str) -> bool:
+    """This room only discusses its repo (another room runs it)."""
+    return is_discussion(await read_binding(client, room_id))
 
 
 async def bound(client: AsyncClient, room_id: str) -> bool:

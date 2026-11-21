@@ -36,6 +36,7 @@ class Follow:
             return
         await self.client.join(room.room_id)
         if event.content.get("is_direct") and await self.only_us(room.room_id, event.sender):
+            self.direct_chats()[room.room_id] = event.sender     # pm_chat.py: their words here are to me
             # They opened a chat with me themselves (e.g. "Get your agent" on the home page before my
             # own chat reached them): answer with the offer and where it is, never a moderator request.
             try:

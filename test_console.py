@@ -129,7 +129,7 @@ class Actions(unittest.TestCase):
                                     user_id="@pm:" + BETTY.partition(":")[2])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
                          ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello")),
-                         ("runs_in_of", lambda c, rid: asyncio.sleep(0, None))):
+                         ("discussion_of", lambda c, rid: asyncio.sleep(0, False))):
             p2 = mock.patch.object(room_state, name, fn)
             p2.start()
             self.addCleanup(p2.stop)

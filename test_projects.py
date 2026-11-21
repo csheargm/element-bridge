@@ -43,7 +43,7 @@ class Base(unittest.TestCase):
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.busy, self.lp.dm_rooms, self.lp.room_repos = PM, set(), {}, {}
         self.lp.started_ms = 0
-        self.lp._join_requests, self.lp._lobby_greeted = {}, {}
+        self.lp._join_requests, self.lp._lobby_greeted, self.lp._discussions, self.lp._direct_chats = {}, {}, {}, {}
         self.said, self.buttons, self.state = [], [], {}         # state: room → {event type: (content, sender)}
         self.members = {}                                         # (room, user) → membership, as the server says
         self.member_ids, self.mods = {}, {}                       # (room, user) → its event id; room → moderators
@@ -80,8 +80,10 @@ class Base(unittest.TestCase):
         self.lp.kick = lambda: None
 
     def bind(self, rid, repo=REPO, runs_in=None):
-        self.state.setdefault(rid, {})[github.LEVEL_EVENT] = (room_state.content("off", repo, runs_in), PM)
+        self.state.setdefault(rid, {})[github.LEVEL_EVENT] = (room_state.content("off", repo, runs_in is not None), PM)
         self.lp.room_repos[rid] = repo
+        if runs_in:
+            self.lp._discussions[rid] = runs_in
 
 
 class RoomPerRepo(Base):
@@ -112,12 +114,33 @@ class RoomPerRepo(Base):
         click = SimpleNamespace(sender=ANNA, key="➕", reacts_to=offer)
         self.assertTrue(run(self.lp.on_conflict_reaction(self.b, click)))
         content = self.state["!b"][github.LEVEL_EVENT][0]
-        self.assertEqual((room_state.runs_in(content), room_state.level_of({**content, "level": "autonomous"})), ("!a", "off"))
+        self.assertEqual((room_state.is_discussion(content), room_state.level_of({**content, "level": "autonomous"})), (True, "off"))
+        self.assertNotIn("!a", json.dumps(content))                         # the other room's id is never in this room's state
+        self.assertEqual(self.lp._discussions["!b"], "!a")
         self.assertIn("build loop runs in the room that already works on it", self.said[-1][1])
         refused = run(self.lp.change_level("!b", "autonomous"))           # assist/autonomous refused there
         self.assertEqual(refused, pm_projects.RUN_ELSEWHERE)
         self.assertIsNone(run(self.lp.change_level("!b", "off")))
-        self.assertEqual(room_state.runs_in(self.state["!b"][github.LEVEL_EVENT][0]), "!a")   # kept on a stop
+        self.assertTrue(room_state.is_discussion(self.state["!b"][github.LEVEL_EVENT][0]))   # kept on a stop
+
+    def test_a_stop_racing_a_rebind_never_writes_the_old_repo_back(self):
+        """GPT review: binding writes read and write under one lock."""
+        order = []
+        real_put = self.lp.client.room_put_state
+
+        async def slow_put(rid, kind, content, state_key=""):
+            order.append(content.get("repo"))
+            await asyncio.sleep(0.01)
+            return await real_put(rid, kind, content, state_key)
+        self.lp.client.room_put_state = slow_put
+        self.lp.level = mock.AsyncMock(return_value="off")
+
+        async def race():
+            await asyncio.gather(self.lp.write_level("!a", "off", "your-name/other"), self.lp.change_level("!a", "off"))
+        with mock.patch.object(github, "ALLOWED_REPOS", frozenset({REPO, "your-name/other"})):
+            run(race())
+            self.assertEqual(room_state.repo_in(self.state["!a"][github.LEVEL_EVENT][0]), "your-name/other")
+        self.assertEqual(order, ["your-name/other", "your-name/other"])   # the stop read after the rebind wrote
 
     def test_only_a_moderator_chooses_and_ask_to_join_goes_to_the_other_rooms_owners(self):
         run(self.lp.set_repo(self.b, ANNA, REPO))
@@ -188,6 +211,7 @@ class Visibility(Base):
         super().setUp()
         self.room = project("!a", "Alpha")
         self.lp.client.rooms = {"!a": self.room}
+        self.members[("!a", ANNA)], self.members[("!a", BETTY)], self.mods["!a"] = "join", "join", {ANNA}
         self.private = mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=False))
         self.private.start()
         self.addCleanup(self.private.stop)
@@ -234,9 +258,27 @@ class Visibility(Base):
         self.assertEqual(run(self.lp.set_visibility(lobby, ANNA, "private")), "Only project rooms have this setting.")
 
     def test_a_failure_at_any_step_is_said_and_the_record_is_written_last(self):
+        """GPT review: opening sets the join rule last, closing first: a failure never leaves it more open."""
+        ok = self.lp.client.send
         self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=403, release=lambda: None))
         self.assertIn("couldn't update the room directory", run(self.lp.set_visibility(self.room, ANNA, "listed")))
-        self.assertNotIn(project_rooms.VISIBILITY_EVENT, self.state["!a"])
+        self.assertNotIn("m.room.join_rules", self.state.get("!a", {}))     # still private: not opened halfway
+        self.lp.client.send = ok
+        run(self.lp.set_visibility(self.room, ANNA, "open"))
+        self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=403, release=lambda: None))
+        self.assertIn("couldn't update the room directory", run(self.lp.set_visibility(self.room, ANNA, "private")))
+        self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": "invite"})   # closed first
+        self.assertEqual(self.state["!a"][project_rooms.VISIBILITY_EVENT][0], {"visibility": "open"})   # record last
+
+    def test_a_private_repos_room_never_has_public_history(self):
+        self.bind("!a")
+        self.state["!a"]["m.room.history_visibility"] = ({"history_visibility": "world_readable"}, ANNA)
+        with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
+            run(self.lp.set_visibility(self.room, ANNA, "listed"))
+            self.assertEqual(self.state["!a"]["m.room.history_visibility"][0], {"history_visibility": "shared"})
+            self.state["!a"]["m.room.history_visibility"] = ({"history_visibility": "world_readable"}, ANNA)
+            self.assertEqual(run(self.lp.close_for_private("!a", REPO)), (None, ""))
+        self.assertEqual(self.state["!a"]["m.room.history_visibility"][0], {"history_visibility": "shared"})
 
     def test_unreadable_repos_count_as_private(self):
         self.private.stop()

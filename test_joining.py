@@ -119,6 +119,7 @@ class AskToJoin(Base):
         self.assertFalse(run(self.lp.ask_to_join("!a", NEW)))                              # same room: once a day
         rooms = {f"!r{i}": project(f"!r{i}", f"R{i}") for i in range(pm_joining.ASKS_PER_HOUR + 1)}
         self.lp.client.rooms.update(rooms)
+        self.assertTrue(run(self.lp.ask_to_join("!a", NEW, knock="$renewed")))           # a renewed knock: asked again
         results = [run(self.lp.ask_to_join(rid, f"@carl:{S}")) for rid in rooms]
         self.assertEqual(results, [True] * pm_joining.ASKS_PER_HOUR + [False])         # a few an hour, all rooms
 
@@ -263,6 +264,22 @@ class MyPrivateChat(Base):
         self.lp.room_repos["!p"] = REPO
         event = SimpleNamespace(sender=NEW, body="stop", source={"content": {"body": "stop"}})
         self.assertIsNone(self.lp.addressed_text(event, room))                             # thinking aloud stays theirs
+
+    def test_a_fresh_project_room_with_two_people_is_not_a_private_chat(self):
+        """GPT review: plain "stop" in a new project room must not act."""
+        room = project("!p", "Proj")
+        room.users = {PM: None, NEW: None}                                                  # no repo yet, nobody else
+        event = SimpleNamespace(sender=NEW, body="stop", source={"content": {"body": "stop"}})
+        self.assertIsNone(self.lp.addressed_text(event, room))
+
+    def test_a_chat_they_opened_with_me_counts_but_not_once_someone_else_is_invited(self):
+        room = project("!theirs", "")
+        room.users = {PM: None, NEW: None}
+        self.lp._direct_chats["!theirs"] = NEW
+        event = SimpleNamespace(sender=NEW, body="new code", source={"content": {"body": "new code"}})
+        self.assertEqual(self.lp.addressed_text(event, room), "new code")
+        room.users[ANNA] = None                                                             # invited: no longer just us
+        self.assertIsNone(self.lp.addressed_text(event, room))
 
 
 if __name__ == "__main__":

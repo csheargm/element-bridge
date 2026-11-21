@@ -180,7 +180,8 @@ resends the step and the issue is still merged.
 ## Talking to @pm
 
 Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain words; the commands
-`!help`, `!status` and `!level` still work as shortcuts.
+`!help`, `!status` and `!level` still work as shortcuts. In your private chat with @pm you don't need
+to write "@pm": everything you say there is for it (in project rooms, start with "@pm").
 
 | Say | What happens | Who |
 |---|---|---|
@@ -188,6 +189,7 @@ Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain wor
 | "@pm let us approve each change" | each change waits for a person to merge | owner or maintainer |
 | "@pm stop" / "turn it all off" | no new work and no merges, at once | anyone |
 | "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |
+| "resend me the code" / "new code" / "connect my agent" | a fresh Connect page and one-time code for your agent, in @pm's chat | you |
 | "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
 | "@pm find a project" | the listed and open project rooms, with links (also Element's Explore rooms) | anyone |
 | "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |

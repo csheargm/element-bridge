@@ -808,3 +808,21 @@ Seen live (owner): in @pm's own chat, "resend me the code" and "send me my conso
 is now for @pm; "resend me the code" / "new code" / "connect my agent" sends the same Connect
 message and fresh code 🔌 sends (a second click on 🔌 only removes the reaction), a few an hour.
 Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and waits for a new code.
+- (whole branch, GPT) Adopted, with tests: "everything is for @pm" now holds only in my private
+  chats (ones I made, or a direct chat a person opened with me, recorded when I join it) with
+  exactly that person in it; a fresh project room with two people never counts (plain "stop" there
+  stays theirs). A discussion room's state holds only a "discussion" flag; which room runs its repo
+  is kept by @pm (data/discussions.json), so its members can't read the other room's id. Every
+  binding write reads and writes under one short lock (a stop can no longer write back a repo a
+  rebind replaced; the poll's lock isn't used, so "stop" never waits behind GitHub). A private
+  repo's room gets history readable by members only (world_readable → shared) before binding and on
+  every visibility change. Visibility changes re-read the requester's membership and role under
+  the lock; closing sets the join rule first, opening last. A renewed knock is a new request.
+  "Find a project" runs in the background, a few per person an hour. pm_chat.py's addressing moved
+  to pm_address.py (R4: pm_chat back under 300).
+  Deferred: a decline kick can't be conditioned on the knock (Matrix has no compare-and-set; the
+  knock's event id is re-read right before); members already in an open room stay when it closes;
+  a repo turning private later and native join-rule edits aren't reconciled until the next bind or
+  visibility change; the hourly code limit covers "resend" (🔌 and "bring my own" use the
+  provisioning path's own limits); the pointer says the chat is open even if Synapse's auto-join
+  gave up (rare; the invite is still there).

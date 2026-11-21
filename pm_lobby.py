@@ -14,7 +14,6 @@ from nio import MatrixRoom, ReactionEvent, RoomPreset, RoomResolveAliasResponse,
 import identity
 import server_admins
 from bridge import ROOT, SERVER_NAME
-from pm_settings import is_my_chat
 from project_rooms import LOBBY_ALIAS, LOBBY_LOCALPART
 from saved_dict import SavedDict
 
@@ -54,7 +53,7 @@ class Lobby:
         """Someone without an agent joined a room I'm in: one line, once ever, with a 👍."""
         greeting = self.__dict__.setdefault("_lobby_greeting", set())
         if (person in self.lobby_greeted() or person in greeting or not self.is_newcomer(person)
-                or is_my_chat(room, self.user_id, getattr(self, "dm_rooms", {}))):
+                or self.is_private_chat(room)):
             return
         greeting.add(person)
         try:

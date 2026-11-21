@@ -97,16 +97,38 @@ async def publish(client: AsyncClient, room_id: str, public: bool) -> bool:
     return status == 200
 
 
-async def apply(client: AsyncClient, room_id: str, value: str) -> str | None:
-    """Join rule, directory entry, then the record (last: it says what is really in force).
-    Returns an error line, or None when done."""
-    rule = await client.room_put_state(room_id, "m.room.join_rules", {"join_rule": JOIN_RULE[value]})
-    if not hasattr(rule, "event_id"):
-        return f"⚠️ I couldn't change who can join ({getattr(rule, 'status_code', rule)}); am I a moderator here?"
-    if not await publish(client, room_id, DIRECTORY[value] == "public"):
-        return "⚠️ I changed who can join, but couldn't update the room directory; please try again."
-    saved = await client.room_put_state(room_id, VISIBILITY_EVENT, {"visibility": value})
-    return None if hasattr(saved, "event_id") else f"⚠️ I couldn't save the setting: {getattr(saved, 'status_code', saved)}"
+RANK = {PRIVATE: 0, LISTED: 1, OPEN: 2}
+
+
+async def apply(client: AsyncClient, room_id: str, value: str, current: str = OPEN) -> str | None:
+    """Change who can find and join the room. Closing: the join rule first, so a later failure leaves
+    it closed; opening: the join rule last, so a failure leaves it as closed as before (GPT review).
+    The record comes after the directory either way. Returns an error line, or None when done."""
+    async def rule() -> str | None:
+        r = await client.room_put_state(room_id, "m.room.join_rules", {"join_rule": JOIN_RULE[value]})
+        return None if hasattr(r, "event_id") else \
+            f"⚠️ I couldn't change who can join ({getattr(r, 'status_code', r)}); am I a moderator here?"
+
+    async def listing() -> str | None:
+        if not await publish(client, room_id, DIRECTORY[value] == "public"):
+            return "⚠️ I couldn't update the room directory; please try again."
+        saved = await client.room_put_state(room_id, VISIBILITY_EVENT, {"visibility": value})
+        return None if hasattr(saved, "event_id") else f"⚠️ I couldn't save the setting: {getattr(saved, 'status_code', saved)}"
+    steps = (rule, listing) if RANK[value] <= RANK.get(current, RANK[OPEN]) else (listing, rule)
+    for step in steps:
+        if failed := await step():
+            return failed
+    return None
+
+
+async def history_safe(client: AsyncClient, room_id: str) -> str | None:
+    """A private repo's room never lets non-members read its history (world_readable → shared)."""
+    r = await client.room_get_state_event(room_id, "m.room.history_visibility", "")
+    content = getattr(r, "content", None)
+    if isinstance(content, dict) and content.get("history_visibility") not in (None, "world_readable"):
+        return None
+    done = await client.room_put_state(room_id, "m.room.history_visibility", {"history_visibility": "shared"})
+    return None if hasattr(done, "event_id") else "⚠️ I couldn't keep this room's history to its members."
 
 
 def listing_line(name: str, room_id: str, server: str, repo: str | None, repo_private: bool) -> str:

@@ -42,7 +42,7 @@ class Joining:
             self._join_requests = SavedDict(ROOT / "data" / "join-requests.json")
         return self._join_requests
 
-    def may_ask(self, room_id: str, person: str) -> bool:
+    def may_ask(self, room_id: str, person: str, knock: str | None = None) -> bool:
         """The cooldowns live apart from the requests, so a settled request still counts (GPT review)."""
         now, limits = time.time(), self.__dict__.setdefault("_ask_limits", {"pairs": {}, "people": {}, "all": []})
         for eid in [e for e, r in self.join_requests().items() if now - r["at"] > REQUEST_S]:
@@ -50,10 +50,11 @@ class Joining:
         limits["pairs"] = {k: t for k, t in limits["pairs"].items() if now - t < AGAIN_S}
         recent = [t for t in limits["people"].get(person, []) if now - t < 3600]
         limits["all"] = [t for t in limits["all"] if now - t < 3600]
-        if ((room_id, person) in limits["pairs"] or len(recent) >= ASKS_PER_HOUR
+        pair = (room_id, person, knock)      # a renewed knock is a new request (its old buttons no longer act)
+        if (pair in limits["pairs"] or len(recent) >= ASKS_PER_HOUR
                 or len(limits["all"]) >= ALL_ASKS_PER_HOUR):
             return False
-        limits["pairs"][(room_id, person)] = now
+        limits["pairs"][pair] = now
         limits["people"][person] = [*recent, now]
         limits["all"].append(now)
         return True
@@ -61,7 +62,7 @@ class Joining:
     async def ask_to_join(self, room_id: str, person: str, knock: str | None = None) -> bool:
         """Ask the room's moderators to let `person` in (knock: the knock's event id); True if asked."""
         room = self.client.rooms.get(room_id)
-        if room is None or (person in room.users and person not in room.invited_users) or not self.may_ask(room_id, person):
+        if room is None or (person in room.users and person not in room.invited_users) or not self.may_ask(room_id, person, knock):
             return False
         asked = False
         for mod in await room_state.moderators(self.client, room):

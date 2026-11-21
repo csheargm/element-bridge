@@ -156,10 +156,10 @@ async def view(loop, room_id: str, user: str) -> dict:
 async def runs_in(loop, room_id: str, user: str) -> dict | None:
     """Where this room's repo is run from, when this room only discusses it (pm_projects.py): that
     room's name and link only for its own members (others may not be allowed to know it)."""
-    other = await room_state.runs_in_of(loop.client, room_id)
-    if not other:
+    if not await room_state.discussion_of(loop.client, room_id):
         return None
-    there = loop.client.rooms.get(other)
+    other = loop.discussions().get(room_id)
+    there = loop.client.rooms.get(other) if other else None
     if there is None or user not in there.users or user in there.invited_users:
         return {"name": "another room", "link": ""}
     return {"name": loop.room_name(other), "link": f"{ELEMENT_ORIGIN}/#/room/{urllib.parse.quote(other)}"}
