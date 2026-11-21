@@ -130,5 +130,55 @@ class MyAgents(unittest.TestCase):
         self.assertIn("Go back to official", card)
 
 
+PAGE_HARNESS = r"""
+const vm = require("vm");
+const [page, cards, view] = process.argv.slice(1);
+const els = {}; const el = id => els[id] || (els[id] = {textContent: "", innerHTML: "", value: ""});
+const ctx = {console, URLSearchParams, JSON, String, Promise, Date, encodeURIComponent, crypto: globalThis.crypto,
+  location: {search: "?room=%21r", hash: "", pathname: "/panel"}, history: {replaceState() {}},
+  document: {getElementById: el, addEventListener() {}, activeElement: null},
+  sessionStorage: {getItem: () => "s", setItem() {}, removeItem() {}}, setTimeout: () => 0, clearTimeout() {}, setInterval() {},
+  fetch: async () => ({status: 200, json: async () => JSON.parse(view)})};
+ctx.window = ctx; ctx.parent = ctx;
+vm.createContext(ctx); vm.runInContext(cards, ctx); vm.runInContext(page, ctx);
+setImmediate(() => setImmediate(() => setImmediate(() => process.stdout.write(els.controls.innerHTML))));
+"""
+
+
+@unittest.skipIf(NODE is None, "node not installed")
+class RepoThenMode(unittest.TestCase):
+    """Owner request: the "Project repo" card comes before "Mode"; with no repo, only Off can be clicked."""
+    def mode(self, **view) -> str:
+        return render("panel-project.js", f"modeCard({json.dumps({'mode': 'off', 'moderator': True, **view})})")
+
+    def enabled(self, html: str) -> list:
+        return re.findall(r'data-v="(\w+)"[^>]*?\s*>', re.sub(r'data-v="(\w+)"([^>]*?)disabled\s*>', "", html))
+
+    def test_with_no_repo_only_off_is_clickable_and_it_says_why(self):
+        html = self.mode(repo=None)
+        self.assertEqual(self.enabled(html), ["off"])
+        self.assertIn("Pick the project repo first.", html)
+
+    def test_with_a_repo_every_mode_is_clickable(self):
+        html = self.mode(repo="a/b", mode="assist")
+        self.assertEqual(self.enabled(html), ["off", "assist", "autonomous"])
+        self.assertNotIn("Pick the project repo first", html)
+        self.assertIn("a person merges each change", html)
+
+    def test_a_contributor_can_click_none(self):
+        self.assertEqual(self.enabled(self.mode(repo="a/b", moderator=False)), [])
+
+    def test_the_repo_card_comes_first(self):
+        page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__EMBEDDERS__", '["https://e"]'), re.S).group(1)
+        cards = "\n".join(p.read_text() for p in panel.SCRIPTS.values())
+        view = {"room": "P", "repo": None, "user": "anna", "moderator": True, "mode": "off", "waiting": None, "html": "",
+                "agents": [], "can_add": False}
+        done = subprocess.run([NODE, "-e", PAGE_HARNESS, page, cards, json.dumps(view)], capture_output=True,
+                              text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr[-500:])
+        html = done.stdout
+        self.assertLess(html.index("<h2>Pick a project repo</h2>"), html.index("<h2>Mode</h2>"))
+
+
 if __name__ == "__main__":
     unittest.main()

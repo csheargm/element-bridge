@@ -138,13 +138,11 @@ const card = (name, s) => typeof window[name] === "function" ? window[name](s)
 // script, nothing can arm one: refused.
 const ok = b => { const check = {remove: "confirmed", unrepo: "repoConfirmed"}[b.dataset.a];
   return !check || (typeof window[check] === "function" && window[check](b)); };
-const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
-  assist: "Agents build and review; a person merges each change.",
-  autonomous: "Agents build, review and merge on their own."};
 const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
 function buttons(name, values, current, enabled) {
+  const live = v => typeof enabled === "function" ? enabled(v) : enabled;   // a function: per button
   return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
-    ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
+    ${live(v) ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
   if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? (typeof addValue === "function" ? addValue() : $("newagent").value.trim())
     : b.dataset.a === "rename" ? $("rename-" + b.dataset.g).value.trim() : b.dataset.v, b.dataset.g); });
@@ -179,9 +177,7 @@ async function show() {
   if (s.waiting && s.waiting.mine) h += `<section class="card attn"><h2>Waiting for you</h2><div class="set"><div>${esc(cap(s.waiting.kind))}${
     s.waiting.items.length ? ": " + s.waiting.items.map(esc).join(" · ") : ""}</div>
     <button class="primary" data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div></section>`;
-  h += `<div class="grid"><section class="card"><h2>Mode</h2>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}
-    <div class="hint">${esc(MODES[s.mode] || "")}${s.moderator ? "" : " Only the owner or a maintainer can change it."}</div></section>
-    ${card("repoCard", s)}</div>`;
+  h += `<div class="grid">${card("repoCard", s)}${card("modeCard", s)}</div>`;   // the repo first, then its mode
   h += card("projectCard", s) + card("githubCard", s) + card("agentCards", s);   // panel_project.js, panel_github.js, panel_agents.js
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }
