@@ -109,6 +109,35 @@ class FollowUp(unittest.TestCase):
         self.deliver(msg(ANNA, "anna-agent weather?", "$q", [AGENT]), msg(ANNA, "thanks", "$a1"))
         self.assertEqual(len(self.prompts), 1)
 
+    def test_queued_candidates_dont_run_once_the_question_is_answered(self):
+        """GPT review 2: candidates queued behind the room lock are re-checked before they run."""
+        self.ask()
+        self.replies.append("Sunny.")
+
+        async def go():
+            for ev in (msg(ANNA, "95130", "$a1"), msg(ANNA, "or 95014", "$a2")):
+                await self.b.on_message(self.room, ev)     # both admitted before either runs
+            await asyncio.gather(*list(self.b.tasks))
+        asyncio.run(go())
+        self.assertEqual((len(self.prompts), self.sent[-1]), (2, "Sunny."))
+
+    def test_a_refusal_note_or_progress_line_still_counts_as_no_reply(self):
+        self.assertTrue(bridge_followup.silent("Checking…\n\nNO_REPLY\n\n⚠️ Refused: Bash"))
+
+    def test_a_failed_follow_up_turn_posts_nothing(self):
+        self.ask()
+
+        async def boom(*a, **kw):
+            raise bridge.agents.AgentError("claude exited 1")
+        with mock.patch.object(bridge.agents, "run_turn", boom):
+            self.deliver(msg(ANNA, "unrelated", "$a1"))
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_members_answer_doesnt_close_the_owners_question(self):
+        self.ask()
+        self.b.note_reply(ROOM, "$x", "ok.", BETTY)
+        self.assertIn(ROOM, self.b.open_questions)
+
     def test_what_counts_as_asking(self):
         self.assertTrue(bridge_followup.asks("Which city?"))
         self.assertTrue(bridge_followup.asks("Which city? Or a zip code."))

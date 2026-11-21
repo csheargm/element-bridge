@@ -172,6 +172,8 @@ class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
     async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: bool = False) -> None:
         """Answer from the room's reality: live project status, everyone's recent conversation, and a
         read-only copy of the project's files (room_context.py) — not just the agent's own memory."""
+        if follow_up and room.room_id not in self.open_questions:
+            return                            # queued, but my question was answered or closed meanwhile
         workdir = self.workdir(room.room_id)
         try:
             snap = await asyncio.to_thread(room_context.snapshot, self.client.access_token, room.room_id)
@@ -199,8 +201,8 @@ class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
             # a member's question runs locked down). docs/adr/0006-owner-cli-powers.md
             reply = await agents.run_turn(self.backend, workdir, prompt, owner=event.sender == self.owner_id)
         except agents.AgentError as e:
-            log.error("agent failed in %s: %s", room.room_id, e)
-            reply = f"⚠️ {self.owner_name}'s agent ({self.backend}) failed: {room_safe(secret_safe(e))}"
+            log.error("agent failed in %s: %s", room.room_id, e)   # a follow-up may not be for me: stay quiet
+            reply = bridge_followup.NO_REPLY if follow_up else f"⚠️ {self.owner_name}'s agent ({self.backend}) failed: {room_safe(secret_safe(e))}"
         finally:
             typing.cancel()
             await self.client.room_typing(room.room_id, False)

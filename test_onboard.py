@@ -58,6 +58,14 @@ class HermesProfile(unittest.TestCase):
         self.assertIn("MATRIX_ALLOWED_USERS=@anna:bridge.localhost\n", env)   # @pm's tasks can't steer its tools
         self.assertNotIn("MATRIX_ALLOWED_ROOMS", env)                        # the owner can DM it anywhere
 
+    def test_no_leftover_setting_lets_anyone_else_in(self):
+        """GPT review 2: an old GATEWAY_ALLOWED_USERS / *_ALLOW_ALL_USERS line would widen the owner profile."""
+        env = self.profile / ".env"
+        env.write_text(env.read_text() + "GATEWAY_ALLOWED_USERS=@mallory:x\nMATRIX_ALLOW_ALL_USERS=true\n")
+        hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None)
+        self.assertNotIn("mallory", env.read_text())
+        self.assertNotIn("ALLOW_ALL", env.read_text())
+
     def test_a_loop_profile_takes_pm_tasks_but_keeps_contained_tools(self):
         """GPT review: Hermes gives one toolset to every turn, so @pm's tasks (other people's issue
         text) must never get the owner's terminal/file/web tools."""

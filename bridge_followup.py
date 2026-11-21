@@ -32,13 +32,16 @@ def asks(text: str) -> bool:
 
 
 def silent(reply: str) -> bool:
-    return NO_REPLY_RE.match(reply.strip()) is not None
+    """The agent said NO_REPLY on a line of its own (a progress line or a refusal note may come too)."""
+    return any(NO_REPLY_RE.match(ln) for ln in reply.splitlines())
 
 
 class BridgeFollowUp:
     def note_reply(self, room_id: str, event_id: str, text: str, to: str) -> None:
         """After a real reply: a question to the owner opens (or renews) the window; else it closes."""
-        if to == self.owner_id and asks(text):
+        if to != self.owner_id:
+            return                            # a member's answer never closes my question to my owner
+        if asks(text):
             self.open_questions[room_id] = {"event": event_id, "at": time.time(), "left": MAX_CANDIDATES}
         else:
             self.open_questions.pop(room_id, None)

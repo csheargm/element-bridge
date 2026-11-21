@@ -75,6 +75,12 @@ class OwnerArgv(unittest.TestCase):
         self.assertNotIn("network_access", argv)
         self.assertIn('approval_policy="never"', argv)    # exec can't ask anyway
 
+    def test_a_codex_permission_profile_of_theirs_is_never_mixed_with_ours(self):
+        with codex_home('profile = "careful"\n[profiles.careful]\nsandbox_mode = "read-only"\n'):
+            argv = " ".join(agents._codex_argv(Path("/w"), None, owner=True))
+        self.assertNotIn("sandbox_mode", argv)
+        self.assertNotIn("network_access", argv)
+
     def test_codex_owner_turn_does_not_need_switchable_mcp_names(self):
         with codex_home('[mcp_servers."a b"]\ncommand="x"\n'):     # locked turns refuse this name
             self.assertFalse([a for a in agents._codex_argv(Path("/w"), None, owner=True) if "mcp_servers" in a])

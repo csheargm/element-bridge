@@ -176,6 +176,13 @@ class HermesOwnerTools(unittest.TestCase):
         self.assertIn("  matrix: [todo, memory]", out)
         self.assertIn("toolsets: [hermes-cli]", out)
 
+    def test_inline_mappings_are_honoured(self):
+        """GPT review 2: `platform_toolsets: {matrix: [todo]}` was read as unset and widened."""
+        out = self.tools("platform_toolsets: {matrix: [todo], cli: [hermes-cli]}\nterminal: {backend: docker}\n")
+        self.assertIn("  matrix: [todo]", out)
+        self.assertIn("terminal: {backend: docker}", out)
+        self.assertNotIn("cwd:", out)
+
     def test_inline_approvals_and_a_quote_in_the_path_stay_valid(self):
         home = Path(tempfile.mkdtemp())
         (home / "config.yaml").write_text("approvals: {mode: smart}\n")

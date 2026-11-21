@@ -21,6 +21,9 @@ CLAUDE_OWNER_MODE = "acceptEdits"
 CLAUDE_KEEP_MODES = ("bypassPermissions",)                               # already wider: theirs stays
 
 
+OWN_PERMISSIONS_KEYS = ("profile", "default_permissions", "permissions")   # Codex profiles / permission sets
+
+
 class ConfigError(RuntimeError):
     pass
 
@@ -52,10 +55,11 @@ def claude_owner_args() -> list[str]:
 def codex_owner_args() -> list[str]:
     _, cfg = codex_config()
     args = ["-c", 'approval_policy="never"']
-    if "sandbox_mode" not in cfg:
+    own_profile = any(k in cfg for k in OWN_PERMISSIONS_KEYS)   # theirs decides sandbox/network: never mixed
+    if not own_profile and "sandbox_mode" not in cfg:
         args += ["-c", 'sandbox_mode="workspace-write"']
     ws = cfg.get("sandbox_workspace_write")
-    if not (isinstance(ws, dict) and "network_access" in ws):
+    if not own_profile and not (isinstance(ws, dict) and "network_access" in ws):
         args += ["-c", "sandbox_workspace_write.network_access=true"]
     if "web_search" not in cfg:
         args += ["-c", 'web_search="live"']
