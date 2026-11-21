@@ -53,10 +53,19 @@ class HermesProfile(unittest.TestCase):
         self.assertNotIn("personal", env)
         self.assertEqual((self.profile / ".env").stat().st_mode & 0o777, 0o600)
 
-    def test_obeys_only_its_owner_and_pm(self):
+    def test_obeys_only_its_owner(self):
         env = (self.profile / ".env").read_text()
-        self.assertIn("MATRIX_ALLOWED_USERS=@anna:bridge.localhost,@pm:bridge.localhost", env)
+        self.assertIn("MATRIX_ALLOWED_USERS=@anna:bridge.localhost\n", env)   # @pm's tasks can't steer its tools
         self.assertNotIn("MATRIX_ALLOWED_ROOMS", env)                        # the owner can DM it anywhere
+
+    def test_a_loop_profile_takes_pm_tasks_but_keeps_contained_tools(self):
+        """GPT review: Hermes gives one toolset to every turn, so @pm's tasks (other people's issue
+        text) must never get the owner's terminal/file/web tools."""
+        hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None, loop=True)
+        env, cfg = (self.profile / ".env").read_text(), (self.profile / "config.yaml").read_text()
+        self.assertIn("MATRIX_ALLOWED_USERS=@anna:bridge.localhost,@pm:bridge.localhost", env)
+        self.assertIn("matrix: [todo, memory, skills]", cfg)
+        self.assertNotIn("matrix: [hermes-matrix", cfg)
 
     def test_hermes_own_tools_and_a_quiet_room(self):
         """ADR 0006: the owner's Hermes gets its normal Matrix toolset (no todo/memory/skills-only list)."""

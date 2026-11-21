@@ -9,7 +9,7 @@ from pathlib import Path
 _PATH_RE = re.compile(r"(?:/(?:Users|home|private|var|tmp|opt|Volumes)/|~/)[^\s'\"`)\]]*")
 MAX_ROOM_ERROR = 300
 CREDENTIAL_RE = re.compile(
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)"
     r"|gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{20,}|eyJ[\w-]+\.[\w-]+\.[\w-]+|-----BEGIN[^-]*-----"
     r"|\bsk-[A-Za-z0-9_-]{20,}|\bsyt_[A-Za-z0-9_-]{10,}|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b")
 REDACTED = "<redacted>"

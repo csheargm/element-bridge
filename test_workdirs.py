@@ -95,6 +95,48 @@ class Folders(unittest.TestCase):
         self.assertFalse(new.exists())
 
 
+class MigrationEdges(Folders):
+    """GPT review: symlinks, non-cross-disk errors, session subfolders, odd state, relative roots."""
+    def test_a_symlinked_old_folder_is_never_adopted(self):
+        target = self.tmp / "elsewhere"
+        target.mkdir()
+        link = self.app / "rooms" / "anna" / workdirs.room_key(ROOM)
+        link.parent.mkdir(parents=True)
+        link.symlink_to(target)
+        new = workdirs.room_dir("anna", ROOM, legacy_root=self.app)
+        self.assertFalse(new.exists())
+        self.assertTrue(link.is_symlink())
+
+    def test_only_a_cross_disk_error_copies(self):
+        old = self.old_folder({"codex": CODEX_ID})
+        with mock.patch.object(workdirs.os, "rename", side_effect=PermissionError(13, "denied")), \
+                mock.patch.object(workdirs.shutil, "copytree") as copy:
+            self.assertFalse(workdirs.migrate(old, workdirs.WORK_HOME / "anna" / "x"))
+        copy.assert_not_called()
+        self.assertTrue(old.exists())
+
+    def test_the_sessions_own_folder_comes_along(self):
+        old = self.old_folder({"claude": CLAUDE_ID})
+        src = workdirs.claude_project(old)
+        (src / CLAUDE_ID / "subagents").mkdir(parents=True)
+        (src / f"{CLAUDE_ID}.jsonl").write_text("{}\n")
+        (src / CLAUDE_ID / "subagents" / "a.jsonl").write_text("{}\n")
+        new = workdirs.room_dir("anna", ROOM, legacy_root=self.app)
+        self.assertTrue((workdirs.claude_project(new) / CLAUDE_ID / "subagents" / "a.jsonl").exists())
+
+    def test_a_state_file_that_isnt_an_object_is_dropped(self):
+        old = self.old_folder(None)
+        (old / workdirs.SESSION_FILE).write_text("[1]")
+        new = workdirs.room_dir("anna", ROOM, legacy_root=self.app)
+        self.assertFalse((new / workdirs.SESSION_FILE).exists())
+
+    def test_the_work_home_is_absolute(self):
+        import importlib
+        with mock.patch.dict("os.environ", {"HAGENCY_DIR": "rel/.hagency"}):
+            self.assertTrue(importlib.reload(workdirs).WORK_HOME.is_absolute())
+        importlib.reload(workdirs)
+
+
 class HermesOwnerTools(unittest.TestCase):
     def tools(self, config: str | None) -> str:
         home = Path(tempfile.mkdtemp())
@@ -126,6 +168,23 @@ class HermesOwnerTools(unittest.TestCase):
         out = self.tools("platform_toolsets:\n  matrix: [hermes-matrix, \"x]\\nevil: 1\"]\n")
         self.assertNotIn("evil", out)
         self.assertIn("  matrix: [hermes-matrix]", out)
+
+    def test_a_restrictive_choice_is_never_widened(self):
+        """GPT review: an empty list, or one with a comment after it, fell back to hermes-matrix."""
+        self.assertIn("  matrix: []", self.tools("platform_toolsets:\n  matrix: []\n"))
+        out = self.tools("toolsets: [hermes-cli]  # mine\nplatform_toolsets:\n  matrix: [todo, memory]  # no terminal\n")
+        self.assertIn("  matrix: [todo, memory]", out)
+        self.assertIn("toolsets: [hermes-cli]", out)
+
+    def test_inline_approvals_and_a_quote_in_the_path_stay_valid(self):
+        home = Path(tempfile.mkdtemp())
+        (home / "config.yaml").write_text("approvals: {mode: smart}\n")
+        with mock.patch.object(hermes_profile, "HERMES_HOME", home), \
+                mock.patch.object(workdirs, "WORK_HOME", Path("/w/o'brien")):
+            out = hermes_profile.owner_tools("anna")
+        self.assertIn("approvals: {mode: smart}", out)
+        self.assertNotIn("mode: manual", out)
+        self.assertIn("cwd: '/w/o''brien/anna/hermes'", out)
 
 
 if __name__ == "__main__":

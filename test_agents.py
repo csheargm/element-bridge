@@ -34,7 +34,7 @@ class Argv(unittest.TestCase):
                 return proc
 
             with mock.patch("asyncio.create_subprocess_exec", fake_exec):
-                self.assertEqual(asyncio.run(agents.run_turn("codex", Path(d), "x")), "hi")
+                self.assertEqual(asyncio.run(agents.run_turn("codex", Path(d), "x", owner=True)), "hi")
             self.assertNotIn("--dangerously-x", seen["argv"])
             self.assertNotIn("resume", seen["argv"])
             saved = json.loads((Path(d) / ".bridge-session.json").read_text())

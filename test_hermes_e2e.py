@@ -77,7 +77,7 @@ def main():
         (Path(gh_env["GH_IDENTITY_ROOT"]) / agent).mkdir(parents=True, exist_ok=True)
         (Path(gh_env["GH_IDENTITY_ROOT"]) / agent / "hosts.yml").write_text("github.com: {}\n")
     hermes_profile.configure("annatest", owner="anna", agent=HERMES, password=password, home_room=room_id,
-                             mcp_env={"HAGENCY_ROOM": room_id, **gh_env})
+                             mcp_env={"HAGENCY_ROOM": room_id, **gh_env}, loop=True)
     for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # each run starts with no
         path = PROFILE / stale                                                 # memory of earlier runs
         shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)

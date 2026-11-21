@@ -16,6 +16,8 @@ from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Mego
 
 import agents
 from bridge_custom import BridgeCustom
+import bridge_followup
+from bridge_followup import BridgeFollowUp
 from bridge_voice import BridgeVoice
 import github
 import identity
@@ -36,7 +38,7 @@ CLOCK_SKEW_MS = 5_000        # tolerance when dropping events from before startu
 log = logging.getLogger("bridge")
 
 
-class Bridge(BridgeVoice, BridgeCustom):
+class Bridge(BridgeVoice, BridgeCustom, BridgeFollowUp):
     def __init__(self, owner: str, backend: str, allow_members: bool = False, buttons_only: bool = False):
         self.backend, self.allow_members, self.buttons_only = backend, allow_members, buttons_only
         self.owner_id = identity.person_id(owner, SERVER_NAME)     # full IDs only: should_ignore compares them
@@ -54,6 +56,7 @@ class Bridge(BridgeVoice, BridgeCustom):
         self.seen_tasks: set[str] = set()     # event ids: a redelivered task never runs twice
         self.last_message: dict[str, str] = {}  # room → newest message event id (to answer without a quote)
         self.refused: dict[tuple, float] = {}   # (room, person) → when I last said "only my owner"
+        self.open_questions: dict[str, dict] = {}   # room → my open question to my owner (bridge_followup.py)
 
     # --- trigger rules -------------------------------------------------------------
     # is_addressed / named_me / refuse: bridge_voice.py
@@ -103,13 +106,15 @@ class Bridge(BridgeVoice, BridgeCustom):
             return
         name = room.user_name(event.sender) or event.sender
         line = f"{name} ({event.sender}): {event.body}"
-        if not self.is_addressed(room, event):
+        addressed = self.is_addressed(room, event)
+        if not addressed and not self.may_answer(room, event):   # bridge_followup.py: my open question
             return                            # it's still context: answer() reads the room's conversation
         reason = self.should_ignore(room, event)
         if reason:
             await self.refuse(room, event, reason)   # bridge_voice.py: "I only take requests from Betty"
             return
-        work = self.change_code(room, event) if self.wants_change(room, event) else self.answer_locked(room, event, line)
+        work = (self.change_code(room, event) if addressed and self.wants_change(room, event)
+                else self.answer_locked(room, event, line, follow_up=not addressed))
         task = asyncio.create_task(work)      # don't block sync; change_code: bridge_custom.py
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -160,11 +165,11 @@ class Bridge(BridgeVoice, BridgeCustom):
             await self.client.room_typing(room_id, False)
         await self.send(room_id, result["line"], extra={github.RESULT_KEY: result}, source=github.linkify(result["line"], task.get("repo")))
 
-    async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
+    async def answer_locked(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: bool = False) -> None:
         async with self.locks[room.room_id], self.turns:   # one turn per room; global cap
-            await self.answer(room, event, line)
+            await self.answer(room, event, line, follow_up)
 
-    async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str) -> None:
+    async def answer(self, room: MatrixRoom, event: RoomMessageText, line: str, follow_up: bool = False) -> None:
         """Answer from the room's reality: live project status, everyone's recent conversation, and a
         read-only copy of the project's files (room_context.py) — not just the agent's own memory."""
         workdir = self.workdir(room.room_id)
@@ -186,7 +191,8 @@ class Bridge(BridgeVoice, BridgeCustom):
                   + room_context.describe(snap)
                   + ("\nThe project's files (default branch) are in ./projects/" + room_context.repo_dir(repo) + ": read them when the question is "
                      "about what the project contains or does.\n" if has_files else "")
-                  + f"\nMessage addressed to you:\n{line}\n")
+                  + (bridge_followup.FOLLOW_UP_PROMPT + f"\nTheir message:\n{line}\n" if follow_up
+                     else f"\nMessage addressed to you:\n{line}\n"))
         typing = asyncio.create_task(self.keep_typing(room.room_id))
         try:
             # Only the owner's own words get the owner's CLI as they configured it (--allow-members:
@@ -194,11 +200,14 @@ class Bridge(BridgeVoice, BridgeCustom):
             reply = await agents.run_turn(self.backend, workdir, prompt, owner=event.sender == self.owner_id)
         except agents.AgentError as e:
             log.error("agent failed in %s: %s", room.room_id, e)
-            reply = f"⚠️ {self.owner_name}'s agent ({self.backend}) failed: {room_safe(e)}"
+            reply = f"⚠️ {self.owner_name}'s agent ({self.backend}) failed: {room_safe(secret_safe(e))}"
         finally:
             typing.cancel()
             await self.client.room_typing(room.room_id, False)
-        await self.send(room.room_id, secret_safe(reply, self.client.access_token)[:MAX_REPLY_CHARS], reply_to=event)
+        if follow_up and bridge_followup.silent(reply):
+            return                            # not an answer to my question: nothing is posted
+        sent = await self.send(room.room_id, secret_safe(reply, self.client.access_token)[:MAX_REPLY_CHARS], reply_to=event)
+        self.note_reply(room.room_id, sent, reply, event.sender)
 
     async def keep_typing(self, room_id: str) -> None:
         while True:

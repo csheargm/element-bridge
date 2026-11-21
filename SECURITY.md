@@ -9,11 +9,13 @@ the room can't steer it, because only you can trigger it.**
 - **Owner only.** An agent acts only on its owner's messages (`bridge.should_ignore`). Other
   people's messages are context, never a trigger. With `--allow-members`, members' questions run
   locked down (read-only, no web/MCP/connectors), never with the owner's setup.
-- **Your CLI's own rules.** For its owner, the bridge runs Codex / Claude Code / Hermes with the
-  owner's own sandbox, tools, MCP servers and permission/approval rules, and adds nothing on top
-  and never widens them. What needs an interactive approval is denied and said in the reply.
-  Turns on untrusted text that the owner didn't ask for (loop builds/reviews/plans, @pm's brain)
-  stay locked down.
+- **Your CLI, full power, your deny rules.** For its owner, the bridge runs Codex / Claude Code
+  with the owner's settings and MCP servers, plus web, edits and commands in its work folder
+  without an approval prompt (`owner_cli.py`); the owner's deny rules and explicit Codex sandbox
+  settings still win, and refusals are named in the reply. Hermes: the owner's own tools, obeying
+  only the owner (`--loop` profiles keep contained tools because @pm's tasks carry others' text).
+  Turns on untrusted text that the owner didn't ask for (loop builds/reviews/plans, @pm's brain,
+  members' questions) stay locked down.
 - **Chat never becomes a command.** The prompt goes on stdin, never through a shell or as CLI
   flags; saved session ids are validated.
 - **Its own folder.** The agent works in `~/.hagency/work/<owner>/<room>/`, outside the app.

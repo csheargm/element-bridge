@@ -14,7 +14,7 @@ import bridge
 import workdirs
 
 CHAT = "--dangerously-skip-permissions; rm -rf ~ $(whoami)"     # chat text that must never reach argv
-LOCKDOWN_CLAUDE = ("--tools", "--strict-mcp-config", "--setting-sources", "--permission-mode")
+LOCKDOWN_CLAUDE = ("--tools", "--strict-mcp-config", "--setting-sources")
 OWNER, MEMBER = "@anna:bridge.localhost", "@betty:bridge.localhost"
 
 
@@ -24,27 +24,60 @@ def codex_home(toml=""):
     return mock.patch.dict("os.environ", {"CODEX_HOME": str(d)})
 
 
+def claude_home(settings: dict | None = None):
+    d = Path(tempfile.mkdtemp())
+    if settings is not None:
+        (d / "settings.json").write_text(json.dumps(settings))
+    return mock.patch.dict("os.environ", {"CLAUDE_CONFIG_DIR": str(d)})
+
+
+def flag(argv, name):
+    return argv[argv.index(name) + 1]
+
+
 class OwnerArgv(unittest.TestCase):
-    def test_claude_owner_turn_adds_no_lockdown(self):
-        argv = agents._claude_argv(Path("/w"), None, owner=True)
-        self.assertEqual(argv, ["claude", "-p", "--output-format", "json"])
-        for flag in LOCKDOWN_CLAUDE:
-            self.assertNotIn(flag, argv)
+    """Live bug: with only the owner's settings, `claude -p` denied web search and fetch (nobody can
+    approve from a room). The owner's turn now gets web, edits and commands without a prompt."""
+    def test_claude_owner_turn_works_without_prompts_and_adds_no_lockdown(self):
+        with claude_home({"permissions": {"allow": ["Read"]}}):
+            argv = agents._claude_argv(Path("/w"), None, owner=True)
+        for name in ("WebSearch", "WebFetch", "Edit", "Write", "Bash"):
+            self.assertIn(name, flag(argv, "--allowedTools").split(","))
+        self.assertEqual(flag(argv, "--permission-mode"), "acceptEdits")   # never "default": that blocks
+        for f in (*LOCKDOWN_CLAUDE, "--dangerously-skip-permissions"):
+            self.assertNotIn(f, argv)
+
+    def test_an_owner_who_already_bypasses_permissions_keeps_it(self):
+        with claude_home({"permissions": {"defaultMode": "bypassPermissions"}}):
+            self.assertNotIn("--permission-mode", agents._claude_argv(Path("/w"), None, owner=True))
 
     def test_claude_owner_turn_resumes_its_session(self):
-        self.assertEqual(agents._claude_argv(Path("/w"), "abcdef12-x", owner=True)[-2:], ["--resume", "abcdef12-x"])
+        with claude_home():
+            self.assertEqual(agents._claude_argv(Path("/w"), "abcdef12-x", owner=True)[-2:], ["--resume", "abcdef12-x"])
 
-    def test_codex_owner_turn_uses_the_owners_config_toml(self):
+    def test_codex_owner_turn_never_blocks_and_has_web_and_network(self):
         with codex_home('[mcp_servers.node_repl]\ncommand="x"\n'):
             for sid in (None, "abcdef12-x"):
                 argv = agents._codex_argv(Path("/w"), sid, owner=True)
-                self.assertNotIn("-c", argv)          # no sandbox/approval/features/web/MCP overrides
+                for c in ('approval_policy="never"', 'sandbox_mode="workspace-write"',
+                          "sandbox_workspace_write.network_access=true", 'web_search="live"'):
+                    self.assertIn(c, argv)
+                self.assertFalse([a for a in argv if "features." in a or "mcp_servers" in a])   # theirs stay on
                 self.assertEqual(argv[-1], "-")       # prompt on stdin
             self.assertEqual(agents._codex_argv(Path("/w"), None, owner=True)[-3:], ["-C", "/w", "-"])
 
+    def test_the_owners_explicit_codex_choices_win(self):
+        with codex_home('sandbox_mode = "danger-full-access"\nweb_search = "disabled"\n'
+                        '[sandbox_workspace_write]\nnetwork_access = false\n'):
+            argv = " ".join(agents._codex_argv(Path("/w"), None, owner=True))
+        self.assertNotIn("sandbox_mode", argv)
+        self.assertNotIn("web_search", argv)
+        self.assertNotIn("network_access", argv)
+        self.assertIn('approval_policy="never"', argv)    # exec can't ask anyway
+
     def test_codex_owner_turn_does_not_need_switchable_mcp_names(self):
         with codex_home('[mcp_servers."a b"]\ncommand="x"\n'):     # locked turns refuse this name
-            self.assertNotIn("-c", agents._codex_argv(Path("/w"), None, owner=True))
+            self.assertFalse([a for a in agents._codex_argv(Path("/w"), None, owner=True) if "mcp_servers" in a])
 
     def test_locked_turns_are_unchanged(self):
         claude = agents._claude_argv(Path("/w"), None)
@@ -92,10 +125,13 @@ class OwnerTurn(unittest.TestCase):
         text, _, _ = self.run_claude({"result": "I couldn't search.", "session_id": "abcdef12-1",
                                       "permission_denials": denials})
         self.assertTrue(text.startswith("I couldn't search."))
-        self.assertIn("Your Claude Code permission settings didn't allow: WebSearch, Bash (", text)
-        self.assertIn('"permissions": {"allow": [...]}', text)
+        self.assertIn("WebSearch, Bash: blocked by a deny rule in your Claude Code settings", text)
         for leaked in ("ghp_", "id_rsa", "bad name"):
             self.assertNotIn(leaked, text)
+
+    def test_a_tool_outside_the_allowed_set_says_how_to_allow_it(self):
+        text, _, _ = self.run_claude({"result": "no", "permission_denials": [{"tool_name": "mcp__x__y"}]})
+        self.assertIn('mcp__x__y: not allowed for chat turns; to allow it, add it to "permissions": {"allow"', text)
 
     def test_only_denials_is_a_reply_not_an_empty_failure(self):
         text, _, _ = self.run_claude({"result": "", "permission_denials": [{"tool_name": "WebFetch"}]})
@@ -115,6 +151,8 @@ class BridgeAnswer(unittest.TestCase):
 
         async def run_turn(backend, workdir, prompt, **kw):
             calls.append(SimpleNamespace(workdir=workdir, prompt=prompt, **kw))
+            if isinstance(reply, Exception):
+                raise reply
             return reply
 
         async def send(room_id, body, reply_to=None, **kw):
@@ -146,6 +184,48 @@ class BridgeAnswer(unittest.TestCase):
             self.assertNotIn(secret, sent)
         self.assertEqual(sent.count("<redacted>"), 3)
 
+    def test_an_error_is_scrubbed_before_it_is_cut_short(self):
+        """GPT review: room_safe's 300-char cut could split a token so the pattern no longer matched."""
+        token = "ghp_" + "A" * 36
+        _, sent, _ = self.answer(OWNER, reply=agents.AgentError("x" * 270 + token))
+        self.assertNotIn("ghp_AAA", sent)
+
+
+class LockedSessions(unittest.TestCase):
+    """GPT review: a locked turn (a member's question) must not resume the owner's conversation."""
+    def turn(self, d: Path, owner: bool, payload: dict) -> tuple[str, dict]:
+        seen = {}
+        with fake_cli(json.dumps(payload).encode(), seen):
+            return asyncio.run(agents.run_turn("claude", d, "q", owner=owner)), seen
+
+    def test_owner_and_locked_turns_keep_separate_sessions(self):
+        d = Path(tempfile.mkdtemp())
+        self.turn(d, True, {"result": "a", "session_id": "owner123-1"})
+        _, seen = self.turn(d, False, {"result": "b", "session_id": "member12-1"})
+        self.assertNotIn("owner123-1", seen["argv"])
+        _, seen = self.turn(d, True, {"result": "c", "session_id": "owner123-1"})
+        self.assertIn("owner123-1", seen["argv"])
+        self.assertEqual(json.loads((d / workdirs.SESSION_FILE).read_text()),
+                         {"claude": "owner123-1", "claude-locked": "member12-1"})
+
+    def test_a_locked_turns_output_is_left_exactly_as_the_cli_gave_it(self):
+        """A review's final VERDICT line (tasks.parse_verdict) must stay the last line."""
+        import tasks
+        text, _ = self.turn(Path(tempfile.mkdtemp()), False,
+                            {"result": "ok\nVERDICT: APPROVE", "permission_denials": [{"tool_name": "Bash"}]})
+        self.assertEqual(tasks.parse_verdict(text), "APPROVE")
+
+    def test_a_state_file_that_isnt_an_object_starts_fresh(self):
+        d = Path(tempfile.mkdtemp())
+        (d / workdirs.SESSION_FILE).write_text("[1, 2]")
+        self.assertEqual(self.turn(d, True, {"result": "hi", "session_id": "abcdef12-1"})[0], "hi")
+
+    def test_locked_codex_builds_never_inherit_network_or_extra_roots(self):
+        with codex_home('[sandbox_workspace_write]\nnetwork_access = true\nwritable_roots = ["/"]\n'):
+            argv = agents._codex_argv(Path("/w"), None, write=True)
+        self.assertIn("sandbox_workspace_write.network_access=false", argv)
+        self.assertIn("sandbox_workspace_write.writable_roots=[]", argv)
+
 
 class SecretSafe(unittest.TestCase):
     def test_a_whole_private_key_is_cut_not_just_its_header(self):
@@ -153,6 +233,8 @@ class SecretSafe(unittest.TestCase):
         pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----"
         self.assertEqual(secret_safe(f"here: {pem} done"), "here: <redacted> done")
         self.assertEqual(secret_safe("plain words, sk-short, AKIA"), "plain words, sk-short, AKIA")
+        cut = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA"          # no END line: the body goes too
+        self.assertEqual(secret_safe(f"key {cut}"), "key <redacted>")
 
 
 class LockedCallers(unittest.TestCase):

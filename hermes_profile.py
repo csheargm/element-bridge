@@ -1,9 +1,10 @@
 """A Hermes profile for working in Hagency rooms: a separate profile with no personal skills or
-memories, that obeys only its owner and @pm and posts only final replies. Its tools are the owner's
-own Hermes set-up (docs/adr/0006-owner-cli-powers.md): the toolsets, approval and terminal settings
-of their default profile (Hermes's own Matrix toolset if they set none), with the terminal working
-in ~/.hagency/work/<owner>/hermes, outside the app. Loop work on repos still goes through the hagency
-MCP server (contained edits, own GitHub identity). Used by onboard.py and test_hermes_e2e.py.
+memories, that posts only final replies. By default it obeys only its owner and has the owner's own
+Hermes set-up (docs/adr/0006-owner-cli-powers.md): the toolsets, approval and terminal settings of
+their default profile (Hermes's own Matrix toolset if they set none), with the terminal working in
+~/.hagency/work/<owner>/hermes, outside the app. With loop=True it also obeys @pm's GitHub-loop tasks
+and keeps no file/terminal/web tools (repo work through the hagency MCP server: contained edits, own
+GitHub identity). Used by onboard.py and test_hermes_e2e.py.
 
 Only the model's API key is copied from the default profile, read from file to file and never
 printed; nothing else personal (other keys, skills, memories) comes along.
@@ -22,6 +23,11 @@ PY = str(ROOT / ".venv" / "bin" / "python")
 PROVIDER_KEYS = {"ollama-cloud": "OLLAMA_API_KEY", "openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
                  "openai": "OPENAI_API_KEY", "nous": "NOUS_API_KEY", "gemini": "GEMINI_API_KEY"}
 HERMES_MATRIX_TOOLSET = "hermes-matrix"           # Hermes's own default for its Matrix platform
+LOOP_TOOLS = """toolsets: [hermes-cli]
+platform_toolsets:
+  matrix: [todo, memory, skills]      # no file/terminal/web: repo edits go through hagency's contained tools
+approvals:
+  mode: manual"""
 TOOLSET_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MATRIX_KEYS = ("MATRIX_HOMESERVER", "MATRIX_USER_ID", "MATRIX_PASSWORD", "MATRIX_DEVICE_ID", "MATRIX_ALLOWED_USERS",
                "MATRIX_ALLOWED_ROOMS", "MATRIX_HOME_ROOM", "MATRIX_E2EE_MODE", "MATRIX_AUTO_THREAD",
@@ -63,39 +69,45 @@ def default_model() -> tuple[dict, str | None]:
     return model, PROVIDER_KEYS.get(model.get("provider", ""))
 
 
-def _block(text: str, key: str, indent: str = "") -> list[str]:
-    """The lines of `key:` (its own line first), down to the next key at the same indent."""
-    lines, out = text.splitlines(), []
-    for ln in lines:
+def _block(text: str, key: str, indent: str = "") -> list[str] | None:
+    """The lines of `key:` (its own line first, comments cut), down to the next key at the same
+    indent; None when the key isn't there at all."""
+    out = []
+    for ln in text.splitlines():
         if out and ln.strip() and not ln.startswith(indent + " ") and not ln.startswith(indent + "-"):
             break
         if out or re.match(rf"^{indent}{key}:", ln):
-            out.append(ln)
-    return [ln for ln in out if ln.strip() and not ln.lstrip().startswith("#")]
+            out.append(re.sub(r"\s+#.*$", "", ln))
+    return [ln for ln in out if ln.strip() and not ln.lstrip().startswith("#")] or None
 
 
-def _names(block: list[str]) -> list[str]:
-    """A YAML list of toolset names (`key: [a, b]` or `- a` lines); only plain names come along."""
-    if not block:
-        return []
+def _names(block: list[str] | None) -> list[str] | None:
+    """A YAML list of toolset names (`key: [a, b]` or `- a` lines); only plain names come along.
+    None: not set. An empty list stays empty (the owner chose no tools)."""
+    if block is None:
+        return None
     inline = block[0].partition(":")[2].strip()
     raw = inline[1:-1].split(",") if inline.startswith("[") and inline.endswith("]") else []
     raw += [ln.strip().removeprefix("-") for ln in block[1:]]
-    names = [n.strip().strip("'\"") for n in raw]
-    return [n for n in names if TOOLSET_RE.match(n)]
+    return [n for n in (r.strip().strip("'\"") for r in raw) if TOOLSET_RE.match(n)]
 
 
 def owner_tools(owner: str) -> str:
     """The owner's own toolsets, approvals and terminal settings (their default profile), as YAML for
-    the room profile; its terminal works in the owner's work folder, never in the app's install."""
+    the room profile; its terminal works in the owner's work folder, never in the app's install.
+    (An inline `terminal: {...}` mapping isn't carried over; only its cwd would be replaced anyway.)"""
     cfg = HERMES_HOME / "config.yaml"
     text = cfg.read_text() if cfg.exists() else ""
-    toolsets = _names(_block(text, "toolsets")) or ["hermes-cli"]
-    matrix = _names(_block("\n".join(_block(text, "platform_toolsets")), "matrix", "  ")) or [HERMES_MATRIX_TOOLSET]
-    approvals = _block(text, "approvals")[1:] or ["  mode: manual"]
-    terminal = [ln for ln in _block(text, "terminal")[1:] if not re.match(r"^  cwd:", ln)]
-    return "\n".join([f"toolsets: [{', '.join(toolsets)}]", "platform_toolsets:", f"  matrix: [{', '.join(matrix)}]",
-                      "approvals:", *approvals, "terminal:", *terminal, f"  cwd: '{workdirs.hermes_dir(owner)}'"])
+    toolsets = _names(_block(text, "toolsets"))
+    platforms = _block(text, "platform_toolsets")
+    matrix = _names(_block("\n".join(platforms), "matrix", "  ")) if platforms else None
+    terminal = [ln for ln in (_block(text, "terminal") or ["terminal:"])[1:] if not re.match(r"^  cwd:", ln)]
+    cwd = str(workdirs.hermes_dir(owner)).replace("'", "''")      # YAML single-quoted
+    return "\n".join([f"toolsets: [{', '.join(['hermes-cli'] if toolsets is None else toolsets)}]",
+                      "platform_toolsets:",
+                      f"  matrix: [{', '.join([HERMES_MATRIX_TOOLSET] if matrix is None else matrix)}]",
+                      *(_block(text, "approvals") or ["approvals:", "  mode: manual"]),
+                      "terminal:", *terminal, f"  cwd: '{cwd}'"])
 
 
 def repo_env() -> dict:
@@ -169,8 +181,11 @@ def write_env(profile: Path, values: dict, key_name: str | None) -> None:
 
 
 def configure(name: str, *, owner: str, agent: str, password: str, home_room: str | None,
-              mcp_env: dict | None = None) -> Path:
-    """Write the profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md."""
+              mcp_env: dict | None = None, loop: bool = False) -> Path:
+    """Write the profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md.
+    Hermes gives one toolset to every turn, whoever sent it. So: by default the owner's own tools,
+    obeying only the owner (ADR 0006). loop=True also takes @pm's GitHub-loop tasks, which carry
+    other people's issue text: then the profile keeps the contained LOOP_TOOLS instead."""
     profile = ensure_profile(name, owner)
     workdirs.hermes_dir(owner).mkdir(parents=True, exist_ok=True)
     model, key_name = profile_model(profile)
@@ -180,7 +195,7 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
     model_lines = "\n".join(f"  {k}: {v}" for k, v in model.items())
     (profile / "config.yaml").write_text(f"""model:
 {model_lines}
-{owner_tools(owner)}
+{LOOP_TOOLS if loop else owner_tools(owner)}
 display:                              # a shared room sees final replies only: no tool calls, paths or drafts
   tool_progress: "off"
   interim_assistant_messages: false
@@ -201,7 +216,7 @@ mcp_servers:
 """)
     values = {"MATRIX_HOMESERVER": "http://127.0.0.1:8648", "MATRIX_USER_ID": f"@{agent}:{SERVER_NAME}",
               "MATRIX_PASSWORD": password, "MATRIX_DEVICE_ID": f"HERMES_{name.upper()}",
-              "MATRIX_ALLOWED_USERS": f"@{owner}:{SERVER_NAME},@pm:{SERVER_NAME}",   # its owner, and @pm's tasks
+              "MATRIX_ALLOWED_USERS": f"@{owner}:{SERVER_NAME}" + (f",@pm:{SERVER_NAME}" if loop else ""),
               "MATRIX_E2EE_MODE": "off", "MATRIX_AUTO_THREAD": "false", "MATRIX_SESSION_SCOPE": "room",
               "MATRIX_REQUIRE_MENTION": "true", **({"MATRIX_HOME_ROOM": home_room} if home_room else {})}
     write_env(profile, values, key_name)

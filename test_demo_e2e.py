@@ -47,7 +47,7 @@ def start_anna(env: dict, pw: dict, logs) -> subprocess.Popen:
                                 stdout=logs, stderr=logs)
     gh_env = {k: env[k] for k in ("FAKE_GH_STATE", "GH_BIN", "GH_IDENTITY_ROOT", "LOOP_REPO")}
     profile = hermes_profile.configure("annademo", owner="anna", agent="anna-agent", password=pw["PW_ANNA_AGENT"],
-                                       home_room=None, mcp_env=gh_env)
+                                       home_room=None, mcp_env=gh_env, loop=True)
     for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # no memory of earlier runs
         path = profile / stale
         shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)

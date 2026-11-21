@@ -1,12 +1,14 @@
 """Bring a person and their own agent into Hagency — one command per person:
 
-  python onboard.py anna --agent hermes      # anna brings her Hermes
+  python onboard.py anna --agent hermes      # anna brings her Hermes (her own tools, obeys only her)
+  python onboard.py anna --agent hermes --loop   # ...that also takes @pm's GitHub-loop tasks
   python onboard.py betty --agent claude     # betty brings Claude Code (or: codex)
 
 It creates the Matrix accounts <person> and <person>-agent (generated passwords go to the
 git-ignored .env and are never printed), opens a private DM between the person and their agent,
 records the choice in agents.json, and for Hermes sets up the room profile "<person>room"
-(hermes_profile.py). It also checks that the agent has its own GitHub identity in .gh/<person>-agent/.
+(hermes_profile.py; with --loop it keeps no file/terminal/web tools, because @pm's tasks carry other
+people's issue text and Hermes gives every turn the same tools). It also checks that the agent has its own GitHub identity in .gh/<person>-agent/.
 Run it again any time: it only fills in what's missing. Then ./start.sh runs everyone's agent.
 """
 import argparse
@@ -51,6 +53,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("person", help="the person's Matrix name, e.g. anna")
     ap.add_argument("--agent", required=True, choices=["hermes", *sorted(agents.BACKENDS)])
+    ap.add_argument("--loop", action="store_true", help="Hermes only: also take @pm's GitHub-loop tasks "
+                    "(then without file/terminal/web tools)")
     args = ap.parse_args()
     if not NAME_RE.match(args.person):
         raise SystemExit("use a short lowercase name, letters and digits (e.g. anna)")
@@ -66,8 +70,10 @@ def main() -> None:
     registry.save(people)
     if args.agent == "hermes":
         hermes_profile.configure(f"{args.person}room", owner=args.person, agent=f"{args.person}-agent",
-                                 password=agent_pw, home_room=info["dm"])
-        print(f"  Hermes profile '{args.person}room' ready (only {args.person} and @pm can direct it)")
+                                 password=agent_pw, home_room=info["dm"], loop=args.loop)
+        who = f"{args.person} and @pm (loop tasks; no file/terminal/web tools)" if args.loop else \
+            f"only {args.person}, with their own Hermes tools"
+        print(f"  Hermes profile '{args.person}room' ready ({who} can direct it)")
     print(f"  agent: {args.agent}; private DM with {args.person}-agent ready")
     if github.identity_dir(f"{args.person}-agent") is None:
         print(f"  ⚠ {args.person}-agent has no GitHub identity yet: see docs/GITHUB_SETUP.md, step 1, "

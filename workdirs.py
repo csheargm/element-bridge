@@ -5,15 +5,17 @@ with its saved session ids; Claude Code keys its sessions by folder, so its tran
 the new folder's entry too, or the session is dropped and the next turn starts a fresh one.
 HAGENCY_DIR moves the whole ~/.hagency (as for connect.py's sign-in).
 """
+import errno
 import hashlib
 import json
 import logging
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
-WORK_HOME = Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")) / "work"
+WORK_HOME = (Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")).expanduser() / "work").absolute()
 SESSION_FILE = ".bridge-session.json"      # agents.run_turn: {backend: session id}
 SESSION_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z-]{7,63}$")  # codex/claude session UUIDs
 
@@ -47,8 +49,8 @@ def claude_project(cwd: Path) -> Path:
 
 def migrate(old: Path, new: Path) -> bool:
     """Move an old room folder to its new place, once. False: nothing moved (none, or already there)."""
-    if new.exists() or not old.is_dir():
-        return False
+    if new.exists() or old.is_symlink() or not old.is_dir():
+        return False                              # (a symlink there isn't one of ours: never adopt it)
     transcript_from = claude_project(old)       # before the move: resolve() needs the old path's parents
     new.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -65,12 +67,17 @@ def migrate(old: Path, new: Path) -> bool:
 def _move(old: Path, new: Path) -> None:
     try:
         os.rename(old, new)                       # same disk: atomic
-    except OSError:
-        tmp = new.with_name(new.name + ".moving")  # another disk: copy aside, then swap in whole
-        shutil.rmtree(tmp, ignore_errors=True)     # a half copy from an earlier crash: redo it
-        shutil.copytree(old, tmp, symlinks=True)
-        os.rename(tmp, new)
-        shutil.rmtree(old, ignore_errors=True)     # a leftover old copy is harmless: never read again
+        return
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+    stage = Path(tempfile.mkdtemp(dir=new.parent, prefix=f".{new.name}.moving-"))   # another disk:
+    try:                                          # copy aside under a unique name, then swap in whole
+        shutil.copytree(old, stage / "x", symlinks=True)
+        os.rename(stage / "x", new)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)  # only our own staging folder; nothing else to keep
+    shutil.rmtree(old, ignore_errors=True)        # a leftover old copy is harmless: never read again
 
 
 def _carry_claude_session(transcript_from: Path, new: Path) -> None:
@@ -81,7 +88,10 @@ def _carry_claude_session(transcript_from: Path, new: Path) -> None:
         log.warning("unreadable %s after the move (the next turns start fresh): %s", state_file, e)
         state_file.unlink(missing_ok=True)
         return
-    sid = state.get("claude") if isinstance(state, dict) else None
+    if not isinstance(state, dict):
+        state_file.unlink(missing_ok=True)        # not ours: the next turns start fresh
+        return
+    sid = state.get("claude")
     if not (isinstance(sid, str) and SESSION_ID_RE.match(sid)):
         return
     src = transcript_from / f"{sid}.jsonl"
@@ -89,6 +99,8 @@ def _carry_claude_session(transcript_from: Path, new: Path) -> None:
         dst = claude_project(new)
         dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst / src.name)
+        if (transcript_from / sid).is_dir():       # the session's own folder (subagents, tool results)
+            shutil.copytree(transcript_from / sid, dst / sid, symlinks=True, dirs_exist_ok=True)
     except OSError as e:
         log.info("no Claude Code transcript to carry for %s (%s): its next turn starts fresh", new, e)
         state.pop("claude")

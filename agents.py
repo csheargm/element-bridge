@@ -6,9 +6,9 @@ parsed as a CLI flag) and nothing runs through a shell.
 
 Two kinds of turn (docs/adr/0006-owner-cli-powers.md):
   - owner=True: the owner's own message. The CLI runs as the owner configured it on this machine
-    (their sandbox, tools, MCP servers, permission/approval rules); the bridge adds no lockdown.
-    What their rules leave to an interactive approval is denied (nobody can approve from a room),
-    and the reply says so plainly.
+    (their settings, MCP servers, deny rules); the bridge adds no lockdown, only what a chat room
+    needs to work without interactive approvals: web, edits and commands in the work folder
+    (owner_cli.py). Whatever is still refused, the reply says plainly which setting blocked it.
   - owner=False (default): turns not driven by the owner's own words, on untrusted text (loop
     builds/reviews/plans, @pm's brain, a member's question under --allow-members): read-only, no
     approvals, no connectors/MCP/web; only builds (write=True) may edit, inside the task's own clone
@@ -18,11 +18,11 @@ import asyncio
 import json
 import os
 import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 import lifecycle
+import owner_cli
 from workdirs import SESSION_FILE, SESSION_ID_RE
 
 TURN_TIMEOUT_S = 600
@@ -53,11 +53,11 @@ BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 def _codex_lockdown() -> list[str]:
     args = [x for f in CODEX_FEATURES_OFF for x in ("-c", f"features.{f}=false")]
     args += ["-c", 'web_search="disabled"']
-    cfg = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
     try:
-        servers = tomllib.loads(cfg.read_text()).get("mcp_servers", {}) if cfg.exists() else {}
-    except (OSError, tomllib.TOMLDecodeError) as e:
-        raise AgentError(f"can't read {cfg} to switch its MCP servers off: {e}") from e   # fail closed
+        cfg, config = owner_cli.codex_config()
+    except owner_cli.ConfigError as e:
+        raise AgentError(f"{e} (needed to switch its MCP servers off)") from e   # fail closed
+    servers = config.get("mcp_servers", {})
     for name in servers:
         if not BARE_KEY_RE.match(name):
             raise AgentError(f"can't safely switch off Codex MCP server {name!r}; rename it in {cfg}")
@@ -66,11 +66,18 @@ def _codex_lockdown() -> list[str]:
 
 
 def _codex_argv(workdir: Path, session_id: str | None, write: bool = False, owner: bool = False) -> list[str]:
-    """owner: the owner's ~/.codex/config.toml decides sandbox, approvals, web search and MCP servers."""
+    """owner: the owner's ~/.codex/config.toml, plus what a room needs to work (owner_cli.py)."""
     sandbox = "workspace-write" if write else "read-only"
     common = ["--json", "--skip-git-repo-check"]
-    if not owner:
-        common += ["-c", f'sandbox_mode="{sandbox}"', "-c", 'approval_policy="never"', *_codex_lockdown()]
+    if owner:
+        try:
+            common += owner_cli.codex_owner_args()
+        except owner_cli.ConfigError as e:
+            raise AgentError(str(e)) from e
+    else:      # and none of the owner's own widening of workspace-write (network, extra roots)
+        common += ["-c", f'sandbox_mode="{sandbox}"', "-c", 'approval_policy="never"',
+                   "-c", "sandbox_workspace_write.network_access=false",
+                   "-c", "sandbox_workspace_write.writable_roots=[]", *_codex_lockdown()]
     if session_id:
         return ["codex", "exec", "resume", *common, session_id, "-"]
     return ["codex", "exec", *common, "-C", str(workdir), "-"]
@@ -93,8 +100,8 @@ def _parse_codex(stdout: str) -> AgentResult:
 
 def _claude_argv(workdir: Path, session_id: str | None, write: bool = False, owner: bool = False) -> list[str]:
     resume = ["--resume", session_id] if session_id else []
-    if owner:     # the owner's settings (all their sources) decide tools, MCP and the permission mode
-        return ["claude", "-p", "--output-format", "json", *resume]
+    if owner:     # the owner's settings (all sources, deny rules win) plus what a room needs (owner_cli.py)
+        return ["claude", "-p", "--output-format", "json", *owner_cli.claude_owner_args(), *resume]
     # "default" permission mode in -p: tools that need approval are denied, not prompted.
     # --tools limits built-ins to read-only ones even if user settings pre-approve Bash/Edit;
     # --strict-mcp-config (with no --mcp-config) loads no MCP servers.
@@ -122,14 +129,20 @@ def _denied_tools(data: dict) -> tuple[str, ...]:
 
 
 def denial_note(denied: tuple[str, ...]) -> str:
-    """Said plainly in the reply: the owner's own Claude Code rules blocked these, and nobody can
-    approve a tool from a chat room. (Codex says so in its own reply.)"""
+    """Said plainly in the reply: which setting blocked these (web, edit and shell tools are allowed,
+    so only the owner's deny rules can; anything else needs an allow rule). Codex says so itself."""
     if not denied:
         return ""
-    shown = ", ".join(denied[:MAX_DENIED_SHOWN]) + (" …" if len(denied) > MAX_DENIED_SHOWN else "")
-    return (f"\n\n⚠️ Your Claude Code permission settings didn't allow: {shown} (it can't ask you for "
-            'approval from a chat room). To allow them, add them to "permissions": {"allow": [...]} '
-            "in ~/.claude/settings.json.")
+    ours = [d for d in denied if d in owner_cli.CLAUDE_OWNER_TOOLS]
+    other = [d for d in denied if d not in owner_cli.CLAUDE_OWNER_TOOLS][:MAX_DENIED_SHOWN]
+    why = []
+    if ours:
+        why.append(f"{', '.join(ours)}: blocked by a deny rule in your Claude Code settings "
+                   '("permissions": {"deny": [...]} in ~/.claude/settings.json or a project/managed settings file)')
+    if other:
+        why.append(f"{', '.join(other)}: not allowed for chat turns; to allow it, add it to "
+                   '"permissions": {"allow": [...]} in ~/.claude/settings.json')
+    return "\n\n⚠️ Refused (it can't ask you for approval from a chat room): " + "; ".join(why) + "."
 
 
 BACKENDS = {"codex": (_codex_argv, _parse_codex), "claude": (_claude_argv, _parse_claude)}
@@ -149,7 +162,9 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
     workdir.mkdir(parents=True, exist_ok=True)
     state_file = workdir / SESSION_FILE
     state = {} if fresh else (json.loads(state_file.read_text()) if state_file.exists() else {})
-    session_id = state.get(backend)
+    state = state if isinstance(state, dict) else {}
+    key = backend if owner else f"{backend}-locked"   # a locked turn never shares the owner's conversation
+    session_id = state.get(key)
     if session_id is not None and not (isinstance(session_id, str) and SESSION_ID_RE.match(session_id)):
         session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
 
@@ -167,11 +182,11 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
         raise AgentError(f"{backend} exited {proc.returncode}: {' | '.join(tail)[:400]}")
 
     result = parse_fn(stdout)
-    note = denial_note(result.denied)
+    note = denial_note(result.denied) if owner else ""   # task output (VERDICT, plan JSON) stays as is
     if not result.text.strip() and not note:
         raise AgentError(f"{backend} returned an empty reply")
     if not fresh and result.session_id and result.session_id != session_id:
-        state[backend] = result.session_id
+        state[key] = result.session_id
         tmp = state_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(state))
         os.replace(tmp, state_file)   # atomic: a crash can't leave a half-written state file

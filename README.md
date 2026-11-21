@@ -115,13 +115,15 @@ without a mention. In an encrypted room the agent says it can't read it (no E2EE
   `~/.hagency/work/<owner>/<room>/` (outside the app; `workdirs.py` moves an old
   `rooms/<owner>/<room>/` folder there with its sessions), and resumes that room's saved session
   (`codex exec resume <id>` / `claude --resume <id>`).
-  - **The owner's own message:** the CLI runs as the owner set it up on that machine, with no
-    extra flags from us: Codex uses `~/.codex/config.toml` (sandbox, approvals, web search, MCP
-    servers); Claude Code runs `claude -p` with all its settings sources and the owner's
-    permission rules. Anything their rules leave to an interactive approval is denied (nobody can
-    approve from a chat room) and the reply names it, e.g. "didn't allow: WebFetch". To allow
-    web for Claude Code, add `"permissions": {"allow": ["WebSearch", "WebFetch"]}` to
-    `~/.claude/settings.json`; for more than read-only Codex, set `sandbox_mode` in its config.
+  - **The owner's own message:** the owner's CLI with all their settings, MCP servers and deny
+    rules, plus what a chat room needs to work without an approval prompt (`owner_cli.py`): Claude
+    Code gets `--permission-mode acceptEdits --allowedTools WebSearch,WebFetch,Edit,Write,Bash`;
+    Codex gets `approval_policy="never"` and, unless its `config.toml` says otherwise,
+    `workspace-write` with network and live web search. Their deny rules and explicit Codex
+    settings still win; whatever is refused, the reply names it and the setting that blocked it.
+  - **A question to the owner** ("Tell me a city or zip code?") stays open for 30 min: the owner's
+    next un-addressed messages there are offered to the agent, which answers or stays silent
+    (`bridge_followup.py`).
   - **Everything else** (a member's question under `--allow-members`, loop builds/reviews/plans,
     @pm's brain, code changes): Codex `sandbox_mode=read-only` (`workspace-write` for builds),
     `approval_policy=never`, connectors/plugins/MCP/web off; Claude `--tools Read,Grep,Glob`
