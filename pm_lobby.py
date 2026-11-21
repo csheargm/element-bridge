@@ -78,8 +78,8 @@ class Lobby:
             return True
         clicking.add(event.sender)
         try:
-            await self.offer_again(room, event.sender)     # pm_welcome.py: my private offer, and where it is
-            self.lobby_greeted()[event.sender] = {**entry, "done": True}   # only once it went out (GPT review)
+            if await self.offer_again(room, event.sender):   # pm_welcome.py: my private offer, and where it is
+                self.lobby_greeted()[event.sender] = {**entry, "done": True}   # only once it went out (GPT review)
         except RuntimeError as e:             # loop.SendError: the button still works for another click
             log.error("couldn't send %s my offer: %s", event.sender, e)
         finally:

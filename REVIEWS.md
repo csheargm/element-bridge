@@ -791,3 +791,20 @@ Rejected or deferred:
 - A stop racing a rebind outside the lock: one read narrows it; the loop also treats a runs_in room
   as off whatever its level says (room_state.level_of).
 - A federated knock round trip and directory publication need a live stack (not run here).
+- (re-check) Adopted, with tests: an unreadable room never counts as "no repo" or "no primary"
+  (room_state.StateUnreadable; set_visibility and the one-room-per-repo check refuse instead); a
+  join click reads the server's state once for the clicker's membership and power and the
+  requester's membership and the knock's own event id (a withdrawn-and-renewed knock, a demoted
+  moderator, or an unreadable room never decide); the 🙋/➕ question travels with its own reply
+  (no shared slot) and isn't attached once the room bound; running work refuses before the room is
+  closed; "ask to join" lookups are a few per person an hour and catch their own errors; the Lobby
+  button stays usable when my offer couldn't be sent (offer_again says so); "#" is no longer
+  escaped (github.linkify links issue numbers) and the console-link message escapes the room name.
+  Deferred: a stop racing a rebind outside the lock (narrowed to one read; level_of keeps a
+  runs_in room off regardless).
+
+Seen live (owner): in @pm's own chat, "resend me the code" and "send me my console link" without
+"@pm" got no answer. Every message in a one-to-one chat with @pm (not a project room with a repo)
+is now for @pm; "resend me the code" / "new code" / "connect my agent" sends the same Connect
+message and fresh code 🔌 sends (a second click on 🔌 only removes the reaction), a few an hour.
+Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and waits for a new code.

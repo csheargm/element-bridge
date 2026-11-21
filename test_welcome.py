@@ -112,7 +112,7 @@ class Greeting(Base):
     def test_asking_again_never_brings_the_pointer_back(self):
         """GPT review 23 re-check: "I want an agent" re-greets, which must keep "pointed"."""
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
-        self.lp.addressed_text = lambda event: event.body
+        self.lp.addressed_text = lambda event, room=None: event.body
         self.run_(self.lp.on_welcome_text(WELCOME_ROOM, text(NEW, "I want an agent")))   # answered: a second line
         self.assertTrue(self.lp._welcomes[NEW]["pointed"])
         before = len(self.said)

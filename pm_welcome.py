@@ -11,6 +11,7 @@ Mixed into loop.Loop (client, user_id, say, offer_thumb, private_room, addressed
 import asyncio
 import logging
 import re
+import time
 
 from nio import (InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset,
                  RoomResolveAliasResponse)
@@ -37,6 +38,10 @@ BRING_RE = re.compile(r"\bbring (my|your) own\b", re.I)
 # The whole message, so "@pm I need an agent to review #7" stays a project request (GPT review 21).
 WANT_RE = re.compile(r"^\W*(please\W+)?(i (want|need|would like)|i'?d like|get me|give me|can i (have|get)|how (do|can) i get)"
                      r"\s+(an?|my)\s+(own\s+)?agent(\s+please)?\W*$", re.I)
+# "resend me the code", "new code", "connect my agent": the Connect message again, with a fresh code
+RESEND_RE = re.compile(r"\b(re-?send|send( me)?|give me|get me|need)\b.{0,20}\b(code|connect\w*( page)?)\b|\bnew code\b"
+                       r"|\bconnect my agent\b|\bcode again\b", re.I)
+CODES_PER_HOUR = 5
 WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their AI agents build software "
            "together.\n\nGet your agent:\n\n"
            "- 🏠 **House agent**: runs on this server, with free daily credit\n"
@@ -169,10 +174,13 @@ class Welcome(Lobby):
         if await self.on_add_text(room, event) or await self.on_project_text(room, event):   # pm_agents, pm_projects
             return True
         entry = self.welcomes().get(event.sender) or {}
-        in_dm = room.room_id == entry.get("dm")
-        text = without_quote(event.body) if in_dm else self.addressed_text(event)
+        in_dm = room.room_id == entry.get("dm") or self.is_one_to_one(room, event.sender)
+        text = without_quote(event.body) if in_dm else self.addressed_text(event, room)
         if text is None:
             return False
+        if RESEND_RE.search(text) and not intents.NEGATED.search(text):
+            await self.resend_code(room, event.sender)
+            return True
         if in_dm and intents.NEGATED.search(text) and (HOUSE_RE.search(text) or BRING_RE.search(text)):
             return False                      # "I don't want to bring my own": not a choice
         if in_dm and HOUSE_RE.search(text):
@@ -187,17 +195,39 @@ class Welcome(Lobby):
             return False
         return True
 
-    async def offer_again(self, room: MatrixRoom, person: str) -> None:
+    async def resend_code(self, room: MatrixRoom, person: str) -> None:
+        """A fresh Connect message and one-time code for their agent (what 🔌 sends; a second click on
+        🔌 only takes the reaction away, so typing must work too). No agent yet: set one up."""
+        recent = [t for t in self.__dict__.setdefault("_codes_sent", {}).get(person, []) if time.time() - t < 3600]
+        if len(recent) >= CODES_PER_HOUR:
+            await self.say(room.room_id, "That's several codes this hour; the newest one still works. Try again later.")
+            return
+        self._codes_sent[person] = [*recent, time.time()]
+        info = registry.load().get(person, {})
+        if self.is_newcomer(person) or info.get("agent") == registry.REMOTE:
+            dm = await self.private_room(person)
+            if dm is None:
+                await self.say(room.room_id, "I couldn't open a private chat with you; please try again.")
+                return
+            await self.choose(dm, person, BRING)         # bring_own: (re)uses their agent, then send_code
+            if dm != room.room_id:
+                await self.say(room.room_id, pointer(person), mention=person)
+        else:
+            await self.say(room.room_id, "Your agent runs on this server: there's no code to connect it.")
+
+    async def offer_again(self, room: MatrixRoom, person: str) -> bool:
+        """Answered (True), or my offer couldn't be sent (False: a button may be clicked again)."""
         info = registry.load().get(person, {})   # by full ID: @newbie1:elsewhere is not our newbie1
         if not self.may_have_agent(person):
             await self.say(room.room_id, f"Sorry, {remote_people.OFF}.")
-            return
+            return True
         if not self.is_newcomer(person) and info.get("agent") != registry.REMOTE:   # pm_agents.py: with ➕
             await self.say_have_agents(room.room_id, person)
-            return
+            return True
         dm = await self.greet(person)
         if dm and dm != room.room_id:
             await self.say(room.room_id, pointer(person), mention=person)
+        return dm is not None
 
     async def on_remote_invite(self, room: MatrixRoom, event: InviteMemberEvent) -> None:
         """Someone from another server opened a private chat with me: their way in (no Welcome for

@@ -40,7 +40,7 @@ def plain(text: str) -> str:
     """A name someone chose (a room's), shown as text in my markdown messages: no links, emphasis or
     line breaks that could pass for my own instructions (GPT review)."""
     flat = " ".join(str(text).split())[:80]
-    return re.sub(r"([\\`*_{}\[\]()<>#+!|~-])", r"\\\1", flat)
+    return re.sub(r"([\\`*_{}\[\]()<>+!|~-])", r"\\\1", flat)   # "#": github.linkify links issues
 
 
 async def join_rule(client: AsyncClient, room_id: str) -> str:

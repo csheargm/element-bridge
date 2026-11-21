@@ -65,8 +65,18 @@ class Chat:
     generation: dict                     # room → bumped by "stop" (cancels in-flight decisions)
     pending: dict           # room → the autonomous switch waiting for a ✅
 
-    def addressed_text(self, event: RoomMessageText) -> str | None:
-        """The message without its "@pm" / "Product Manager" address, or None if not for me."""
+    def is_one_to_one(self, room, person: str) -> bool:
+        """A chat where only that person and I are joined (not a project room with a repo, where they may
+        think aloud): everything they say there is to me."""
+        joined = set(getattr(room, "users", None) or {}) - set(getattr(room, "invited_users", None) or {})
+        return joined == {self.user_id, person} and room.room_id not in (getattr(self, "room_repos", None) or {})
+
+    def addressed_text(self, event: RoomMessageText, room=None) -> str | None:
+        """The message without its "@pm" / "Product Manager" address, or None if not for me. In a
+        one-to-one chat with me every message is for me (seen live: "resend me the code" got no answer)."""
+        if room is not None and self.is_one_to_one(room, event.sender):
+            m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", without_quote(event.body), re.I | re.S)
+            return m.group(2) if m else without_quote(event.body)
         mentions = event.source.get("content", {}).get("m.mentions", {})
         ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
         mentioned = isinstance(ids, list) and self.user_id in ids
@@ -81,7 +91,7 @@ class Chat:
         if body.startswith("!") and not voice:
             await self.command(room, sender, body.split())
             return
-        text = self.addressed_text(event)
+        text = self.addressed_text(event, room)
         reply_to = replied_to(event)
         waiting = self.pending.get(room.room_id, {}).get("event_id")
         said = text if text is not None else (body if reply_to and reply_to == waiting else None)

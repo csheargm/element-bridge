@@ -122,6 +122,15 @@ def welcome_and_code(me, name):
     line = until("the install line", lambda: pm_message(me, dm, "connect.sh"))["content"]["body"]
     found = re.search(r"curl -fsSL (\S+)/connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})", line)
     check("🔌 sends one install line with a code", found and found.group(1) == CONSOLE)   # the code is never printed
+    # Seen live: typed in @pm's chat without "@pm", this got no answer.
+    api("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(dm)}/send/m.room.message/r{time.time_ns()}", me,
+        {"msgtype": "m.text", "body": "resend me the code"})
+    codes = lambda: {m.group(1) for e in messages(me, dm) if e["sender"] == PM
+                     for m in [re.search(r"connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})", e["content"].get("body", ""))] if m}
+    fresh = until("a fresh code without mentioning @pm", lambda: len(codes()) >= 2 or None)
+    check("\"resend me the code\" in @pm's chat sends a new one", fresh)
+    found = re.search(r"curl -fsSL (\S+)/connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})",
+                      next(e["content"]["body"] for e in messages(me, dm) if e["sender"] == PM and "connect.sh" in e["content"].get("body", "")))
     # Only @pm's chat opens joined: the agent's stays an invite (-agent names aren't reserved at sign-up).
     agent_dm = until("the agent's chat invite", lambda: invite_from(me, f"@{name}-agent:{SERVER_NAME}"))
     api("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(agent_dm)}", me, {})

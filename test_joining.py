@@ -36,6 +36,7 @@ class AskToJoin(Base):
         self.lp.client.room_invite = mock.AsyncMock(return_value=RoomInviteResponse())
         self.lp.client.room_kick = mock.AsyncMock(return_value=RoomKickResponse())
         self.members.update({("!a", ANNA): "join", ("!a", BETTY): "join"})
+        self.mods["!a"] = {ANNA, BETTY}
 
     def asks(self):
         return [(r, b) for r, b in self.said if "asks to join" in b]
@@ -56,9 +57,8 @@ class AskToJoin(Base):
     def test_a_moderator_who_lost_the_role_cant_let_anyone_in(self):
         run(self.lp.ask_to_join("!a", NEW))
         q = next(e for e, r in self.lp._join_requests.items() if r["moderator"] == BETTY)
-        self.room.power_levels = SimpleNamespace(get_user_level=lambda u: 100 if u == ANNA else 0)
-        with mock.patch("room_state.is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)):
-            run(self.lp.on_join_reaction(SimpleNamespace(room_id=f"!dm-{BETTY}"), click(BETTY, "👍", q)))
+        self.mods["!a"] = {ANNA}                  # demoted on the server; my cached room still says 100
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=f"!dm-{BETTY}"), click(BETTY, "👍", q)))
         self.lp.client.room_invite.assert_not_called()
         self.assertIn("no longer an owner", self.said[-1][1])
 
@@ -73,13 +73,30 @@ class AskToJoin(Base):
 
     def test_a_withdrawn_knock_or_someone_already_in_is_never_acted_on(self):
         """GPT review: a stale 👍 must not invite, a stale 👎 must not kick."""
-        self.members[("!a", NEW)] = "knock"
+        self.members[("!a", NEW)], self.member_ids[("!a", NEW)] = "knock", "$k"
         run(self.lp.on_knock(self.room, NEW, "$k"))
         q, req = next(iter(self.lp._join_requests.items()))
-        self.members[("!a", NEW)] = "leave"                                               # they withdrew
+        self.member_ids[("!a", NEW)] = "$k2"                                              # withdrawn, knocked again
         run(self.lp.on_join_reaction(SimpleNamespace(room_id=req["dm"]), click(req["moderator"], "👎", q)))
         self.lp.client.room_kick.assert_not_called()
         self.assertIn("no longer stands", self.said[-1][1])
+        run(self.lp.ask_to_join("!b", NEW))                                                # (no such room: nothing)
+        self.members[("!a", f"@carl:{S}")] = "join"                                         # already in
+        self.lp._ask_limits = {"pairs": {}, "people": {}, "all": []}
+        self.lp.client.rooms["!a"].users.pop(f"@carl:{S}", None)
+        run(self.lp.ask_to_join("!a", f"@carl:{S}"))
+        q = next(e for e, r in self.lp._join_requests.items() if r["person"] == f"@carl:{S}")
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=f"!dm-{ANNA}"), click(ANNA, "👍", q)))
+        self.lp.client.room_invite.assert_not_called()
+
+    def test_an_unreadable_room_is_never_decided_on_a_guess(self):
+        run(self.lp.ask_to_join("!a", NEW))
+        q = next(e for e, r in self.lp._join_requests.items() if r["moderator"] == ANNA)
+        self.lp.client.room_get_state = mock.AsyncMock(return_value=SimpleNamespace())   # an error response
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=f"!dm-{ANNA}"), click(ANNA, "👍", q)))
+        self.lp.client.room_invite.assert_not_called()
+        self.assertIn("couldn't check that room", self.said[-1][1])
+        self.assertEqual(len(self.lp._join_requests), 2)
 
     def test_a_moderator_who_left_the_room_cant_decide(self):
         run(self.lp.ask_to_join("!a", NEW))
@@ -110,7 +127,7 @@ class AskToJoin(Base):
         self.assertEqual(self.said, [])
 
     def test_asking_by_repo_name_says_the_same_whether_or_not_a_room_exists(self):
-        self.lp.addressed_text = lambda event: event.body
+        self.lp.addressed_text = lambda event, room=None: event.body
         lobby = project("!l", "Lobby")
         self.bind("!a")
         async def both():
@@ -148,10 +165,10 @@ class LobbyGreeting(Base):
 
     def test_a_failed_offer_doesnt_use_up_the_button(self):
         run(self.lp.on_welcome_member(self.lobby, member(NEW, "join", "leave")))
-        self.lp.offer_again = mock.AsyncMock(side_effect=[RuntimeError("M_LIMIT_EXCEEDED"), None])
-        run(self.lp.on_lobby_reaction(self.lobby, click(NEW, "👍", "$e1")))
-        run(self.lp.on_lobby_reaction(self.lobby, click(NEW, "👍", "$e1")))
-        self.assertEqual(self.lp.offer_again.await_count, 2)
+        self.lp.offer_again = mock.AsyncMock(side_effect=[RuntimeError("M_LIMIT_EXCEEDED"), False, True])
+        for _ in range(3):                    # a send that failed, a greeting that couldn't go out, then one that did
+            run(self.lp.on_lobby_reaction(self.lobby, click(NEW, "👍", "$e1")))
+        self.assertEqual(self.lp.offer_again.await_count, 3)
         self.assertTrue(self.lp._lobby_greeted[NEW]["done"])
 
     def test_people_with_agents_agents_and_my_private_chats_get_nothing(self):
@@ -197,6 +214,55 @@ class TheirOwnChatWithMe(Base):
         invite.sender = ANNA                                                                # has an agent
         run(self.lp.on_invite(room, invite))
         self.assertIn("@pm help", self.said[-1][1])
+
+
+class MyPrivateChat(Base):
+    """Seen live: in @pm's own chat, "resend me the code" (and "send me my console link") without
+    "@pm" got no answer. Every message in a one-to-one chat with @pm is for @pm."""
+    def setUp(self):
+        super().setUp()
+        self.dm = project("!dm", "Product Manager")
+        self.dm.users = {PM: None, NEW: None}
+        self.lp.dm_rooms = {NEW: "!dm"}
+        self.lp.choose = mock.AsyncMock()
+        self.lp.private_room = mock.AsyncMock(return_value="!dm")   # my chat with them is this one
+        self.lp._welcomes, self.lp._add_offers = {}, {}
+
+    def say_in_dm(self, body, who=NEW, room=None):
+        event = SimpleNamespace(sender=who, body=body, source={"content": {"body": body}})
+        return run(self.lp.on_welcome_text(room or self.dm, event))
+
+    def test_resend_me_the_code_without_mentioning_pm(self):
+        for words in ("resend me the code", "new code", "connect my agent", "can you send the connect page again?"):
+            self.assertTrue(self.say_in_dm(words), words)
+        self.assertEqual(self.lp.choose.await_count, 4)              # the same Connect message 🔌 sends
+        self.lp.choose.assert_awaited_with("!dm", NEW, "🔌")
+        self.assertEqual(self.said, [])                               # in this chat: no pointer to itself
+
+    def test_codes_are_a_few_an_hour(self):
+        for _ in range(pm_welcome.CODES_PER_HOUR + 1):
+            self.say_in_dm("resend me the code")
+        self.assertEqual(self.lp.choose.await_count, pm_welcome.CODES_PER_HOUR)
+        self.assertIn("newest one still works", self.said[-1][1])
+
+    def test_an_agent_on_this_server_has_no_code(self):
+        self.dm.users = {PM: None, ANNA: None}
+        self.say_in_dm("resend me the code", ANNA)
+        self.lp.choose.assert_not_called()
+        self.assertIn("no code", self.said[-1][1])
+
+    def test_console_link_without_mentioning_pm(self):
+        event = SimpleNamespace(sender=NEW, body="send me my console link", source={"content": {"body": "send me my console link"}})
+        self.assertEqual(self.lp.addressed_text(event, self.dm), "send me my console link")
+        self.assertEqual(self.lp.addressed_text(event, self.dm.__class__(room_id="!x", users={PM: None, NEW: None, ANNA: None},
+                                                                          invited_users={})), None)   # three people: say @pm
+
+    def test_a_project_room_with_a_repo_is_not_a_private_chat(self):
+        room = project("!p", "Proj")
+        room.users = {PM: None, NEW: None}
+        self.lp.room_repos["!p"] = REPO
+        event = SimpleNamespace(sender=NEW, body="stop", source={"content": {"body": "stop"}})
+        self.assertIsNone(self.lp.addressed_text(event, room))                             # thinking aloud stays theirs
 
 
 if __name__ == "__main__":

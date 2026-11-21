@@ -20,6 +20,7 @@ import registry
 import room_state
 from loop_progress import ACTIVE
 from pm_projects import RUN_ELSEWHERE, Projects
+from project_rooms import plain
 from setup_accounts import DISPLAY_NAMES
 
 log = logging.getLogger("loop")
@@ -34,6 +35,7 @@ NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner
            "or set it in the Hagency console.")
 INSTALL_RECHECK_S = 30        # after an install link: look again this often...
 INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
+BUSY = "Work is still running on the current repo; say \"stop\" and let it finish first."
 KEEP = object()               # write_level: keep the room's "runs in another room" as it is
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
@@ -65,12 +67,18 @@ class Settings(Projects):
         """One room, one repo: the owner or a maintainer names it; never swapped under running work.
         Says the answer in the room and returns it (the console shows it too)."""
         answer = await self.choose_repo(room, sender, repo)
-        await self.offer_conflict_buttons(room.room_id, await self.say(room.room_id, answer))   # pm_projects.py
+        await self.offer_conflict_buttons(room.room_id, answer, await self.say(room.room_id, answer))   # pm_projects.py
         return answer
 
     async def bind_checked(self, rid: str, sender: str, repo: str, separate_from: str | None) -> str:
         """Under the lock: one project room per repo, a private repo's room never open, then bind."""
-        other = await self.primary_room_for(repo, exclude=rid)   # pm_projects.py: every room, read now
+        if self.busy_on_other_repo(rid, repo):    # before anything changes (closing the room included)
+            return BUSY
+        try:
+            other = await self.primary_room_for(repo, exclude=rid)   # pm_projects.py: every room, read now
+        except room_state.StateUnreadable as e:   # never a second primary on a guess (GPT review)
+            log.warning("one-room-per-repo check failed: %s", e)
+            return "I couldn't check the other rooms on this repo just now; please try again in a minute."
         if other and other != separate_from:
             return self.conflict_answer(rid, sender, repo, other)
         refused, note = await self.close_for_private(rid, repo)
@@ -141,9 +149,12 @@ class Settings(Projects):
         del self.install_watches[rid]
         watch[1].cancel()
 
+    def busy_on_other_repo(self, rid: str, repo: str) -> bool:
+        return any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values())
+
     async def bind(self, rid: str, repo: str, runs_in: str | None = None) -> str:
-        if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
-            return "Work is still running on the current repo; say \"stop\" and let it finish first."
+        if self.busy_on_other_repo(rid, repo):
+            return BUSY
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
         keep = current == repo and runs_in is None
         failed = await self.write_level(rid, await self.level(rid) if keep else "off", repo, runs_in)
@@ -169,7 +180,7 @@ class Settings(Projects):
             return
         code = console.new_link(sender, room.room_id)               # the session it gives is for this room only
         url = f"{console.public_url()}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
-        await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
+        await self.say(dm, f"Your Hagency console for **{plain(room.display_name)}** (works once, for 10 minutes): {url}")
         await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
 
     async def private_room(self, user: str) -> str | None:

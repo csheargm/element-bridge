@@ -46,6 +46,7 @@ class Base(unittest.TestCase):
         self.lp._join_requests, self.lp._lobby_greeted = {}, {}
         self.said, self.buttons, self.state = [], [], {}         # state: room → {event type: (content, sender)}
         self.members = {}                                         # (room, user) → membership, as the server says
+        self.member_ids, self.mods = {}, {}                       # (room, user) → its event id; room → moderators
         self.lp.lock = asyncio.Lock()
 
         async def say(room_id, body, *a, **k):
@@ -56,8 +57,12 @@ class Base(unittest.TestCase):
             self.buttons.append((room_id, event_id, key))
 
         async def get_state(rid):
-            return RoomGetStateResponse([{"type": t, "state_key": "", "sender": who, "content": c}
-                                         for t, (c, who) in self.state.get(rid, {}).items()], rid)
+            events = [{"type": t, "state_key": "", "sender": who, "content": c} for t, (c, who) in self.state.get(rid, {}).items()]
+            events += [{"type": "m.room.member", "state_key": u, "event_id": self.member_ids.get((r, u), "$m"),
+                        "content": {"membership": m}} for (r, u), m in self.members.items() if r == rid]
+            if rid in self.mods:              # the server's own power levels (not the cached room object)
+                events.append({"type": "m.room.power_levels", "state_key": "", "content": {"users": {u: 100 for u in self.mods[rid]}}})
+            return RoomGetStateResponse(events, rid)
 
         async def get_state_event(rid, kind, key):
             if kind == "m.room.member":
@@ -148,6 +153,30 @@ class RoomPerRepo(Base):
         run(self.lp.set_repo(self.b, ANNA, REPO))                         # !a let go: !b now runs it
         self.assertFalse(run(self.lp.on_conflict_reaction(self.b, SimpleNamespace(sender=ANNA, key="➕", reacts_to=offer))))
 
+    def test_an_unreadable_room_never_lets_a_second_room_run_the_repo(self):
+        """GPT re-check: a failed read of the primary must not look like "no primary"."""
+        real = self.lp.client.room_get_state
+
+        async def flaky(rid):
+            return SimpleNamespace() if rid == "!a" else await real(rid)
+        self.lp.client.room_get_state = flaky
+        self.assertIn("couldn't check the other rooms", run(self.lp.set_repo(self.b, ANNA, REPO)))
+        self.assertNotIn(github.LEVEL_EVENT, self.state.get("!b", {}))
+
+    def test_a_question_answered_after_the_room_bound_gets_no_buttons(self):
+        answer = self.lp.conflict_answer("!b", ANNA, REPO, "!a")
+        self.lp.drop_conflict_offers("!b")                                 # the room bound meanwhile
+        run(self.lp.offer_conflict_buttons("!b", answer, "$late"))
+        self.assertEqual(self.buttons, [])
+
+    def test_running_work_refuses_before_anything_changes(self):
+        self.lp.state = {"k": {"room": "!b", "repo": "a/other", "stage": "building"}}
+        self.state["!b"] = {"m.room.join_rules": ({"join_rule": "public"}, ANNA)}
+        self.state.pop("!a")
+        self.lp.room_repos.clear()
+        self.assertIn("still running", run(self.lp.set_repo(self.b, ANNA, REPO)))
+        self.assertEqual(self.state["!b"]["m.room.join_rules"][0], {"join_rule": "public"})   # not closed either
+
     def test_a_discussion_room_is_never_the_repos_primary(self):
         self.bind("!b", runs_in="!a")
         self.assertEqual(run(self.lp.primary_room_for(REPO, exclude="!a")), None)
@@ -192,6 +221,11 @@ class Visibility(Base):
             refused, _ = run(self.lp.close_for_private("!a", REPO))
         self.assertIn("I haven't set the repo", refused)
 
+    def test_an_unreadable_binding_never_counts_as_no_repo(self):
+        self.lp.client.room_get_state = mock.AsyncMock(return_value=SimpleNamespace())
+        self.assertIn("couldn't read this room's settings", run(self.lp.set_visibility(self.room, ANNA, "open")))
+        self.assertNotIn("m.room.join_rules", self.state.get("!a", {}))
+
     def test_someone_elses_record_is_ignored_and_front_doors_have_no_setting(self):
         self.state["!a"] = {project_rooms.VISIBILITY_EVENT: ({"visibility": "open"}, ANNA)}
         self.assertEqual(run(project_rooms.visibility(self.lp.client, "!a")), "private")
@@ -217,7 +251,7 @@ class MakeAndFind(Base):
     def test_make_me_a_project_room(self):
         self.lp.client.room_create = mock.AsyncMock(return_value=SimpleNamespace(room_id="!new"))
         origin = project("!o", "Lobby")
-        self.lp.addressed_text = lambda event: event.body
+        self.lp.addressed_text = lambda event, room=None: event.body
         with mock.patch("panel.add_to_room", mock.AsyncMock(return_value=True)) as panel:
             ok = run(self.lp.on_project_text(origin, SimpleNamespace(sender=ANNA, body="make me a project room called Rocket")))
         self.assertTrue(ok)

@@ -89,11 +89,12 @@ class Joining:
             log.info("knock on %s by %s not forwarded (asked already, too often, or no moderator)", room.room_id, person)
 
     async def still_wanted(self, req: dict) -> bool:
-        """The request still stands: a knock is still that knock; anyone else isn't in or invited yet."""
-        now = await room_state.membership(self.client, req["room"], req["person"])
+        """The request still stands: a knock is still that very knock (not withdrawn and renewed); anyone
+        else isn't in, invited or banned. Raises StateUnreadable when the room can't be read."""
+        now = await room_state.standing(self.client, req["room"], req["person"])
         if req.get("knock"):
-            return now == "knock"
-        return now not in ("join", "invite", "ban")
+            return now["membership"] == "knock" and now["event_id"] == req["knock"]
+        return now["membership"] not in ("join", "invite", "ban")
 
     async def on_join_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was a click on one of my join questions (used or not)."""
@@ -104,15 +105,19 @@ class Joining:
         if (event.sender != req["moderator"] or room.room_id != req["dm"] or key not in (LET_IN, DECLINE)
                 or time.time() - req["at"] > REQUEST_S):
             return True
-        target = self.client.rooms.get(req["room"])
-        if (target is None or await room_state.membership(self.client, req["room"], event.sender) != "join"
-                or not await room_state.is_moderator(self.client, target, event.sender)):
-            await self.say(room.room_id, "You're no longer an owner or maintainer of that room, so I can't act on this.")
-            return True
-        who = local_name(req["person"])
-        if not await self.still_wanted(req):
-            self.settle(req)
-            await self.say(room.room_id, f"Nothing to do: {who}'s request no longer stands.")
+        target, who = self.client.rooms.get(req["room"]), local_name(req["person"])
+        try:
+            clicker = await room_state.standing(self.client, req["room"], event.sender)
+            if target is None or clicker["membership"] != "join" or not clicker["moderator"]:
+                await self.say(room.room_id, "You're no longer an owner or maintainer of that room, so I can't act on this.")
+                return True
+            if not await self.still_wanted(req):
+                self.settle(req)
+                await self.say(room.room_id, f"Nothing to do: {who}'s request no longer stands.")
+                return True
+        except room_state.StateUnreadable as e:   # never decided on a guess: the click can be tried again
+            log.warning("join decision on %s postponed: %s", req["room"], e)
+            await self.say(room.room_id, "I couldn't check that room just now; click again in a minute.")
             return True
         if key == LET_IN:
             resp = await self.client.room_invite(req["room"], req["person"])

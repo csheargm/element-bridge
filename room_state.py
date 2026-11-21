@@ -24,9 +24,17 @@ def binding_in(events: list, pm: str) -> dict:
     return {}
 
 
-async def read_binding(client: AsyncClient, room_id: str) -> dict:
+class StateUnreadable(RuntimeError):
+    """The server didn't give a room's state: a check that must not fail open says so instead."""
+
+
+async def read_binding(client: AsyncClient, room_id: str, strict: bool = False) -> dict:
     r = await client.room_get_state(room_id)
-    return binding_in(r.events, pm_id(client)) if isinstance(r, RoomGetStateResponse) else {}
+    if not isinstance(r, RoomGetStateResponse):
+        if strict:
+            raise StateUnreadable(f"couldn't read {room_id}'s state: {r}")
+        return {}
+    return binding_in(r.events, pm_id(client))
 
 
 def repo_in(content: dict) -> str | None:
@@ -65,17 +73,40 @@ async def repo_of(client: AsyncClient, room_id: str) -> str | None:
     return repo_in(await read_binding(client, room_id))
 
 
-async def binding_of(client: AsyncClient, room_id: str) -> tuple[str | None, str | None]:
-    """(repo, the room that runs it if this one only discusses it), from ONE read of the binding."""
-    content = await read_binding(client, room_id)
+async def binding_of(client: AsyncClient, room_id: str, strict: bool = False) -> tuple[str | None, str | None]:
+    """(repo, the room that runs it if this one only discusses it), from ONE read of the binding;
+    strict: an unreadable room raises StateUnreadable instead of looking unbound."""
+    content = await read_binding(client, room_id, strict)
     return repo_in(content), runs_in(content)
 
 
-async def membership(client: AsyncClient, room_id: str, user: str) -> str | None:
-    """A user's membership in a room now, asked of the server (not a cached view)."""
-    r = await client.room_get_state_event(room_id, "m.room.member", user)
-    content = getattr(r, "content", None)
-    return content.get("membership") if isinstance(content, dict) else None
+def creators_in(events: list) -> set:
+    """Room v12+: the creators, who outrank everyone and aren't in power_levels.users."""
+    for ev in events:
+        if ev.get("type") == "m.room.create":
+            content = ev.get("content", {})
+            version = str(content.get("room_version", "1"))
+            if version.isdigit() and int(version) >= 12:
+                return {ev.get("sender"), *content.get("additional_creators", [])}
+    return set()
+
+
+async def standing(client: AsyncClient, room_id: str, user: str) -> dict:
+    """A user's membership (and its event id) and moderator role in a room NOW, from one read of the
+    server's state, never a cached view (GPT review). Raises StateUnreadable when it can't be read."""
+    r = await client.room_get_state(room_id)
+    if not isinstance(r, RoomGetStateResponse):
+        raise StateUnreadable(f"couldn't read {room_id}'s state: {r}")
+    found = {"membership": None, "event_id": None, "moderator": user in creators_in(r.events)}
+    for ev in r.events:
+        if ev.get("type") == "m.room.member" and ev.get("state_key") == user:
+            found.update(membership=(ev.get("content") or {}).get("membership"), event_id=ev.get("event_id"))
+        elif ev.get("type") == "m.room.power_levels" and ev.get("state_key") == "":
+            levels = ev.get("content") or {}
+            users = levels.get("users") if isinstance(levels.get("users"), dict) else {}
+            level = users.get(user, levels.get("users_default", 0))
+            found["moderator"] = found["moderator"] or (isinstance(level, int) and level >= MODERATOR_LEVEL)
+    return found
 
 
 async def runs_in_of(client: AsyncClient, room_id: str) -> str | None:
