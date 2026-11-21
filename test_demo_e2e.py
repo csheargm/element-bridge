@@ -40,18 +40,19 @@ def confirm_latest(anna, room_id, words, ts):
     return target["content"]["body"]
 
 
-def start_anna(env: dict, pw: dict, logs) -> subprocess.Popen:
+def start_anna(env: dict, pw: dict, logs) -> list[subprocess.Popen]:
     """anna's agent: the Codex bridge, or (DEMO_ANNA=hermes) Hermes through the hagency MCP server."""
     if os.environ.get("DEMO_ANNA") != "hermes":
-        return subprocess.Popen([str(ROOT / ".venv/bin/python"), "bridge.py", "anna"], cwd=ROOT, env=env,
-                                stdout=logs, stderr=logs)
+        return [subprocess.Popen([str(ROOT / ".venv/bin/python"), "bridge.py", "anna"], cwd=ROOT, env=env,
+                                 stdout=logs, stderr=logs)]
     gh_env = {k: env[k] for k in ("FAKE_GH_STATE", "GH_BIN", "GH_IDENTITY_ROOT", "LOOP_REPO")}
-    profile = hermes_profile.configure("annademo", owner="anna", agent="anna-agent", password=pw["PW_ANNA_AGENT"],
-                                       home_room=None, mcp_env=gh_env, loop=True)
-    for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # no memory of earlier runs
-        path = profile / stale
-        shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
-    return subprocess.Popen(["hermes", "-p", "annademo", "gateway", "run"], stdout=logs, stderr=logs)
+    profiles = hermes_profile.configure_both("annademo", owner="anna", agent="anna-agent",
+                                             password=pw["PW_ANNA_AGENT"], home_room=None, mcp_env=gh_env)
+    for profile in profiles:                 # anna's own profile and @pm's loop one: no memory of earlier runs
+        for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):
+            path = profile / stale
+            shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
+    return [subprocess.Popen(["hermes", "-p", p.name, "gateway", "run"], stdout=logs, stderr=logs) for p in profiles]
 
 
 def main():
@@ -63,7 +64,7 @@ def main():
     py, logs = str(ROOT / ".venv/bin/python"), open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([py, *a], cwd=ROOT, env=env, stdout=logs, stderr=logs)
              for a in (["bridge.py", "betty"], ["loop.py"])]
-    procs.append(start_anna(env, pw, logs))
+    procs += start_anna(env, pw, logs)
     gh = lambda: json.loads((tmp / "gh.json").read_text())
     try:
         time.sleep(25 if os.environ.get("DEMO_ANNA") == "hermes" else 8)

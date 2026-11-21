@@ -693,7 +693,8 @@ Rejected or deferred:
 Owner CLI powers, work folders, answers without @ (GPT, two passes over the branch), adopted with tests:
 - Hermes gives one toolset to every turn, so @pm's loop tasks (other people's issue text) would
   have had the owner's terminal/file/web tools: the default profile obeys only its owner;
-  `onboard.py --agent hermes --loop` keeps the contained profile and @pm. Leftover
+  a loop profile kept the contained tools and @pm (later, by the owner's decision: both run
+  side by side on one account, see ADR 0006). Leftover
   GATEWAY_ALLOWED_USERS / *_ALLOW_ALL_USERS lines are removed from the profile's .env.
 - A member's locked turn (--allow-members) resumed the owner's conversation: separate session key.
 - The refusal note broke task output (final `VERDICT:` line, plan JSON): only owner turns get it.

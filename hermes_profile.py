@@ -1,10 +1,17 @@
-"""A Hermes profile for working in Hagency rooms: a separate profile with no personal skills or
-memories, that posts only final replies. By default it obeys only its owner and has the owner's own
-Hermes set-up (docs/adr/0006-owner-cli-powers.md): the toolsets, approval and terminal settings of
-their default profile (Hermes's own Matrix toolset if they set none), with the terminal working in
-~/.hagency/work/<owner>/hermes, outside the app. With loop=True it also obeys @pm's GitHub-loop tasks
-and keeps no file/terminal/web tools (repo work through the hagency MCP server: contained edits, own
-GitHub identity). Used by onboard.py and test_hermes_e2e.py.
+"""Hermes profiles for working in Hagency rooms: separate profiles with no personal skills or
+memories, that post only final replies. Hermes gives one toolset to every turn, whoever sent it, so
+each person's Hermes agent runs as TWO profiles side by side, logged in as the same Matrix account
+(the room sees one agent; different device IDs), each obeying only its own sender
+(docs/adr/0006-owner-cli-powers.md):
+  - "<person>room" (personal): obeys only the owner, with the owner's own Hermes set-up (toolsets,
+    approvals, terminal of their default profile; Hermes's Matrix toolset if they set none), its
+    terminal in ~/.hagency/work/<owner>/hermes, outside the app;
+  - "<person>loop" (loop): obeys only @pm's GitHub-loop tasks (other people's issue text), with no
+    file/terminal/web tools: repo work only through the hagency MCP server (contained edits, own
+    GitHub identity).
+Each accepts invites only from its own sender (docs/hermes-matrix-invite-allowlist.patch) and
+ignores everyone else, also in DMs (no pairing offers). Used by onboard.py, supervise.py and
+test_hermes_e2e.py.
 
 Only the model's API key is copied from the default profile, read from file to file and never
 printed; nothing else personal (other keys, skills, memories) comes along.
@@ -49,6 +56,14 @@ ROOM_RULES = ("\n\nIn Hagency rooms: before answering any question about the pro
               "tool start_code_change and follow its `next` fields; the change goes to their private copy and they "
               "choose with buttons in your private room. If they ask to go back to the official version, call "
               "go_back_to_official.\n")
+
+
+PERSONAL, LOOP = "room", "loop"                 # profile name = person + suffix
+
+
+def profile_names(person: str) -> tuple[str, str]:
+    """(personal, loop) profile names for a person's Hermes agent."""
+    return f"{person}{PERSONAL}", f"{person}{LOOP}"
 
 
 def profile_dir(name: str) -> Path:
@@ -189,10 +204,9 @@ def write_env(profile: Path, values: dict, key_name: str | None) -> None:
 
 def configure(name: str, *, owner: str, agent: str, password: str, home_room: str | None,
               mcp_env: dict | None = None, loop: bool = False) -> Path:
-    """Write the profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md.
-    Hermes gives one toolset to every turn, whoever sent it. So: by default the owner's own tools,
-    obeying only the owner (ADR 0006). loop=True also takes @pm's GitHub-loop tasks, which carry
-    other people's issue text: then the profile keeps the contained LOOP_TOOLS instead."""
+    """Write one profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md: the
+    personal one (owner only, the owner's own tools) or, with loop=True, the loop one (@pm only,
+    the contained LOOP_TOOLS). configure_both writes the pair a person's agent runs as."""
     profile = ensure_profile(name, owner)
     workdirs.hermes_dir(owner).mkdir(parents=True, exist_ok=True)
     model, key_name = profile_model(profile)
@@ -211,6 +225,7 @@ matrix:
   require_mention: true
   gateway_restart_notification: false # restarts (e.g. after a code update) aren't announced in every room
   reply_to_mode: "off"                # answers don't quote the question; threads are kept (docs/hermes-matrix-reply-mode.patch)
+unauthorized_dm_behavior: ignore      # anyone not in MATRIX_ALLOWED_USERS: silence (no pairing codes)
 onboarding:                           # no "shall I build your profile?" offers in a shared room
   profile_build: "off"
 mcp_servers:
@@ -223,10 +238,18 @@ mcp_servers:
 """)
     values = {"MATRIX_HOMESERVER": "http://127.0.0.1:8648", "MATRIX_USER_ID": f"@{agent}:{SERVER_NAME}",
               "MATRIX_PASSWORD": password, "MATRIX_DEVICE_ID": f"HERMES_{name.upper()}",
-              "MATRIX_ALLOWED_USERS": f"@{owner}:{SERVER_NAME}" + (f",@pm:{SERVER_NAME}" if loop else ""),
+              "MATRIX_ALLOWED_USERS": f"@pm:{SERVER_NAME}" if loop else f"@{owner}:{SERVER_NAME}",   # one sender each
               "MATRIX_E2EE_MODE": "off", "MATRIX_AUTO_THREAD": "false", "MATRIX_SESSION_SCOPE": "room",
-              "MATRIX_REQUIRE_MENTION": "true", **({"MATRIX_HOME_ROOM": home_room} if home_room else {})}
+              "MATRIX_REQUIRE_MENTION": "true", **({"MATRIX_HOME_ROOM": home_room} if home_room and not loop else {})}
     write_env(profile, values, key_name)
     soul = profile / "SOUL.md"
     soul.write_text(soul.read_text().split("\n\nIn Hagency rooms:")[0] + ROOM_RULES)
     return profile
+
+
+def configure_both(person: str, *, owner: str, agent: str, password: str, home_room: str | None,
+                   mcp_env: dict | None = None) -> tuple[Path, Path]:
+    """The two profiles a person's Hermes agent runs as: (personal, loop)."""
+    personal, loop = profile_names(person)
+    return (configure(personal, owner=owner, agent=agent, password=password, home_room=home_room, mcp_env=mcp_env),
+            configure(loop, owner=owner, agent=agent, password=password, home_room=None, mcp_env=mcp_env, loop=True))

@@ -31,7 +31,7 @@ Automated rehearsal of steps 5–9 (no Element, fake GitHub, Codex agents):
 ## 1. Create the two agents (≈1 min)
 
 ```bash
-.venv/bin/python onboard.py anna --agent hermes --loop   # Hermes builds in the loop
+.venv/bin/python onboard.py anna --agent hermes
 ```
 
 ```bash

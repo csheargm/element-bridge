@@ -12,20 +12,37 @@ import workdirs
 
 
 class Supervisor(unittest.TestCase):
-    def kids(self, people, default="codex"):
+    def kids(self, people, default="codex", profiles=("annaroom", "annaloop")):
+        home = Path(tempfile.mkdtemp())
+        for name in profiles:
+            (home / "profiles" / name).mkdir(parents=True)
+            (home / "profiles" / name / "config.yaml").write_text("model: {}\n")
         with mock.patch.object(registry, "load", return_value=people), \
+                mock.patch.object(hermes_profile, "HERMES_HOME", home), \
                 mock.patch.object(hermes_profile, "set_repos") as set_repo:     # never touch real profiles
-            kids = {k.name: k.argv for k in supervise.children(default, False)}
-        self.set_repo_calls = set_repo.call_args_list
+            kids = {k.name: k for k in supervise.children(default, False)}
+        self.set_repo_calls = [c.args for c in set_repo.call_args_list]
         return kids
 
     def test_each_person_gets_the_agent_they_brought(self):
         kids = self.kids({"anna": {"agent": "hermes"}, "betty": {"agent": "claude"}, "carl": {}})
-        self.assertEqual(kids["anna-agent"], ["hermes", "-p", "annaroom", "gateway", "run"])
-        self.assertEqual(kids["betty-agent"][-3:], ["betty", "--agent", "claude"])
-        self.assertEqual(kids["carl-agent"][-2:], ["--agent", "codex"])      # not onboarded: start.sh's choice
+        self.assertEqual(kids["anna-agent"].argv, ["hermes", "-p", "annaroom", "gateway", "run"])
+        self.assertEqual(kids["betty-agent"].argv[-3:], ["betty", "--agent", "claude"])
+        self.assertEqual(kids["carl-agent"].argv[-2:], ["--agent", "codex"])      # not onboarded: start.sh's choice
         self.assertIn("pm", kids)
-        self.assertEqual(self.set_repo_calls[0].args, ("annaroom",))   # this run's repos
+        self.assertEqual(self.set_repo_calls, [("annaroom",), ("annaloop",)])   # this run's repos, both
+
+    def test_a_hermes_agent_runs_as_its_personal_and_its_loop_profile(self):
+        kids = self.kids({"anna": {"agent": "hermes"}})
+        self.assertEqual(kids["anna-loop"].argv, ["hermes", "-p", "annaloop", "gateway", "run"])
+        self.assertEqual((kids["anna-agent"].profile, kids["anna-loop"].profile), ("annaroom", "annaloop"))
+        self.assertEqual(kids["anna-loop"].owner, "anna")          # its hagency tools follow anna's code choice
+        self.assertIn("anna-buttons", kids)
+
+    def test_a_profile_not_set_up_yet_is_not_started(self):
+        kids = self.kids({"anna": {"agent": "hermes"}}, profiles=("annaroom",))   # onboarded before the split
+        self.assertIn("anna-agent", kids)
+        self.assertNotIn("anna-loop", kids)
 
     def test_registry_defaults_to_the_two_demo_people(self):
         with mock.patch.object(registry, "PATH", Path(tempfile.mkdtemp()) / "missing.json"):
@@ -36,7 +53,9 @@ class HermesProfile(unittest.TestCase):
     def setUp(self):
         home = Path(tempfile.mkdtemp())
         (home / "profiles" / "annaroom").mkdir(parents=True)
-        (home / "profiles" / "annaroom" / "SOUL.md").write_text("You are helpful.")
+        for name in ("annaroom", "annaloop"):
+            (home / "profiles" / name).mkdir(parents=True, exist_ok=True)
+            (home / "profiles" / name / "SOUL.md").write_text("You are helpful.")
         (home / "config.yaml").write_text("model:\n  default: gpt-oss:120b\n  provider: ollama-cloud\n"
                                           "  base_url: https://ollama.com/v1\nproviders: {}\n")
         (home / ".env").write_text("OLLAMA_API_KEY=model-key\nGITHUB_TOKEN=personal\nTELEGRAM_BOT_TOKEN=personal\n")
@@ -66,14 +85,43 @@ class HermesProfile(unittest.TestCase):
         self.assertNotIn("mallory", env.read_text())
         self.assertNotIn("ALLOW_ALL", env.read_text())
 
-    def test_a_loop_profile_takes_pm_tasks_but_keeps_contained_tools(self):
+    def both(self):
+        personal, loop = hermes_profile.configure_both("anna", owner="anna", agent="anna-agent", password="pw",
+                                                       home_room="!dm:x")
+        read = lambda d: dict(ln.split("=", 1) for ln in (d / ".env").read_text().splitlines() if "=" in ln)  # noqa: E731
+        return read(personal), read(loop), (personal / "config.yaml").read_text(), (loop / "config.yaml").read_text()
+
+    def test_two_profiles_one_account_one_sender_each(self):
+        """Owner decision: Hermes people are in the GitHub loop AND have a full-power personal agent."""
+        penv, lenv, _, _ = self.both()
+        self.assertEqual(penv["MATRIX_USER_ID"], lenv["MATRIX_USER_ID"])            # the room sees one agent
+        self.assertNotEqual(penv["MATRIX_DEVICE_ID"], lenv["MATRIX_DEVICE_ID"])
+        self.assertEqual(penv["MATRIX_ALLOWED_USERS"], "@anna:bridge.localhost")
+        self.assertEqual(lenv["MATRIX_ALLOWED_USERS"], "@pm:bridge.localhost")
+        self.assertEqual(penv.get("MATRIX_HOME_ROOM"), "!dm:x")
+        self.assertNotIn("MATRIX_HOME_ROOM", lenv)                                  # its DM is the owner's
+
+    def test_no_message_is_handled_twice_or_by_the_wrong_profile(self):
+        """Hermes acts only on senders in MATRIX_ALLOWED_USERS (others: silence, also for invites:
+        docs/hermes-matrix-invite-allowlist.patch), so exactly one profile handles each sender."""
+        penv, lenv, pcfg, lcfg = self.both()
+        handlers = {who: [n for n, env in (("personal", penv), ("loop", lenv))
+                          if who in env["MATRIX_ALLOWED_USERS"].split(",")]
+                    for who in ("@anna:bridge.localhost", "@pm:bridge.localhost", "@betty:bridge.localhost")}
+        self.assertEqual(handlers, {"@anna:bridge.localhost": ["personal"], "@pm:bridge.localhost": ["loop"],
+                                    "@betty:bridge.localhost": []})
+        for cfg in (pcfg, lcfg):
+            self.assertIn("unauthorized_dm_behavior: ignore", cfg)                # no pairing replies either
+
+    def test_the_loop_profile_keeps_contained_tools_and_the_personal_one_the_owners(self):
         """GPT review: Hermes gives one toolset to every turn, so @pm's tasks (other people's issue
         text) must never get the owner's terminal/file/web tools."""
-        hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw", home_room=None, loop=True)
-        env, cfg = (self.profile / ".env").read_text(), (self.profile / "config.yaml").read_text()
-        self.assertIn("MATRIX_ALLOWED_USERS=@anna:bridge.localhost,@pm:bridge.localhost", env)
-        self.assertIn("matrix: [todo, memory, skills]", cfg)
-        self.assertNotIn("matrix: [hermes-matrix", cfg)
+        _, _, pcfg, lcfg = self.both()
+        self.assertIn("matrix: [todo, memory, skills]", lcfg)
+        self.assertNotIn("matrix: [hermes-matrix", lcfg)
+        self.assertNotIn("terminal:", lcfg)
+        self.assertIn("matrix: [hermes-matrix]", pcfg)
+        self.assertIn("hagency_mcp.py", lcfg)                                      # its loop tools
 
     def test_hermes_own_tools_and_a_quiet_room(self):
         """ADR 0006: the owner's Hermes gets its normal Matrix toolset (no todo/memory/skills-only list)."""

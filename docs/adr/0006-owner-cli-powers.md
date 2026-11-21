@@ -38,13 +38,28 @@ to work without interactive approvals** (`owner_cli.py`):
   owner's is kept, whether read-only or `danger-full-access`. So are `web_search="disabled"` and
   `network_access=false`. Their features and MCP servers stay on.
 - Hermes gives one toolset to every turn, whoever sent it, and @pm's loop tasks carry other
-  people's issue text. So:
-  - By default the room profile obeys **only its owner** (`MATRIX_ALLOWED_USERS`). It takes the
-    owner's default-profile `toolsets`, `platform_toolsets.matrix` (Hermes's own `hermes-matrix`
-    if they set none), `approvals` and `terminal` settings. Its terminal works in
-    `~/.hagency/work/<owner>/hermes`.
-  - `onboard.py … --agent hermes --loop` keeps the old contained profile instead: no
-    file/terminal/web tools, and it also obeys @pm, so Hermes can take part in the GitHub loop.
+  people's issue text. A Hermes person must still be in the GitHub loop *and* have a full-power
+  personal agent (owner decision). So their agent runs as **two profiles side by side, logged in
+  as the same Matrix account** with different device IDs, so the room sees one agent:
+  - **Personal, `<person>room`:** `MATRIX_ALLOWED_USERS` is the owner only. It takes the owner's
+    default-profile `toolsets`, `platform_toolsets.matrix` (Hermes's own `hermes-matrix` if they
+    set none), `approvals` and `terminal` settings. Its terminal works in
+    `~/.hagency/work/<owner>/hermes`, and its DM home room is the owner's.
+  - **Loop, `<person>loop`:** `MATRIX_ALLOWED_USERS` is @pm only. It keeps the old contained
+    tools (`todo, memory, skills` plus the hagency MCP build/review/plan tools; no
+    file/terminal/web).
+  - **No double replies:** Hermes acts only on senders in its allowlist. Others are logged as
+    unauthorized and ignored, in groups always and in DMs with `unauthorized_dm_behavior: ignore`
+    (no pairing codes). So an owner message is handled only by the personal profile, a @pm task
+    only by the loop one, and anyone else's by neither.
+  - **Invites:** with `docs/hermes-matrix-invite-allowlist.patch`, Hermes accepts invites only
+    from its allowlist. The personal profile joins the owner's invites and the loop profile
+    @pm's follow-me invites. Membership belongs to the account, so both then see the room.
+  - **Starting them:** `onboard.py <name> --agent hermes` sets up both (`--loop` is kept as a
+    no-op). `supervise.py` starts both as `<name>-agent` and `<name>-loop`. It skips a profile that
+    isn't set up yet and says to re-run onboard.
+  - **Remote people:** `connect.py` doesn't run Hermes on a person's own computer yet (Codex and
+    Claude Code only). Hermes stays server-side until it does.
 
 **What the bridge keeps:**
 1. **Owner only.** Only the owner's messages trigger a turn, and others' messages are context.
@@ -102,9 +117,10 @@ toggle remain only for the hagency MCP `web_search`/`fetch_page` tools. Retiring
   earlier chat line, a project file, a web page) runs with those powers. That is the same as
   pasting the text into their own terminal. Their deny rules and their CLI's sandbox are the
   defence, and we add none of our own.
-- **Hermes and the loop:** a Hermes agent no longer takes @pm's loop tasks unless it was onboarded
-  with `--loop`, and then it has no file/terminal/web tools. Its own replies are not scrubbed by
+- **Hermes:** two gateways per Hermes person (one more process each). The personal profile never
+  sees @pm's tasks; the loop profile never sees the owner's words. Hermes's own replies are not scrubbed by
   the bridge, since Hermes posts directly.
 - **Taking effect:** the bridge restarts on the code update (`supervise.py`). Hermes profiles are
-  rewritten by re-running `onboard.py … --agent hermes [--loop]`.
+  rewritten, and the loop profile created, by re-running `onboard.py <name> --agent hermes`. Until
+  then the old single profile keeps running as before.
 - `test_codex_lockdown_live.py` still checks the locked path, which loop tasks use.

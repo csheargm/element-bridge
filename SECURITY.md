@@ -12,8 +12,9 @@ the room can't steer it, because only you can trigger it.**
 - **Your CLI, full power, your deny rules.** For its owner, the bridge runs Codex / Claude Code
   with the owner's settings and MCP servers, plus web, edits and commands in its work folder
   without an approval prompt (`owner_cli.py`); the owner's deny rules and explicit Codex sandbox
-  settings still win, and refusals are named in the reply. Hermes: the owner's own tools, obeying
-  only the owner (`--loop` profiles keep contained tools because @pm's tasks carry others' text).
+  settings still win, and refusals are named in the reply. Hermes: two profiles on one account,
+  the owner's (their own tools, obeys only them) and the loop's (contained tools, obeys only @pm,
+  because @pm's tasks carry others' text).
   Turns on untrusted text that the owner didn't ask for (loop builds/reviews/plans, @pm's brain,
   members' questions) stay locked down.
 - **Chat never becomes a command.** The prompt goes on stdin, never through a shell or as CLI
