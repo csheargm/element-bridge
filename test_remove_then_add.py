@@ -7,11 +7,14 @@ from unittest import mock
 
 import agent_removal
 import console
+import github_link
 import registry
 import remote_agent
 import setup_accounts
 import supervise
+from test_github_link import ANNA, ANNA_ID, LinkCase
 from test_more_agents_flows import BETTY, Base, text
+from test_remove_agent import use_registry
 
 S = "bridge.localhost"
 
@@ -71,6 +74,66 @@ class RemoveLastThenAdd(Base):
         mine = console.my_agents(self.lp, room, "!r", BETTY)
         self.assertEqual(mine, [])
         self.assertTrue(console.can_add(BETTY, mine))               # the panel's "Add an agent" stays
+
+
+class PruneDropsGitHub(LinkCase):
+    """#4: pruning a deactivated person here left their GitHub link, and a sign-in still waiting could
+    save one after; a reactivated account would then bind repos on that old proof."""
+
+    def setUp(self):
+        super().setUp()
+        use_registry(self, {ANNA: {"agent": "remote", "ready": True}, BETTY: {"agent": "remote", "ready": True}})
+        self.dead = {ANNA, f"@anna-agent:{S}"}
+        p = mock.patch.object(agent_removal, "deactivated", lambda: self.dead)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def prune(self):
+        with self.assertLogs("loop", "WARNING") as logs:
+            asyncio.run(self.lp.prune_registry(now=10**9))
+        return "\n".join(logs.output)
+
+    def test_a_deactivated_persons_link_goes_and_others_stay(self):
+        github_link.save_link(ANNA, "anna-gh", ANNA_ID)
+        github_link.save_link(BETTY, "betty-gh", 7)
+        self.assertIn(f"dropped deactivated {ANNA}'s GitHub link", self.prune())
+        self.assertIsNone(github_link.link_of(ANNA))
+        self.assertEqual(github_link.link_of(BETTY)["login"], "betty-gh")       # live: untouched
+        self.assertNotIn(ANNA, registry.load())
+
+    def test_a_sign_in_waiting_when_pruned_never_saves_a_link(self):
+        self.fake.approve("anna-gh", ANNA_ID, answers=["authorization_pending"] * 50)
+
+        async def flow():
+            await self.lp.connect_github(ANNA)
+            task = github_link.FLOWS[ANNA]["task"]
+            with self.assertLogs("loop", "WARNING"):
+                await self.lp.prune_registry(now=10**9)
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        asyncio.run(flow())
+        self.assertIsNone(github_link.link_of(ANNA))
+        self.assertIsNone(github_link.status(ANNA)["code"])
+
+    def test_an_approval_landing_as_the_prune_runs_is_not_saved(self):
+        async def approved_meanwhile(flow, sleep=None):
+            self.lp.forget_github_of(self.dead)                                  # the prune, as GitHub answers
+            return "anna-gh", ANNA_ID
+        with mock.patch.object(github_link, "wait_for_login", approved_meanwhile):
+            async def flow():
+                await self.lp.connect_github(ANNA)
+                with self.assertRaises(asyncio.CancelledError):
+                    await github_link.FLOWS.get(ANNA, {}).get("task") or asyncio.sleep(0)
+            asyncio.run(flow())
+        self.assertIsNone(github_link.link_of(ANNA))
+
+    def test_an_active_person_removing_an_agent_keeps_their_link(self):
+        github_link.save_link(ANNA, "anna-gh", ANNA_ID)
+        self.lp._seen = {}                                                       # pm_presence.py, in memory here
+        with mock.patch.object(agent_removal, "remove", return_value=True), \
+                mock.patch.object(remote_agent.CODES, "revoke"):
+            self.assertTrue(asyncio.run(self.lp.remove_for_good("!dm", ANNA, "anna-agent")))
+        self.assertEqual(github_link.link_of(ANNA)["login"], "anna-gh")
 
 
 if __name__ == "__main__":

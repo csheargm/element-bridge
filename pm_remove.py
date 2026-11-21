@@ -108,6 +108,7 @@ class Removal:
         if dead is None:
             return                            # agent_removal logged why; the dead set stays as it was
         self._dead = dead
+        self.forget_github_of(dead)           # pm_github.py: a deactivated account's GitHub link goes too
         for person in await asyncio.to_thread(agent_removal.prune, dead):
             log.warning("forgot %s in agents.json: every account of theirs here is deactivated", person)
 

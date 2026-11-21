@@ -109,11 +109,29 @@ class GitHubLink:
         flow["task"] = asyncio.create_task(self.finish_github(person, flow))
         return flow
 
-    def disconnect_github(self, person: str) -> str:
+    def end_github_sign_in(self, person: str) -> tuple[dict | None, bool]:
+        """Cancel their pending sign-in, and a code still on its way: (that sign-in, whether one was coming)."""
         flow = github_link.FLOWS.pop(person, None)
         asked = self.__dict__.setdefault("_github_starting", {}).pop(person, None) is not None   # a code on its way: dropped
         if flow and flow.get("task"):
             flow["task"].cancel()
+        return flow, asked
+
+    def forget_github_of(self, dead: set[str]) -> None:
+        """Deactivated accounts (pm_remove.prune_registry): their GitHub link goes and a pending
+        sign-in is cancelled, so a late approval never brings it back (GPT review, batch 5+6)."""
+        starting = self.__dict__.setdefault("_github_starting", {})
+        for person in sorted((set(github_link.links()) | set(github_link.FLOWS) | set(starting)) & dead):
+            self.end_github_sign_in(person)
+            try:
+                github_link.unlink(person)
+            except github.GitHubError as e:          # the disk refused: the next prune tries again
+                log.error("couldn't drop deactivated %s's GitHub link: %s", person, e)
+                continue
+            log.warning("dropped deactivated %s's GitHub link", person)
+
+    def disconnect_github(self, person: str) -> str:
+        flow, asked = self.end_github_sign_in(person)
         try:
             gone = github_link.unlink(person)
         except github.GitHubError as e:
@@ -126,6 +144,8 @@ class GitHubLink:
         """Waits in the background for the person to approve; tells them how it ended, privately."""
         try:
             login, gid = await github_link.wait_for_login(flow)
+            if github_link.FLOWS.get(person) is not flow:   # disconnected or deactivated meanwhile: never saved
+                return
             github_link.save_link(person, login, gid)
         except github_link.LinkFailed as e:
             said = str(e)
