@@ -8,10 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import PresenceGetResponse, RoomInviteResponse
+from nio import RoomInviteResponse
 
 import agent_removal
 import console
+import matrix_calls
 import pm_agents
 import pm_presence
 import registry
@@ -169,9 +170,12 @@ class PresenceAndDisconnect(Base):
     def test_each_agent_is_watched_and_the_notice_names_it(self):
         status = {f"@cx-agent:{S}": "online", f"@cx-codex-agent:{S}": "online"}
 
-        async def presence(user_id):
-            return PresenceGetResponse(user_id, status[user_id], None, None, None)
-        self.lp.client = mock.Mock(get_presence=mock.AsyncMock(side_effect=presence))
+        async def presence(client, user_id):
+            return status[user_id] == "online"
+        p = mock.patch.object(matrix_calls, "presence", presence)
+        p.start()
+        self.addCleanup(p.stop)
+        self.lp.client = mock.Mock()
         at = lambda t: (setattr(self.lp, "_checked", 0), asyncio.run(self.lp.check_agents(now=t)))
         at(1000)
         status[f"@cx-codex-agent:{S}"] = "offline"

@@ -14,8 +14,9 @@ import re
 import time
 
 from aiohttp import ClientError
-from nio import MatrixRoom, PresenceGetResponse, ReactionEvent
+from nio import MatrixRoom, ReactionEvent
 
+import matrix_calls
 import registry
 import remote_agent
 from bridge import ROOT, SERVER_NAME
@@ -63,14 +64,13 @@ class Presence(Removal):                # pm_remove.py: Remove, and forgetting d
 
     async def check_agent(self, person: str, agent: str, now: float) -> None:
         try:
-            resp = await self.client.get_presence(f"@{agent}:{SERVER_NAME}")
-        except (OSError, asyncio.TimeoutError, ClientError) as e:   # a network blip must never stop @pm's tick
+            online = await matrix_calls.presence(self.client, f"@{agent}:{SERVER_NAME}")
+        except (OSError, asyncio.TimeoutError, ClientError, RuntimeError) as e:   # never stops @pm's tick
             log.warning("couldn't ask for %s's presence: %s", agent, e)
             return
-        if not isinstance(resp, PresenceGetResponse):
-            return                            # Synapse can't say now: no news is no alert
+        if online is None:
+            return                            # no such account or a deactivated one (expected): no news, no alert
         old = self.seen().get(agent) or {}
-        online = resp.presence == "online" or bool(resp.currently_active)
         entry = {**old, "owner": person, "online": online, "ever": old.get("ever") or online,
                  "since": old.get("since", now) if old.get("online") == online else now}
         self.seen()[agent] = entry

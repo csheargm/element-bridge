@@ -8,10 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import PresenceGetResponse
-
 import agent_removal
 import console
+import matrix_calls
 import registry
 import remote_agent
 import setup_accounts
@@ -182,12 +181,12 @@ class InChat(unittest.TestCase):
         """Synapse answers a deactivated account's presence without "presence": nio logged an error."""
         use_registry(self, {**PEOPLE, "pubtest1": {"agent": "remote"}})
         dead = {f"@pubtest1:{S}", f"@pubtest1-agent:{S}", CXC}
-        self.lp.client = mock.Mock(get_presence=mock.AsyncMock(
-            side_effect=lambda u: PresenceGetResponse(u, "online", None, None, None)))
-        with mock.patch.object(agent_removal, "deactivated", return_value=dead), self.assertLogs("loop", "WARNING") as logs:
+        presence, self.lp.client = mock.AsyncMock(return_value=True), mock.Mock()
+        with mock.patch.object(agent_removal, "deactivated", return_value=dead), self.assertLogs("loop", "WARNING") as logs, \
+                mock.patch.object(matrix_calls, "presence", presence):
             asyncio.run(self.lp.check_agents(now=10**6))
         self.assertIn(f"forgot @pubtest1:{S}", "\n".join(logs.output))
-        asked = [c.args[0] for c in self.lp.client.get_presence.call_args_list]
+        asked = [c.args[1] for c in presence.call_args_list]
         self.assertEqual(sorted(asked), sorted([CXA, f"@betty-agent:{S}"]))   # not cx-codex-agent, not pubtest1's
 
 
