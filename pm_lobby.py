@@ -23,6 +23,7 @@ log = logging.getLogger("loop")
 LOBBY_TOPIC = ("Hagency Rooms' lobby: people and their AI agents build software together. New here? Click 👍 "
                "under my greeting and I'll message you how to get your agent.")
 WELCOME_TOPIC = "Start here 👉 open 'Product Manager' on the left"
+WELCOME_NAME = "Welcome"
 GET = "👍"
 GREET = "Hi {person}! Click 👍 below to get your agent: I'll send you a private message with the next step."
 
@@ -48,11 +49,16 @@ class Lobby:
             log.warning("couldn't create %s: %s", LOBBY_ALIAS, made)
 
     async def ensure_welcome_topic(self, room_id: str) -> None:
+        """Welcome's name and topic. Synapse's auto-created room has no name, so Element showed
+        its raw address (#welcome:…) in newcomers' room lists (seen live)."""
         room = self.client.rooms.get(room_id)
-        if room is not None and getattr(room, "topic", None) != WELCOME_TOPIC:
-            resp = await self.client.room_put_state(room_id, "m.room.topic", {"topic": WELCOME_TOPIC})
-            if not hasattr(resp, "event_id"):        # the room still works; its topic is only a pointer
-                log.warning("couldn't set Welcome's topic: %s", resp)
+        if room is None:
+            return
+        for kind, key, value in (("m.room.name", "name", WELCOME_NAME), ("m.room.topic", "topic", WELCOME_TOPIC)):
+            if getattr(room, key, None) != value:
+                resp = await self.client.room_put_state(room_id, kind, {key: value})
+                if not hasattr(resp, "event_id"):    # the room still works; its name and topic are only pointers
+                    log.warning("couldn't set Welcome's %s: %s", key, resp)
 
     async def on_room_join(self, room: MatrixRoom, person: str) -> None:
         """Someone without an agent joined a room I'm in: one line, once ever, with a 👍."""

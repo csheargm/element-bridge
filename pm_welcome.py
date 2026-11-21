@@ -27,7 +27,7 @@ from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
 from pm_chat import without_quote
 from pm_github import GitHubLink
-from pm_lobby import WELCOME_TOPIC, Lobby
+from pm_lobby import WELCOME_NAME, WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
 from pm_remove import REMOVE_RE
 from redact import room_safe
@@ -94,7 +94,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             log.warning("couldn't check for the Welcome room: %s", e)
             return
         if welcome is None:
-            made = await self.client.room_create(alias=WELCOME_LOCALPART, name="Welcome", preset=RoomPreset.private_chat,
+            made = await self.client.room_create(alias=WELCOME_LOCALPART, name=WELCOME_NAME, preset=RoomPreset.private_chat,
                                                  topic=WELCOME_TOPIC)
             if not hasattr(made, "room_id"):
                 log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
