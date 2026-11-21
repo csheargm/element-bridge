@@ -1,5 +1,6 @@
-# Hagency Rooms: connect your own Codex or Claude Code as your agent, from this Windows computer.
-#   & ([scriptblock]::Create((irm -UseBasicParsing __HAGENCY_CONSOLE__/connect.ps1))) -Code CODE [-Agent codex|claude]
+# Hagency Rooms: connect your own agent from this Windows computer: Codex, Claude Code, a model in
+# Ollama, or any OpenAI-compatible service (docs/adr/0008-agent-kinds.md; Hermes: macOS / Linux only).
+#   & ([scriptblock]::Create((irm -UseBasicParsing __HAGENCY_CONSOLE__/connect.ps1))) -Code CODE [-Agent KIND] [-Model M] [-BaseUrl URL]
 # (irm ... | iex can't pass the code, hence the scriptblock.) Installs or updates Hagency Rooms in
 # %LOCALAPPDATA%\Hagency\app, has connect.py trade @pm's one-time code for your agent's sign-in
 # (kept in %USERPROFILE%\.hagency\credentials.json, readable only by you), then registers the
@@ -8,7 +9,10 @@
 # code to reconnect or update.
 param(
     [Parameter(Mandatory = $true)][string]$Code,
-    [ValidateSet('codex', 'claude')][string]$Agent
+    [ValidateSet('codex', 'claude', 'ollama', 'remote')][string]$Agent,   # none: the kind @pm set up
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}\z')][string]$Model,   # agent_kinds.MODEL_RE
+    [ValidatePattern('^https?://[^\s"\\]+\z')][string]$BaseUrl,                # connect.py checks it fully
+    [switch]$NewKey
 )
 Set-StrictMode -Version 3
 $ErrorActionPreference = 'Stop'
@@ -138,23 +142,30 @@ function Test-Backend([string]$Name) {
     [bool](Get-Command "$Name.exe", "$Name.cmd" -CommandType Application -ErrorAction SilentlyContinue)
 }
 
-function Select-Backend {
+function Test-Backends {
+    # Before the code is used up: the CLI the chosen kind runs (ollama and remote run through Codex),
+    # or with no -Agent at least one. connect.py then picks the kind (@pm's, or asks) and checks the rest.
     $hint = 'Claude Code (irm https://claude.ai/install.ps1 | iex) or Codex (npm i -g @openai/codex)'
     if ($Agent) {
-        if (-not (Test-Backend $Agent)) { throw "$Agent isn't on this PC's PATH; install $hint first" }
-        return $Agent
+        $cli = if ($Agent -eq 'claude') { 'claude' } else { 'codex' }
+        if (-not (Test-Backend $cli)) { throw "$Agent needs $cli, which isn't on this PC's PATH; install $hint first" }
+        return
     }
-    $found = @('codex', 'claude' | Where-Object { Test-Backend $_ })
-    if ($found.Count -eq 1) { return $found[0] }
-    if ($found.Count -eq 0) {
+    if (@('codex', 'claude' | Where-Object { Test-Backend $_ }).Count -eq 0) {
         $wrapper = @('codex', 'claude' | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue })
         $why = if ($wrapper.Count) { "found only PowerShell wrappers ($($wrapper -join ', ')), which the agent can't start; " } else { '' }
         throw "$($why)install $hint, then open a new PowerShell and run this line again"
     }
-    do {
-        $choice = (Read-Host 'Which one should be your agent, codex or claude?').Trim().ToLower()
-    } until ($choice -eq 'codex' -or $choice -eq 'claude')
-    return $choice
+}
+
+function Get-KindArgs {
+    # Only what was given: connect.py asks for the rest at this window (an API key never echoed).
+    $kindArgs = @()
+    if ($Agent) { $kindArgs += '--agent', $Agent }
+    if ($Model) { $kindArgs += '--model', $Model }
+    if ($BaseUrl) { $kindArgs += '--base-url', $BaseUrl }
+    if ($NewKey) { $kindArgs += '--new-key' }
+    return , $kindArgs
 }
 
 function Protect-Home {
@@ -220,13 +231,14 @@ try {
     if (-not $python) {
         throw 'needs Python 3.11 or newer: winget install -e --id Python.Python.3.12, then open a new PowerShell'
     }
-    $backend = Select-Backend                    # before the code is used up
+    Test-Backends                                # before the code is used up
+    $kindArgs = Get-KindArgs
     Stop-OldAgent
     Install-App
     $venvPy = Install-Venv $python
     Protect-Home
     Invoke-Checked 'connecting' {
-        & $venvPy (Join-Path $App 'connect.py') --server $Console --home $HagencyHome $Code --agent $backend --pair-only
+        & $venvPy (Join-Path $App 'connect.py') --server $Console --home $HagencyHome $Code @kindArgs --pair-only
     }
     Register-Agent $venvPy
     $state.Stopped = @()

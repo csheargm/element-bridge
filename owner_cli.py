@@ -10,6 +10,8 @@ The owner's own explicit choices still win:
   - Codex: `approval_policy="never"` (exec can't ask), and, only where their config.toml doesn't set
     it: `sandbox_mode="workspace-write"`, network on in that sandbox, `web_search="live"`. An
     explicit `sandbox_mode = "read-only"` or `web_search = "disabled"` of theirs is kept.
+    With another model provider (the ollama / remote kinds, ADR 0008) there is no OpenAI-hosted web
+    search to turn on: `web_search="disabled"` where they set none (the shell still has network).
 """
 import json
 import os
@@ -52,7 +54,7 @@ def claude_owner_args() -> list[str]:
     return [*mode, "--allowedTools", ",".join(CLAUDE_OWNER_TOOLS)]
 
 
-def codex_owner_args() -> list[str]:
+def codex_owner_args(hosted_web: bool = True) -> list[str]:
     _, cfg = codex_config()
     args = ["-c", 'approval_policy="never"']
     own_profile = any(k in cfg for k in OWN_PERMISSIONS_KEYS)   # theirs decides sandbox/network: never mixed
@@ -62,5 +64,5 @@ def codex_owner_args() -> list[str]:
     if not own_profile and not (isinstance(ws, dict) and "network_access" in ws):
         args += ["-c", "sandbox_workspace_write.network_access=true"]
     if "web_search" not in cfg:
-        args += ["-c", 'web_search="live"']
+        args += ["-c", 'web_search="live"' if hosted_web else 'web_search="disabled"']
     return args
