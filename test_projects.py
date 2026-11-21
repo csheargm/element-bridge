@@ -75,7 +75,8 @@ class Base(unittest.TestCase):
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.client = mock.Mock(user_id=PM, rooms={}, access_token="tok", room_get_state=get_state,
                                    room_put_state=put_state, room_get_state_event=get_state_event)
-        self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=200, release=lambda: None))
+        self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=200, release=lambda: None,
+                                                                          json=mock.AsyncMock(return_value={})))
         self.lp.private_room = mock.AsyncMock(side_effect=lambda who: f"!dm-{who}")
         self.lp.kick = lambda: None
 
@@ -234,7 +235,8 @@ class Visibility(Base):
             answer = run(self.lp.set_visibility(self.room, ANNA, value))
             self.assertTrue(answer.startswith(f"This room is now {value}"), answer)
             self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": rule})
-            self.assertEqual(json.loads(self.lp.client.send.call_args.args[2]), {"visibility": listed})
+            listing = [c.args for c in self.lp.client.send.call_args_list if "/directory/list/" in c.args[1]][-1]
+            self.assertEqual(json.loads(listing[2]), {"visibility": listed})
             self.assertEqual(run(project_rooms.visibility(self.lp.client, "!a")), value)
 
     def test_only_moderators_and_never_open_on_a_private_repo(self):
@@ -340,20 +342,25 @@ class MakeAndFind(Base):
             run(self.lp.make_project_room(origin, ANNA, ""))
         self.assertIn("enough new rooms", self.said[-1][1])                   # a few an hour
 
-    def test_find_lists_only_listed_and_open_rooms_and_never_a_private_repos_name(self):
-        rooms = {"!pub": project("!pub", "Pub"), "!sec": project("!sec", "Sec"), "!hid": project("!hid", "Hidden")}
-        self.lp.client.rooms = rooms
-        self.bind("!pub", "a/public-one")
-        self.bind("!sec", "a/secret-one")
-        self.state["!pub"][project_rooms.VISIBILITY_EVENT] = ({"visibility": "open"}, PM)
-        self.state["!sec"][project_rooms.VISIBILITY_EVENT] = ({"visibility": "listed"}, PM)
-        with mock.patch("project_rooms.repo_is_private", lambda repo: asyncio.sleep(0, repo == "a/secret-one")):
-            text = run(self.lp.find_projects())
-        self.assertIn("**Pub** · a/public-one", text)
-        self.assertIn("**Sec**", text)
-        self.assertNotIn("secret-one", text)
-        self.assertNotIn("Hidden", text)
-        self.assertIn("matrix.to/#/%21sec", text)
+    def test_a_new_room_says_comes_along_only_for_an_agent_that_can_join(self):
+        """Screen test: "Your agent comes along" to someone whose agent never connected on their computer."""
+        self.lp.client.room_create = mock.AsyncMock(return_value=SimpleNamespace(room_id="!new"))
+        self.lp.addressed_text = lambda event, room=None: event.body
+        registry.PATH.write_text(json.dumps({"anna": {"agent": "hermes"}, "betty": {"agent": registry.REMOTE}}))
+        self.lp._seen = {}
+        with mock.patch("panel.add_to_room", mock.AsyncMock(return_value=True)):
+            for who in (ANNA, BETTY):
+                run(self.lp.on_project_text(project("!o", "Lobby"), SimpleNamespace(sender=who, body="make me a project room")))
+            self.lp._seen = {registry.agents_of(BETTY)[0]["localpart"]: {"ever": True}}
+            run(self.lp.on_project_text(project("!o", "Lobby"), SimpleNamespace(sender=BETTY, body="make me a project room")))
+        made = [b for _, b in self.said if b.startswith("Made")]
+        self.assertIn("Your agent comes along when you join.", made[0])                    # run by this server
+        self.assertIn("Your agent joins once it's connected on your computer.", made[1])   # never connected
+        self.assertNotIn("comes along", made[1])
+        self.assertIn("Your agent comes along when you join.", made[2])                    # connected once
+        for follow, note in (("ask", " When you join, I'll ask whether to bring your agent."), ("never", "")):
+            registry.PATH.write_text(json.dumps({"anna": {"agent": "hermes", "follow": follow}}))
+            self.assertEqual(self.lp.agent_note(ANNA), note)                               # GPT review: their setting
 
 
 class Panel(Visibility):

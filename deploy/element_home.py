@@ -26,6 +26,11 @@ PANEL_TEMPLATE = "/panel?room=$matrix_room_id"
 # the "may share data" and "verify your identity" prompts for that one URL. Screen test: a newcomer
 # saw both before the panel appeared in every new room.
 WIDGET_LIFECYCLE = "io.element.element-web-modules.widget-lifecycle"
+# Element hides "Ask to join" on a knock room behind this labs feature (off by default). The config's
+# value wins over each person's own Labs switch (v1.12.35 Settings.tsx: LEVELS_DEVICE_ONLY_SETTINGS_WITH_
+# CONFIG_PRIORITISED; ConfigSettingsHandler reads "features", booleans). Screen test: a listed room only
+# offered Join, which Synapse refuses with 403 "You are not invited to this room".
+FEATURES = {"feature_ask_to_join": True}
 
 
 def pm_id(server_name: str) -> str:
@@ -37,7 +42,7 @@ def element_config(values: dict) -> dict:
     rooms = f"https://{values['ROOMS_DOMAIN']}{PREFIX}"
     return {"default_server_config": {"m.homeserver": {"base_url": f"https://{values['MATRIX_DOMAIN']}",
                                                        "server_name": values["SERVER_NAME"]}},
-            "disable_custom_urls": False, "disable_guests": True, "brand": BRAND,
+            "disable_custom_urls": False, "disable_guests": True, "brand": BRAND, "features": FEATURES,
             "embedded_pages": {"home_url": f"{rooms}/home.html"},
             "branding": {"auth_header_logo_url": f"{rooms}/logo.svg", "welcome_background_url": f"{rooms}/background.svg"},
             WIDGET_LIFECYCLE: {"widget_permissions": {panel_url(values): {"preload_approved": True, "identity_approved": True}}}}

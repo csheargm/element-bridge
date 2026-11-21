@@ -997,3 +997,64 @@ Rejected, with reasons:
 Re-check (GPT, the fix commit): one low point, adopted: a named agent's hint still began "follow the
 🔌 steps"; it now says "follow its Connect message", and only the first agent's hint names 🔌.
 test_panel_cards.MyAgents.
+
+## GPT review of fix/ask-to-join (screen test: Ask to join, find a project, addresses, Lobby, R15)
+
+Codex CLI on `origin/master..HEAD` (Element's feature_ask_to_join, "find a project" with 🙋, readable
+addresses for listed and open rooms, the Lobby's directory listing, "Your agent comes along").
+Three blocking, six should-fix, one nit. Adopted, verified in the code, with tests:
+- **Blocking (part). An address made before a private repo was bound could keep the repo's name.**
+  close_for_private now runs room_address.keep_secret: my address is replaced (#project) when it
+  holds the private repo's name, and the repo isn't set when that can't be checked.
+  test_room_address (test_binding_a_private_repo_replaces_an_address_that_names_it).
+- **Blocking. A record that outlived its address could delete another room's.** take() resolves the
+  alias first and deletes it only while it still points to this room; the record goes either way.
+  test_room_address (test_a_record_that_outlived_its_address_never_removes_another_rooms).
+- **Blocking. #lobby resolving was the only proof it is the Lobby.** It is listed only if @pm created
+  the room and its join rule is public. test_joining
+  (test_a_lobby_address_on_someone_elses_or_a_closed_room_is_never_listed).
+- **A room made private while "find a project" was listing could still be posted; an old 🙋 echoed
+  the room's current name.** Each line is re-checked just before it is posted; the reply to a 🙋 on
+  a room no longer listed names no room. test_find_projects
+  (test_a_room_made_private_while_listing_is_left_out, test_a_room_made_private_since_…).
+- **A knock and 🙋 were two decisions: 👎 on the knock, then 👍 on the 🙋 still invited.** A decision
+  (👍 or 👎 that went through) settles every request of that person for that room. test_find_projects
+  (test_a_declined_knock_also_settles_their_click_so_no_later_thumbs_up_invites).
+- **A PUT whose answer was lost made the next try use #name-2; canonical updates dropped
+  alt_aliases.** A 409 on an alias that already points here is used; alt_aliases are kept on give and
+  take. test_room_address (test_an_address_made_by_a_lost_try_is_used_and_other_addresses_are_kept).
+- **An unreadable room read as private and used up the click; a failed moderator read used up the
+  cooldown.** The 🙋 path reads visibility strictly (StateUnreadable keeps the button), and
+  ask_to_join reads the moderators before taking a try. test_find_projects
+  (test_an_unreadable_room_keeps_the_button_and_never_reads_as_unlisted).
+- **Expired 🙋 offers were never pruned.** Pruned at each "find a project".
+- **Nit. "Comes along" ignored the person's own follow setting.** "never" says nothing, "ask" says
+  I'll ask. test_projects (test_a_new_room_says_comes_along_only_for_an_agent_that_can_join).
+Rejected, with reasons:
+- **Room names and topics that mention a private repo.** The owners choose them, and the room
+  directory publishes them for every listed room (WORDS: "its name and topic are public"); @pm only
+  ever adds the repo's name itself for a public repo, and never puts it in an address.
+- **Link to the room ID instead of the cached alias.** Element turns the link into a pill showing
+  its target, so a room ID link is the raw-ID pill the screen test reported. The alias is only
+  removed when the room goes private, and then the 🙋 path refuses anyway.
+- **Shared work limits / pagination for Find.** Unchanged pre-existing bounds (FINDS_PER_HOUR per
+  person, MAX_SCANNED); the per-room messages are now capped lower (10). A directory query is a
+  separate change.
+- **Check offer_thumb's send result.** Pre-existing helper used by every button; out of scope (R8).
+- **"comes along" for an agent that connected once but is offline now.** The task asked for the
+  ever_connected rule; the agent is invited and joins when its computer is back.
+Re-check (GPT, the fix commit): three blocking, four should-fix, one nit. Adopted, with tests:
+- **A repo-named address that couldn't be removed still let the private repo be bound.** keep_secret
+  raises, so close_for_private refuses. test_room_address (test_a_repo_named_address_that_cant_be_removed_stops_the_bind).
+- **The 🙋 reply read the room's name after the ask (a rename meanwhile could leak).** The name as shown
+  is kept with the offer. test_find_projects (test_the_reply_names_the_room_as_it_was_shown_…).
+- **A 409 resolving here could be the owners' alias, then recorded as mine and later deleted.** It is
+  used as the main address but never recorded as mine, so I never remove it. test_room_address
+  (test_an_address_already_pointing_here_is_used_but_never_removed_and_others_are_kept).
+- **A failed moderator read (is_moderator → False) still used up a try.** No moderator to ask: no try
+  taken. **Nit: a header with no rooms under it**: the header goes out with the first room only.
+Rejected: **lookup-then-DELETE race** (Matrix has no compare-and-delete; the window is one request,
+and Synapse only lets @pm delete aliases it made or in rooms it moderates); **👎 on a 🙋 leaves the
+Matrix knock pending** (the knock stays visible to moderators in Element; only my buttons go, as
+the person was answered); **"ask" + never-connected agent** (the reply already says it joins once
+connected; pm_follow asks when they join).

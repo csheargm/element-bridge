@@ -1,6 +1,7 @@
 """Unit tests: asking to join a project room, the Lobby's one-line greeting, and a chat someone opens
 with @pm themselves (pm_joining.py, pm_lobby.py, pm_follow.py). Run: .venv/bin/python -m unittest test_joining"""
 import asyncio
+import json
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -147,6 +148,7 @@ class AskToJoin(Base):
         self.assertEqual(len(self.asks()), 2)                                              # anna and betty, for Alpha only
 
 
+# TODO(R4): over 300 lines; split on its classes (AskToJoin / LobbyGreeting / private chats) into their own files.
 class LobbyGreeting(Base):
     def setUp(self):
         super().setUp()
@@ -195,7 +197,8 @@ class LobbyGreeting(Base):
         self.assertEqual((kw["alias"], kw["preset"].value, kw["visibility"].value), ("lobby", "public_chat", "public"))
         matrix_calls.room_of_alias.return_value = "!l"
         self.lp.client.room_create.reset_mock()
-        run(self.lp.ensure_lobby())
+        with mock.patch.object(matrix_calls, "in_directory", mock.AsyncMock(return_value=True)):
+            run(self.lp.ensure_lobby())
         self.lp.client.room_create.assert_not_called()
         matrix_calls.room_of_alias.side_effect = RuntimeError("HTTP 500")   # unknown: never a second Lobby
         with self.assertLogs("loop", "WARNING"):
@@ -205,6 +208,42 @@ class LobbyGreeting(Base):
         run(self.lp.ensure_welcome_topic("!w"))
         self.assertEqual(self.state["!w"]["m.room.topic"][0], {"topic": pm_lobby.WELCOME_TOPIC})
         self.assertEqual(self.state["!w"]["m.room.name"][0], {"name": "Welcome"})   # not its raw #welcome:… address
+
+    def test_an_existing_lobby_missing_from_the_directory_is_listed_at_start(self):
+        """Screen test: a Lobby made while Synapse still refused publishing wasn't in Explore rooms."""
+        for p in (mock.patch.object(matrix_calls, "room_of_alias", mock.AsyncMock(return_value="!l")),
+                  mock.patch.object(matrix_calls, "in_directory", mock.AsyncMock(return_value=False))):
+            p.start()
+            self.addCleanup(p.stop)
+        self.lp.client.room_create = mock.AsyncMock()
+        self.state["!l"] = {"m.room.create": ({}, PM), "m.room.join_rules": ({"join_rule": "public"}, PM)}
+        run(self.lp.ensure_lobby())
+        self.lp.client.room_create.assert_not_called()                                     # never a second Lobby
+        method, path, body = self.lp.client.send.call_args.args[:3]
+        self.assertEqual((method, path, json.loads(body)),
+                         ("PUT", "/_matrix/client/v3/directory/list/room/%21l", {"visibility": "public"}))
+        self.lp.client.send.reset_mock()
+        matrix_calls.in_directory.return_value = True                                      # listed: nothing to do
+        run(self.lp.ensure_lobby())
+        self.lp.client.send.assert_not_called()
+        matrix_calls.in_directory.return_value = False
+        self.lp.client.send.return_value = SimpleNamespace(status=403, release=lambda: None)
+        with self.assertLogs("loop", "WARNING") as logs:                                   # refused: said, retried next start
+            run(self.lp.ensure_lobby())
+        self.assertIn("refused to list", logs.output[0])
+
+    def test_a_lobby_address_on_someone_elses_or_a_closed_room_is_never_listed(self):
+        """GPT review: #lobby resolving is no proof it is my public Lobby."""
+        for p in (mock.patch.object(matrix_calls, "room_of_alias", mock.AsyncMock(return_value="!l")),
+                  mock.patch.object(matrix_calls, "in_directory", mock.AsyncMock(return_value=False))):
+            p.start()
+            self.addCleanup(p.stop)
+        for create_by, rule in ((ANNA, "public"), (PM, "invite")):
+            self.state["!l"] = {"m.room.create": ({}, create_by), "m.room.join_rules": ({"join_rule": rule}, PM)}
+            with self.assertLogs("loop", "WARNING") as logs:
+                run(self.lp.ensure_lobby())
+            self.assertIn("isn't a public room I made", logs.output[0])
+        self.lp.client.send.assert_not_called()
 
     def test_a_named_welcome_room_is_left_alone(self):
         self.lp.client.rooms = {"!w": SimpleNamespace(topic=pm_lobby.WELCOME_TOPIC, name="Welcome")}

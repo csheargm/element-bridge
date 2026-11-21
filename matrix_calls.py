@@ -47,3 +47,11 @@ async def presence(client: AsyncClient, user_id: str) -> bool | None:
     if status != 200:
         raise RuntimeError(f"couldn't ask for {user_id}'s presence: HTTP {status} {body.get('errcode', '')}".strip())
     return body["presence"] == "online" or body.get("currently_active") is True
+
+
+async def in_directory(client: AsyncClient, room_id: str) -> bool:
+    """Whether the room is published in this server's room directory. Raises RuntimeError when unknown."""
+    status, body = await get_json(client, f"/_matrix/client/v3/directory/list/room/{urllib.parse.quote(room_id)}")
+    if status == 200 and body.get("visibility") in ("public", "private"):
+        return body["visibility"] == "public"
+    raise RuntimeError(f"couldn't read {room_id}'s directory listing: HTTP {status} {body.get('errcode', '')}".strip())

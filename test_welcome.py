@@ -57,9 +57,10 @@ class Base(unittest.TestCase):
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.private_room = mock.AsyncMock(return_value="!dm")
         self.admins = set()
-        a = mock.patch.object(pm_welcome.server_admins, "is_admin", lambda who: who in self.admins)
-        a.start()
-        self.addCleanup(a.stop)
+        for a in (mock.patch.object(pm_welcome.server_admins, "is_admin", lambda who: who in self.admins),
+                  mock.patch.object(matrix_calls, "in_directory", mock.AsyncMock(return_value=True))):   # the Lobby: listed
+            a.start()
+            self.addCleanup(a.stop)
 
     def run_(self, coro):
         return asyncio.run(coro)

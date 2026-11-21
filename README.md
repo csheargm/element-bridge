@@ -195,7 +195,7 @@ to write "@pm": everything you say there is for it (in project rooms, start with
 | "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |
 | "resend me the code" / "new code" / "connect my agent" | a fresh Connect page and one-time code for your agent, in @pm's chat | you |
 | "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
-| "@pm find a project" | the listed and open project rooms, with links (also Element's Explore rooms) | anyone |
+| "@pm find a project" | one message per listed or open project room: click 🙋 under a listed one to ask its owners, or join an open one by its link (also Element's Explore rooms) | anyone |
 | "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |
 | "@pm make this room listed" (or private, open) | who can find and join it; also "Who can join" in the panel | owner or maintainer |
 
@@ -207,9 +207,14 @@ run from).
 **Who can join a project room** (owners and maintainers choose; joining never gives a say in how it runs):
 - **Private** (default): not listed; by invite, or by asking @pm with the exact repo name.
 - **Listed**: in Find a project and the server's room directory (other Matrix servers see it too).
-  Element shows "Ask to join"; @pm asks the room's owners and invites on 👍. A private repo's name is
+  Element shows "Ask to join" (and 🙋 under "@pm find a project" does the same); @pm asks the room's
+  owners and invites on 👍. A private repo's name is
   never shown in a listing.
 - **Open**: listed, and anyone joins directly. Not for a room on a private GitHub repo.
+
+A listed or open room gets a readable address made from its name (`#final-project:<server>`,
+numbered if taken, never a private repo's name), unless its owners already gave it one; @pm removes
+the address it made when the room goes back to private.
 
 `@pm` understands from context. Every message addressed to it goes to an understanding step
 (`pm_brain.py`): the recent conversation, the message being replied to, what's waiting for
