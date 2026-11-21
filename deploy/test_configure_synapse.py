@@ -115,6 +115,16 @@ class RoomDirectory(unittest.TestCase):
         rules = json.loads(directory_settings("x.org")["room_list_publication_rules"])
         self.assertEqual(rules, [{"user_id": "@pm:x.org", "action": "allow"}, {"action": "deny"}])
 
+    def test_other_servers_can_browse_it_but_not_without_a_sign_in(self):
+        """Seen live: a matrix.org account in Element Desktop couldn't browse our directory (federation 401)."""
+        out = configure(GENERATED, ENV)
+        self.assertEqual(out.count("allow_public_rooms_over_federation: true"), 1)
+        self.assertEqual(out.count("allow_public_rooms_without_auth: false"), 1)
+        older = out.replace("allow_public_rooms_over_federation: true", "allow_public_rooms_over_federation: false")
+        again = configure(older, ENV)
+        self.assertIn("allow_public_rooms_over_federation: true", again)          # an older file is fixed too
+        self.assertNotIn("allow_public_rooms_over_federation: false", again)
+
 
 if __name__ == "__main__":
     unittest.main()

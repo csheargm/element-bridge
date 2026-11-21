@@ -51,7 +51,12 @@ def directory_settings(server_name: str) -> dict:
     Open through @pm). Synapse's default lets only server admins publish, so "Listed" failed with
     403 "Not allowed to publish room" (seen live in the screen test); everyone else is still refused."""
     pm = f"@{PM_LOCALPART}:{server_name}"
-    return {"room_list_publication_rules": json.dumps([{"user_id": pm, "action": "allow"}, {"action": "deny"}])}
+    # People on other servers (a matrix.org account in Element) browse this directory over federation;
+    # Synapse's default refuses (federation publicRooms answered 401, seen live). Only @pm lists rooms,
+    # so it holds just the Lobby and Listed/Open project rooms. Without a sign-in: still refused.
+    return {"room_list_publication_rules": json.dumps([{"user_id": pm, "action": "allow"}, {"action": "deny"}]),
+            "allow_public_rooms_over_federation": "true",
+            "allow_public_rooms_without_auth": "false"}
 
 
 def set_keys(text: str, values: dict) -> str:
