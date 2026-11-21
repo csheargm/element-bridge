@@ -36,6 +36,14 @@ class Render(unittest.TestCase):
         self.assertNotIn("uses:", page)                                # ADR 0006: no per-room web grant
         self.assertIn("<b>betty-agent</b> <span class=muted>· betty's agent <span class=muted>(owner not here: idle)", page)
 
+    def test_an_agent_only_invited_is_marked_so(self):
+        """Screen test: "Agents in this room" listed an agent that was only invited (never connected)
+        as if it were there."""
+        self.loop.client.rooms["!r"].invited_users = {f"@anna-agent:{S}": 0}
+        page = panel.render(self.loop, "!r")
+        self.assertIn("anna's agent <span class=chip>invited — not connected yet</span>", page)
+        self.assertEqual(page.count("not connected yet"), 1)              # betty-agent has joined
+
     def test_owner_names_are_shown_as_written(self):
         """Seen live: the owner "cx" showed as "Cx". A display name is used as set, escaped."""
         room = self.loop.client.rooms["!r"]

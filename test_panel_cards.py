@@ -47,5 +47,41 @@ class WhoCanJoin(unittest.TestCase):
         self.assertIn("Private: not listed anywhere", render("panel-project.js", "projectCard({moderator: false})"))
 
 
+NEVER = {"name": "newbie1-agent", "label": "main", "first": True, "follow": "always", "remote": True,
+         "online": False, "connected": False, "here": False, "invited": True}
+
+
+@unittest.skipIf(NODE is None, "node not installed")
+class MyAgents(unittest.TestCase):
+    """Screen test, a newcomer's "My agents": the label "main", "Run the connect line again ... (🔁)" for an
+    agent that had never connected, and "Code it runs: the official version" nobody had changed."""
+    def card(self, agents: list, version: str | None = "") -> str:
+        state = {"agents": agents, "can_add": True, "version": version}
+        return text_of(render("panel-agents.js", f"agentCards({json.dumps(state)})"))
+
+    def test_one_agent_that_never_connected(self):
+        card = self.card([NEVER])
+        self.assertIn("newbie1-agent", card)
+        self.assertNotIn("main", card)                                 # a label only matters with several
+        self.assertIn("Not connected yet: open your chat with Product Manager and follow the 🔌 steps.", card)
+        self.assertNotIn("Run the connect line again", card)
+        self.assertNotIn("Code it runs", card)                         # nothing customized: nothing to say
+        self.assertNotIn("official version", card)
+
+    def test_a_connected_agent_gone_offline_gets_the_reconnect_hint(self):
+        card = self.card([{**NEVER, "connected": True, "here": True, "invited": False}])
+        self.assertIn("Run the connect line again on its computer", card)
+        self.assertIn("Offline", card)
+        self.assertIn("in this room", card)
+
+    def test_labels_show_when_there_are_several_and_a_custom_version_shows(self):
+        codex = {**NEVER, "name": "newbie1-codex-agent", "label": "codex", "first": False}
+        card = self.card([NEVER, codex], version="abc1234")
+        self.assertIn("main · newbie1-agent", card)
+        self.assertIn("codex · newbie1-codex-agent", card)
+        self.assertIn("Code it runs: your own version (abc1234)", card)
+        self.assertIn("Go back to official", card)
+
+
 if __name__ == "__main__":
     unittest.main()
