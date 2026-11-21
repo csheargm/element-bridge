@@ -14,9 +14,12 @@ import github_link
 import panel
 import pm_github
 import pm_settings
+import room_state
 from test_github_app import OTHER, REPO
 from test_github_app_flows import PM
 from test_github_link import ANNA, ANNA_ID, BindCase, LinkCase, message
+
+REAL_JOINED_MODERATOR = room_state.joined_moderator      # BindingSetup fakes it; these tests read "standing"
 
 
 @unittest.skipUnless(shutil.which("node"), "node isn't installed: the card's script is not run")
@@ -215,6 +218,57 @@ class QuietInstallWait(BindCase):
         with mock.patch.object(pm_settings, "INSTALL_RECHECKS", 2):
             asyncio.run(flow())
         self.assertEqual(self.said, [pm_settings.refusal(OTHER)])
+
+
+class BindRace(BindCase):
+    """GPT review (batch 5+6) #2: the link and the moderator check were read before the privacy check
+    and the state read, which await; the write must re-check both, read at that moment."""
+
+    def setUp(self):
+        super().setUp()
+        github_link.save_link(ANNA, "anna-gh", ANNA_ID)
+        self.fake.installations[OTHER.lower()] = 8
+        self.now = {"membership": "join", "event_id": "$m", "moderator": True}   # Anna, as the server says now
+        for name, value in (("joined_moderator", REAL_JOINED_MODERATOR),
+                            ("standing", lambda c, rid, u: asyncio.sleep(0, dict(self.now)))):
+            p = mock.patch.object(room_state, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def during_privacy_check(self, change):
+        real = self.lp.close_for_private
+
+        async def meanwhile(*a):
+            change()
+            return await real(*a)
+        return mock.patch.object(self.lp, "close_for_private", meanwhile, create=True)
+
+    def test_disconnect_during_the_privacy_check_binds_nothing(self):
+        with self.during_privacy_check(lambda: github_link.unlink(ANNA)):
+            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.refusal(OTHER))
+        self.assertEqual(self.written, [])
+
+    def test_demoted_during_the_privacy_check_binds_nothing(self):
+        with self.during_privacy_check(lambda: self.now.update(moderator=False)):
+            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.NOT_MODERATOR)
+        self.assertEqual(self.written, [])
+
+    def test_an_install_wait_never_binds_for_someone_who_left(self):
+        """Their power-level entry stays after they leave (or they created the room): not enough."""
+        self.fake.installations.pop(OTHER.lower())
+
+        async def flow():
+            await self.lp.set_repo(self.room, ANNA, OTHER)                          # the install link
+            _, task = self.lp.install_watches["!r"]
+            self.now["membership"] = "leave"                                        # Anna leaves the room
+            self.fake.installations[OTHER.lower()] = 8                              # then the App is installed
+            await asyncio.wait_for(task, 5)
+        asyncio.run(flow())
+        self.assertEqual(self.written, [])
+        self.assertEqual(self.said[-1], pm_settings.NOT_MODERATOR)
+
+    def test_still_joined_moderator_and_connected_binds(self):
+        self.assertIn("now works on **octo/other**", asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)))
 
 
 if __name__ == "__main__":

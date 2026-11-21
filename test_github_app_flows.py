@@ -121,6 +121,7 @@ class BindingSetup(AppCase):
         v.start()
         self.addCleanup(v.stop)
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
+                         ("joined_moderator", lambda c, rid, u: asyncio.sleep(0, u == ANNA)),   # at the write
                          ("repo_of", lambda c, rid: asyncio.sleep(0, self.repo)),
                          ("binding_of", lambda c, rid: asyncio.sleep(0, (self.repo, None)))):
             p = mock.patch.object(room_state, name, fn)

@@ -86,6 +86,7 @@ class Base(unittest.TestCase):
             self.lp._discussions[rid] = runs_in
 
 
+# TODO(R4): over 300 lines; split on its classes (RoomPerRepo / visibility / find-a-project) into their own files.
 class RoomPerRepo(Base):
     def setUp(self):
         super().setUp()
@@ -100,6 +101,8 @@ class RoomPerRepo(Base):
             self.addCleanup(q.stop)
         self.lp.lock, self.lp.install_watches, self.lp.state = asyncio.Lock(), {}, {}
         self.lp.pending, self.lp.plans, self.lp.last_plans = {}, {}, {}
+        for rid in ("!a", "!b"):                                            # Anna is joined there, a moderator
+            self.members[(rid, ANNA)], self.mods[rid] = "join", {ANNA}
 
     def test_a_second_room_on_the_same_repo_gets_two_choices(self):
         answer = run(self.lp.set_repo(self.b, ANNA, REPO))

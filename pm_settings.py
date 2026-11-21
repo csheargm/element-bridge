@@ -38,6 +38,7 @@ INSTALL_RECHECK_S = 30        # after an install link: look again this often...
 INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
 BUSY = "Work is still running on the current repo; say \"stop\" and let it finish first."
 KEEP = object()               # write_level: keep the room's "only discusses its repo" as it is
+NOT_MODERATOR = "Only the room owner or a maintainer can choose this room's repo."
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
@@ -103,12 +104,27 @@ class Settings(Projects):
         if github_app.configured() and github_link.link_of(sender) != proof:
             return refusal(repo)
         refused, note = await self.close_for_private(rid, repo)
-        return refused or (await self.bind(rid, repo, other)) + note
+        return refused or (await self.bind(rid, repo, other, (sender, proof))) + note
+
+    async def requester_problem(self, rid: str, requester: tuple, repo: str) -> str | None:
+        """At the state write (GPT review, batch 5+6): the requester is still joined and a moderator,
+        read now (an install wait outlives a departure), and still has the GitHub link the write
+        check read (a Disconnect while @pm awaited the privacy check or the state read refuses)."""
+        sender, proof = requester
+        try:
+            if not await room_state.joined_moderator(self.client, rid, sender):
+                return NOT_MODERATOR
+        except room_state.StateUnreadable as e:  # never bind on a guess
+            log.warning("requester check before binding %s failed: %s", rid, e)
+            return "I couldn't check this room just now; please try again in a minute."
+        if github_app.configured() and github_link.link_of(sender) != proof:
+            return refusal(repo)
+        return None
 
     async def choose_repo(self, room: MatrixRoom, sender: str, name: str, separate_from: str | None = None) -> str:
         rid, repo = room.room_id, github.allowed_repo(name)
         if not await room_state.is_moderator(self.client, room, sender):
-            return "Only the room owner or a maintainer can choose this room's repo."
+            return NOT_MODERATOR
         if not github.REPO_RE.match(name):
             return "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\"."
         if github_app.configured() and github_link.link_of(sender) is None:
@@ -195,12 +211,14 @@ class Settings(Projects):
     def busy_on_other_repo(self, rid: str, repo: str) -> bool:
         return any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values())
 
-    async def bind(self, rid: str, repo: str, runs_in: str | None = None) -> str:
+    async def bind(self, rid: str, repo: str, runs_in: str | None = None, requester: tuple | None = None) -> str:
+        """requester: (who asked, their GitHub link then), re-checked at the state write."""
         if self.busy_on_other_repo(rid, repo):
             return BUSY
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
         keep = current == repo and runs_in is None
-        failed = await self.write_level(rid, None if keep else "off", repo, runs_in is not None)   # None: as it is, read under the lock
+        failed = await self.write_level(rid, None if keep else "off", repo, runs_in is not None,
+                                        requester=requester)      # None: as it is, read under the lock
         if failed:
             return failed
         if runs_in:                               # which room runs it: mine to know, not this room's state
@@ -253,7 +271,7 @@ class Settings(Projects):
         return await self.write_level(room_id, level, unbound_ok=level == "off")   # stopping never binds a room (anyone may stop)
 
     async def write_level(self, room_id: str, level: str | None, repo: str | None = None, discussion=KEEP,
-                          unbound_ok: bool = False) -> str | None:
+                          unbound_ok: bool = False, requester: tuple | None = None) -> str | None:
         """Write the room's level (and repo): callers have checked that a moderator asked. A room that only
         discusses a repo another room runs never leaves "off". Every binding write reads and writes under
         one short lock (not the poll's), so a "stop" can't write back a repo a rebind just replaced."""
@@ -266,6 +284,9 @@ class Settings(Projects):
             only_discusses = bound_discussion if discussion is KEEP else discussion
             if only_discusses and level != "off":
                 return RUN_ELSEWHERE
+            problem = requester and await self.requester_problem(room_id, requester, repo)   # the last await before the write
+            if problem:
+                return problem
             resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo, only_discusses))
         if not hasattr(resp, "event_id"):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":    # a room someone made: I joined at power 0
