@@ -125,7 +125,7 @@ KNOWN_ERRORS = {"authorization_pending", "slow_down", "access_denied", "expired_
 def _error(data: dict) -> str:
     """GitHub's documented error code, or "unexpected": its own text never reaches a person or a log."""
     error = data.get("error")
-    return "" if error is None else error if error in KNOWN_ERRORS else "unexpected"
+    return "" if error is None else error if isinstance(error, str) and error in KNOWN_ERRORS else "unexpected"
 
 
 async def start() -> dict:

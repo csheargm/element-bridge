@@ -868,3 +868,10 @@ Rejected or deferred:
   not changed here.
 - A monotonic deadline bounding the last token request: GitHub stops issuing tokens at expiry, and
   each request is bounded by the 20 s HTTP timeout; a token that arrives is valid proof.
+- (re-check of the fixes, GPT) Adopted, with tests: each Connect click has its own pending marker,
+  so a click cancelled by Disconnect can't take over (or clear) a newer click's; a code isn't sent if
+  Disconnect came while the private chat was being opened; the bind re-checks, under the lock and
+  right before it writes, that the GitHub link the write check used is still the person's; a GitHub
+  error that isn't text counts as "unexpected". Rejected: the reply-timing difference between an
+  unlisted repo (no GitHub call) and a listed one (pre-existing since ADR 0004; padding the reply
+  time is out of scope).

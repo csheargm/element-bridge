@@ -88,8 +88,9 @@ class Settings(Projects):
         await self.offer_conflict_buttons(room.room_id, answer, await self.say(room.room_id, answer))   # pm_projects.py
         return answer
 
-    async def bind_checked(self, rid: str, sender: str, repo: str, separate_from: str | None) -> str:
-        """Under the lock: one project room per repo, a private repo's room never open, then bind."""
+    async def bind_checked(self, rid: str, sender: str, repo: str, separate_from: str | None, proof=None) -> str:
+        """Under the lock: one project room per repo, a private repo's room never open, then bind.
+        proof: the GitHub link the write check used; a Disconnect (or a new account) since then refuses."""
         if self.busy_on_other_repo(rid, repo):    # before anything changes (closing the room included)
             return BUSY
         try:
@@ -99,6 +100,8 @@ class Settings(Projects):
             return "I couldn't check the other rooms on this repo just now; please try again in a minute."
         if other and other != separate_from:
             return self.conflict_answer(rid, sender, repo, other)
+        if github_app.configured() and github_link.link_of(sender) != proof:
+            return refusal(repo)
         refused, note = await self.close_for_private(rid, repo)
         return refused or (await self.bind(rid, repo, other)) + note
 
@@ -110,6 +113,7 @@ class Settings(Projects):
             return "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\"."
         if github_app.configured() and github_link.link_of(sender) is None:
             return NOT_CONNECTED                  # before the repo is looked at: says nothing about it
+        proof = dict(github_link.link_of(sender) or {}) or None   # what the write check reads (ADR 0007)
         try:
             allowed = repo is not None and await may_write(sender, repo)
         except github_app.NotInstalled:           # access is read as the App: not until it's there
@@ -122,7 +126,7 @@ class Settings(Projects):
             return missing
         self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
-            binding = asyncio.ensure_future(self.bind_checked(rid, sender, repo, separate_from))
+            binding = asyncio.ensure_future(self.bind_checked(rid, sender, repo, separate_from, proof))
             try:
                 return await asyncio.shield(binding)
             except asyncio.CancelledError:        # an install wait cancelled mid-bind: the bind (Matrix state

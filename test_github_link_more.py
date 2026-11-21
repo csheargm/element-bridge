@@ -72,6 +72,47 @@ class ReviewFixes(LinkCase):
         self.assertEqual(github_link.FLOWS, {})
         self.assertEqual(self.said, [])                                            # no code went anywhere
 
+    def test_a_cancelled_click_never_takes_over_a_newer_one(self):
+        """GPT re-check: the pending marker was per person, so click A (cancelled) consumed click B's."""
+        real = github_link.start
+        self.fake.approve("first", 1, answers=["authorization_pending"] * 50)
+        self.fake.approve("second", 2, answers=["authorization_pending"] * 50)
+
+        async def flow():
+            first_gate, second_gate = asyncio.Event(), asyncio.Event()
+            order = [first_gate, second_gate]
+
+            async def start():
+                await order.pop(0).wait()
+                return await real()
+            with mock.patch.object(github_link, "start", start):
+                a = asyncio.create_task(self.lp.connect_github(ANNA))
+                await asyncio.sleep(0)
+                self.lp.disconnect_github(ANNA)
+                b = asyncio.create_task(self.lp.connect_github(ANNA))
+                await asyncio.sleep(0)
+                first_gate.set()
+                self.assertEqual(await a, pm_github.CANCELLED)                    # A's code is never shown
+                second_gate.set()
+                self.assertIn("ABCD-1001", await b)                                # B's sign-in goes on
+                github_link.FLOWS[ANNA]["task"].cancel()
+        asyncio.run(flow())
+        self.assertFalse(any("ABCD-1000" in body for _, body in self.said))
+
+    def test_no_code_is_sent_after_a_disconnect_while_opening_the_chat(self):
+        self.fake.approve("anna-gh", ANNA_ID, answers=["authorization_pending"] * 50)
+
+        async def opening(person):
+            self.lp.disconnect_github(person)                                       # meanwhile
+            return "!dm"
+        self.lp.private_room = opening
+        self.run_(self.lp.connect_github(ANNA))
+        self.assertEqual(self.said, [])
+
+    def test_an_error_that_isnt_text_is_unexpected(self):
+        self.assertEqual(github_link._error({"error": {"x": "ghu_y"}}), "unexpected")
+        self.assertEqual(github_link._error({"error": ["slow_down"]}), "unexpected")
+
     def test_repeat_clicks_dont_resend_the_code(self):
         self.fake.approve("anna-gh", ANNA_ID, answers=["authorization_pending"] * 3)
 
@@ -153,6 +194,19 @@ class QuietInstallWait(BindCase):
             await asyncio.wait_for(task, 5)
         asyncio.run(flow())
         self.assertEqual(self.said, [pm_settings.refusal(OTHER)])
+        self.assertEqual(self.written, [])
+
+    def test_a_disconnect_while_binding_refuses(self):
+        """GPT re-check: the link was checked when GitHub answered, then the bind awaited more."""
+        self.fake.installations[OTHER.lower()] = 8
+        self.fake.permissions[(OTHER, "anna-gh")] = "write"
+        real = self.lp.primary_room_for
+
+        async def meanwhile(*a, **k):
+            github_link.unlink(ANNA)                                                # Disconnect GitHub
+            return await real(*a, **k)
+        with mock.patch.object(self.lp, "primary_room_for", meanwhile, create=True):
+            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.refusal(OTHER))
         self.assertEqual(self.written, [])
 
     def test_never_installed_says_nothing_more(self):

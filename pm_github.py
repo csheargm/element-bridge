@@ -80,26 +80,28 @@ class GitHubLink:
                 return flow, False, None
         minutes = max(1, round((flow["expires_at"] - time.time()) / 60))
         text = CODE.format(url=flow["url"], code=flow["user_code"], minutes=minutes)
-        told = await self.tell_github(person, text) if fresh or resend else None
+        told = await self.tell_github(person, text, flow) if fresh or resend else None
         return text, True, told
 
     async def new_github_flow(self, person: str) -> dict | str:
         """A new device code for `person` and its background wait; or why not (a str to tell them)."""
-        starting = self.__dict__.setdefault("_github_starting", set())
+        starting = self.__dict__.setdefault("_github_starting", {})   # person → this attempt's own marker
         if person in starting:                        # two clicks at once: still one sign-in
             return "One moment: I'm asking GitHub for your code."
         limited = self._github_limited(person)
         if limited:
             return limited
-        starting.add(person)
+        attempt = starting[person] = object()
         try:
             flow = await github_link.start()
         except github.GitHubError as e:              # its text never carries a code or a token
-            starting.discard(person)
             return f"I couldn't start the GitHub sign-in ({room_safe(e)}); please try again later."
-        if person not in starting:                    # Disconnect while GitHub answered: no code
+        finally:
+            current = starting.get(person) is attempt     # (Disconnect, then a newer click, replace it)
+            if current:
+                del starting[person]
+        if not current:                               # Disconnect while GitHub answered: no code
             return CANCELLED
-        starting.discard(person)
         old = github_link.FLOWS.get(person)
         if old and old.get("task"):
             old["task"].cancel()                      # one sign-in per person: an expired one ends
@@ -108,10 +110,8 @@ class GitHubLink:
         return flow
 
     def disconnect_github(self, person: str) -> str:
-        starting = self.__dict__.setdefault("_github_starting", set())
         flow = github_link.FLOWS.pop(person, None)
-        asked = person in starting
-        starting.discard(person)                      # a code still on its way is dropped too
+        asked = self.__dict__.setdefault("_github_starting", {}).pop(person, None) is not None   # a code on its way: dropped
         if flow and flow.get("task"):
             flow["task"].cancel()
         try:
@@ -138,10 +138,13 @@ class GitHubLink:
                 github_link.FLOWS.pop(person, None)
         await self.tell_github(person, said)
 
-    async def tell_github(self, person: str, text: str) -> str | None:
-        """To that person only, in my own private chat with them; returns that chat (None: not sent)."""
+    async def tell_github(self, person: str, text: str, flow: dict | None = None) -> str | None:
+        """To that person only, in my own private chat with them; returns that chat (None: not sent).
+        With `flow` (a code): only while that sign-in is still theirs (Disconnect may come meanwhile)."""
         try:
             room = await self.private_room(person)
+            if flow is not None and github_link.FLOWS.get(person) is not flow:
+                return None
             if room is not None:
                 await self.say(room, text)
                 return room
