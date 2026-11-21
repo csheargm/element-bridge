@@ -72,6 +72,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
         # live code fix) doesn't drop a plan someone is about to approve
         self.pending: dict = SavedDict(STATE_FILE.with_name(STATE_FILE.stem + "-pending.json"))
         self.plans: dict = {}                       # room → planning task in flight (pm_plan.py)
+        self.install_watches: dict = {}             # room → (repo, task) waiting for the GitHub App (pm_settings.py)
         self.generation: dict = {}                  # room → bumped by "stop" (pm_chat.py)
         self.grants_cache: dict = {}                # room → agent grants, for the side panel
         self.room_repos: dict = {}                  # room → its repo (room_state), refreshed every poll

@@ -74,9 +74,14 @@ services:
       HAGENCY_REMOTE_PER_HOUR: ${REMOTE_PER_HOUR:-10}   # at most this many of their agents made per hour
       PANEL_HOST: 0.0.0.0                 # reachable by Caddy on the edge network only
       PM_BRAIN: "off"                     # no model keys on this server: @pm uses its phrase rules
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}   # @pm reads GitHub as its read-only App (docs/GITHUB_APP.md)
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-hagency-rooms}
+      GITHUB_APP_PRIVATE_KEY_PATH: /run/hagency-github/github-app.pem
+      HAGENCY_REPOS: ${HAGENCY_REPOS:-}   # the repos rooms may choose
     volumes:
       - ../../pm:/app                   # ~/hagency/pm: this commit's files (deploy.sh) and @pm's state
       - ./pm-secret:/run/hagency:ro     # root-owned on the host: @pm can read the secret, never replace it
+      - ./secrets:/run/hagency-github:ro   # the App's private key (envfile.py checks it: mode 600, PM_UID)
     depends_on: [synapse]
     networks: [edge]
     logging: *logs

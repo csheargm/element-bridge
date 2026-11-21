@@ -16,6 +16,7 @@ import sys
 import urllib.parse
 
 import github
+import github_app
 from github import LABEL, REPO, GitHubError, run, run_json
 
 DEFAULT_AGENTS = ("anna-agent", "betty-agent")
@@ -58,6 +59,9 @@ async def readiness(repo: str, agents: list[str], detail: bool = True) -> tuple[
         branch = (await run_json(["api", f"repos/{repo}"])).get("default_branch") or "main"
         rules = await run_json(["api", f"repos/{repo}/rules/branches/{urllib.parse.quote(branch, safe='')}"])
         labels = {lb["name"] for lb in await run_json(["label", "list", "-R", repo, "--json", "name", "--limit", "200"])}
+    except github_app.NotInstalled:
+        return identities, [f"the Hagency Rooms GitHub App isn't installed on {repo}: its owner installs it "
+                            f"(read-only, one click) at {github_app.install_url()}"]
     except GitHubError as e:
         return identities, [f"can't read {repo}" + (f": {str(e)[:160]}" if detail else "")]
     problems = evaluate(identities, rules if isinstance(rules, list) else [], repo, branch, detail)

@@ -5,14 +5,22 @@ Docker Compose and configure_synapse.py all see the same plain values.
   python3 envfile.py get NAME         # print one validated, non-secret value
 Secrets are filled here, never on a command line, and never printed.
 """
+import base64
 import os
 import re
 import secrets
+import stat
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ENV, EXAMPLE = HERE / ".env", HERE / ".env.example"
+APP_KEY = HERE / "secrets" / "github-app.pem"    # mounted read-only into @pm (docker-compose.yml)
+PEM_RE = re.compile(r"-----BEGIN (RSA )?PRIVATE KEY-----\s+([A-Za-z0-9+/=\s]+?)\s*-----END \1?PRIVATE KEY-----")
+MAX_KEY_BYTES = 16384
+MIN_KEY_DER = 600                                # a 2048-bit RSA key is ~1200 bytes of DER
+DER_SEQUENCE = 0x30
+REPO = r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}"   # owner/name, as github.REPO_RE
 DOMAIN = r"(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
 RULES = {
     "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN, "ADMIN_DOMAIN": DOMAIN,
@@ -21,9 +29,13 @@ RULES = {
     "PM_UID": r"[1-9][0-9]{2,5}",            # @pm's container runs as the deploy user (owns ~/hagency/pm)
     "ALLOW_REMOTE": r"[01]",                 # people from other servers may get an agent (default 1)
     "REMOTE_PER_HOUR": r"[0-9]{1,4}",        # how many of their agents per hour (default 10)
+    "GITHUB_APP_ID": r"[1-9][0-9]{0,11}",         # @pm's GitHub App (docs/GITHUB_APP.md); empty: no GitHub reads
+    "GITHUB_APP_SLUG": r"[a-z0-9][a-z0-9-]{0,62}",   # its github.com/apps/<slug> name, for install links
+    "HAGENCY_REPOS": rf"{REPO}(,{REPO}){{0,49}}",   # the repos rooms may choose, comma-separated
 }
 SECRETS = {"POSTGRES_PASSWORD"}
-OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR"}   # OPERATOR: empty until the operator has an account
+OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR",     # OPERATOR: empty until the operator has an account
+            "GITHUB_APP_ID", "GITHUB_APP_SLUG", "HAGENCY_REPOS"}  # the GitHub App: empty until it is registered
 
 
 def read() -> dict:
@@ -71,10 +83,53 @@ def validate(values: dict) -> list[str]:
     return problems
 
 
+def app_key_problems(values: dict) -> list[str]:
+    """The GitHub App's key, checked by `check` (deploy.sh runs it before @pm stops; docs/GITHUB_APP.md):
+    a plain file of the deploy user's (PM_UID; @pm runs as it), mode 600, holding a PEM private key
+    (its body base64 DER). Opened once, without following links, and checked on that open file.
+    Never prints its text."""
+    if not values.get("GITHUB_APP_ID"):
+        return []
+    want = "GITHUB_APP_ID is set: put the App's private key in deploy/secrets/github-app.pem (yours, mode 600)"
+    try:
+        fd = os.open(APP_KEY, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)   # a FIFO never blocks the check
+    except OSError:
+        return [want]
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        mine = str(st.st_uid) == (values.get("PM_UID") or str(os.getuid()))
+        if not stat.S_ISREG(st.st_mode) or not mine or stat.S_IMODE(st.st_mode) != 0o600:
+            return [want]
+        raw = f.read(MAX_KEY_BYTES + 1)
+    if len(raw) > MAX_KEY_BYTES:
+        return ["deploy/secrets/github-app.pem isn't a PEM private key"]
+    text = raw.decode(errors="replace")
+    m = PEM_RE.fullmatch(text.strip())
+    try:
+        der = base64.b64decode("".join(m.group(2).split()), validate=True) if m else b""
+    except ValueError:
+        der = b""
+    if not is_der_sequence(der):
+        return ["deploy/secrets/github-app.pem isn't a PEM private key"]
+    return []
+
+
+def is_der_sequence(der: bytes) -> bool:
+    """One whole DER SEQUENCE of key size (what a PKCS#1 or PKCS#8 key is). The host's python3 has no
+    `cryptography`, so @pm's first JWT is the full check; this catches a truncated or wrong file."""
+    if len(der) < MIN_KEY_DER or der[0] != DER_SEQUENCE or not der[1] & 0x80:
+        return False                              # a key is longer than 127 bytes: the long length form
+    width = der[1] & 0x7F
+    if not 0 < width <= 4 or der[2] == 0:        # DER: the shortest length encoding, no leading zero
+        return False
+    return 2 + width + int.from_bytes(der[2:2 + width], "big") == len(der)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1:2]
     if cmd == ["check"]:
-        problems = validate(ensure())
+        values = ensure()
+        problems = validate(values) + app_key_problems(values)
         print("\n".join(f"✗ {p} (edit ~/hagency/deploy/.env)" for p in problems) or "✓ .env ok")
         sys.exit(1 if problems else 0)
     if cmd == ["get"] and len(sys.argv) == 3 and sys.argv[2] in RULES and sys.argv[2] not in SECRETS:

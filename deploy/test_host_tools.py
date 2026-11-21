@@ -1,5 +1,6 @@
 """Unit tests for hostfiles.py, release.py, admin_user.py and configure_synapse.install.
 Run from deploy/: python3 -m unittest discover -p 'test_*.py'"""
+import base64
 import json
 import os
 import tempfile
@@ -141,6 +142,52 @@ class EnvUpgrade(unittest.TestCase):
         self.assertEqual(envfile.validate(base), [])
         self.assertEqual(envfile.validate({**base, "ALLOW_REMOTE": "0", "REMOTE_PER_HOUR": "5"}), [])
         self.assertEqual(len(envfile.validate({**base, "ALLOW_REMOTE": "yes please", "REMOTE_PER_HOUR": "-1"})), 2)
+
+    def test_the_github_app_settings_are_optional_and_checked(self):
+        import envfile
+        base = {"ROOMS_DOMAIN": "r.org", "MATRIX_DOMAIN": "m.org", "SERVER_NAME": "m.org", "ADMIN_DOMAIN": "a.org",
+                "POSTGRES_PASSWORD": "ab" * 32, "PM_UID": str(os.getuid())}
+        self.assertEqual(envfile.app_key_problems(base), [])                      # no App: no key needed
+        d = Path(tempfile.mkdtemp())
+        key = d / "github-app.pem"
+        body = base64.encodebytes(b"\x30\x82\x04\xac" + b"\x01" * 1196).decode()   # one DER SEQUENCE, not a real key
+        key.write_text(f"-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n")
+        key.chmod(0o600)
+        good = {"GITHUB_APP_ID": "123456", "GITHUB_APP_SLUG": "hagency-rooms", "HAGENCY_REPOS": "a/b,c-d/e.f"}
+        bad = {"GITHUB_APP_ID": "0", "GITHUB_APP_SLUG": "../x", "HAGENCY_REPOS": "a/b c/d"}
+        self.assertEqual(envfile.validate({**base, **good}), [])
+        self.assertEqual(len(envfile.validate({**base, **bad})), 3)
+        key.unlink()
+        self.assertEqual(envfile.validate({**base, **good}), [])      # `get` and configure_synapse never read the key
+        key.write_text(f"-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n")
+        with mock.patch.object(envfile, "APP_KEY", key):
+            # GPT review, GitHub App: `check` (deploy.sh runs it before @pm stops) refuses a bad key
+            key.chmod(0o644)
+            problems = envfile.app_key_problems({**base, **good})
+            self.assertEqual(len(problems), 1)
+            self.assertNotIn(body[:20], problems[0])
+            key.chmod(0o600)
+            self.assertEqual(envfile.app_key_problems({**base, **good}), [])
+            self.assertEqual(len(envfile.app_key_problems({**base, **good, "PM_UID": "4242"})), 1)   # not @pm's user
+            truncated = base64.encodebytes(b"\x30\x82\x04\xac" + b"\x01" * 1000).decode()
+            padded = base64.encodebytes(b"\x30\x83\x00\x04\xac" + b"\x01" * 1196).decode()   # not DER's shortest
+            for text in ("not a key", "-----BEGIN RSA PRIVATE KEY-----\nMIIfake\n-----END RSA PRIVATE KEY-----\n",
+                         f"-----BEGIN RSA PRIVATE KEY-----\n{truncated}-----END RSA PRIVATE KEY-----\n",
+                         f"-----BEGIN RSA PRIVATE KEY-----\n{padded}-----END RSA PRIVATE KEY-----\n",
+                         f"-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n" + " " * 17000 + "x"):
+                key.write_text(text)
+                self.assertIn("isn't a PEM private key", envfile.app_key_problems({**base, **good})[0])
+            key.unlink()
+            (d / "real.pem").write_text("x")
+            key.symlink_to(d / "real.pem")
+            self.assertEqual(len(envfile.app_key_problems({**base, **good})), 1)   # a link is never followed
+            key.unlink()
+            os.mkfifo(key, 0o600)
+            self.assertEqual(len(envfile.app_key_problems({**base, **good})), 1)   # a FIFO: refused, never waited on
+        compose = (Path(__file__).parent / "docker-compose.yml").read_text()
+        self.assertIn("./secrets:/run/hagency-github:ro", compose)               # the key: read-only, never in .env
+        self.assertIn("GITHUB_APP_PRIVATE_KEY_PATH: /run/hagency-github/github-app.pem", compose)
+        self.assertIn("secrets/", (Path(__file__).parent / ".gitignore").read_text())
 
 
 if __name__ == "__main__":

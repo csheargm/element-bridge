@@ -18,6 +18,7 @@ ROOT = Path(__file__).parent
 REPO = os.environ.get("LOOP_REPO", "your-name/hagency-demo-sandbox")
 LABEL = "agent-ok"
 REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")   # owner/name
+LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")                        # a GitHub username
 # The repos this server may work on: rooms choose among these. Anyone here can create a room, and
 # @pm reads with the host's own `gh` login, so a free choice would make a room a window into any
 # repo that login can see (private ones too). The operator lists them: HAGENCY_REPOS="a/b c/d".
@@ -99,6 +100,13 @@ async def run(args: list[str], agent: str | None = None, cwd: Path | None = None
 
 
 async def run_json(args: list[str], agent: str | None = None) -> object:
+    """gh's JSON. @pm's own reads (agent=None) go through the GitHub App when it is configured (the
+    public server has no gh login); else, and for every agent, the gh CLI as that identity."""
+    if agent is None:
+        import github_app                       # imported here: both modules import this one
+        import github_app_reads
+        if github_app.configured():
+            return await github_app_reads.run_json(args)
     return json.loads(await run(args, agent))
 
 

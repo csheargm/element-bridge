@@ -75,7 +75,7 @@ class SetRepo(unittest.TestCase):
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.pending, self.lp.boards, self.lp.state = PM, {}, {}, {}
         self.lp.generation, self.lp.busy, self.lp.room_repos = {}, set(), {}
-        self.lp.plans, self.lp.last_plans, self.lp.lock = {}, {}, asyncio.Lock()
+        self.lp.plans, self.lp.last_plans, self.lp.lock, self.lp.install_watches = {}, {}, asyncio.Lock(), {}
         self.lp.kick = lambda: None
         self.can_write = True                  # the requester's agent's GitHub access to the repo
         q = mock.patch("pm_settings.may_write", lambda user, repo: asyncio.sleep(0, self.can_write))
