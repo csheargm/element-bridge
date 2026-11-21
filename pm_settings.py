@@ -80,7 +80,12 @@ class Settings:
             return missing
         self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
-            return await self.bind(rid, repo)
+            binding = asyncio.ensure_future(self.bind(rid, repo))
+            try:
+                return await asyncio.shield(binding)
+            except asyncio.CancelledError:        # an install wait cancelled mid-bind: the bind (Matrix state
+                await binding                     # and @pm's own records) finishes whole, under the lock
+                raise
 
     async def app_missing(self, room: MatrixRoom, sender: str, repo: str) -> str | None:
         """None when @pm can read `repo`; else the one-click install link (and I look again after)."""
@@ -100,7 +105,8 @@ class Settings:
 
     async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
         """After an install link: once the App is on `repo`, ask again for the person (every check
-        re-runs: moderator, allowed repo, write access)."""
+        re-runs: moderator, allowed repo, write access). The wait stays registered until it ends, so
+        a newer choice in the room cancels it even during that last bind (GPT review, GitHub App)."""
         try:
             for _ in range(INSTALL_RECHECKS):
                 await asyncio.sleep(INSTALL_RECHECK_S)
@@ -113,15 +119,17 @@ class Settings:
                 await self.say(room.room_id, f"I still don't see the Hagency Rooms app on {repo}. Once it's "
                                              f"installed, say \"@pm this room works on {repo}\" again.")
                 return
+            await self.set_repo(room, sender, repo)
         finally:
             if self.install_watches.get(room.room_id, ("", None))[1] is asyncio.current_task():
                 del self.install_watches[room.room_id]     # (a newer wait may have replaced this one)
-        await self.set_repo(room, sender, repo)
 
     def stop_install_watch(self, rid: str) -> None:
-        watch = self.install_watches.pop(rid, None)
-        if watch is not None:
-            watch[1].cancel()
+        watch = self.install_watches.get(rid)
+        if watch is None or watch[1] is asyncio.current_task():   # the wait itself binding: it stays registered
+            return
+        del self.install_watches[rid]
+        watch[1].cancel()
 
     async def bind(self, rid: str, repo: str) -> str:
         if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):

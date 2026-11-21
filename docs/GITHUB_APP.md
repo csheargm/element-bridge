@@ -82,8 +82,11 @@ Then deploy as usual (`deploy/deploy.sh` from your computer).
 
 ## How deploy picks it up
 
-- `deploy/bootstrap.sh` creates `deploy/secrets/` (mode 700). If `GITHUB_APP_ID` is set, it stops
-  unless `secrets/github-app.pem` is a plain file owned by the deploy user with mode 600.
+- `deploy/bootstrap.sh` creates `deploy/secrets/` (mode 700).
+- `deploy/envfile.py check` runs on the VM before @pm stops. If `GITHUB_APP_ID` is set, it refuses
+  the deploy unless `secrets/github-app.pem` is a PEM private key in a plain file owned by the deploy
+  user (`PM_UID`) with mode 600. A bad key stops the deploy before anything changes, and @pm keeps
+  running.
 - `deploy/docker-compose.yml` mounts `deploy/secrets/` **read-only** into @pm's container at
   `/run/hagency-github/`. It passes `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `HAGENCY_REPOS` and
   `GITHUB_APP_PRIVATE_KEY_PATH=/run/hagency-github/github-app.pem` through to @pm.

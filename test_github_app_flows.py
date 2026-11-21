@@ -37,6 +37,17 @@ class Reads(AppCase):
         self.assertEqual(len(out), 120)
         self.assertEqual(out[-1], {"title": "t120"})
 
+    def test_prs_on_the_first_page_dont_use_up_the_limit(self):
+        """GPT review, GitHub App: the limit counted PRs (REST lists them as issues) before they were dropped."""
+        self.fake.issues[REPO] = [issue(n, f"pr{n}", pr=True) for n in range(1, 101)] + [issue(101, "real")]
+        out = self.gh("issue", "list", "-R", REPO, "--json", "number", "--limit", "50")
+        self.assertEqual(out, [{"number": 101}])
+
+    def test_a_pr_without_a_review_decision_reads_as_gh_prints_it(self):
+        self.fake.prs[(REPO, 3)] = {"state": "OPEN", "reviewDecision": None}
+        self.assertEqual(self.gh("pr", "view", "3", "-R", REPO, "--json", "state,reviewDecision"),
+                         {"state": "OPEN", "reviewDecision": ""})
+
     def test_issue_view_state_is_upper_case_like_gh(self):
         self.fake.issues[REPO] = [issue(5, "done", state="closed")]
         self.assertEqual(self.gh("issue", "view", "5", "-R", REPO, "--json", "state"), {"state": "CLOSED"})
@@ -62,7 +73,8 @@ class Reads(AppCase):
     def test_writes_and_unknown_reads_are_refused_before_any_request(self):
         for args in (["issue", "create", "-R", REPO, "--title", "x"], ["pr", "merge", "1", "-R", REPO],
                      ["api", "-X", "POST", f"repos/{REPO}/rulesets"], ["api", "user"],
-                     ["api", f"repos/{REPO}/../../orgs/x"], ["issue", "list", "--json", "number"],
+                     ["api", f"repos/{REPO}/../../orgs/x"], ["api", f"repos/{REPO}/%2e%2e/%2E%2E/orgs/x"],
+                     ["api", f"repos/{REPO}//x"], ["api", f"repos/{REPO}/x%2F..%2F..%2Forgs"],["issue", "list", "--json", "number"],
                      ["pr", "view", "1", "-R", REPO, "--json", "body"]):
             with self.assertRaises(github.GitHubError, msg=args):
                 self.gh(*args)
@@ -143,6 +155,86 @@ class Binding(AppCase):
             await asyncio.sleep(0.05)
         asyncio.run(flow())
         self.assertEqual(self.written, [room_state.content("off", REPO)])   # never swapped back to OTHER
+
+    def test_a_newer_choice_cancels_the_wait_even_during_its_last_bind(self):
+        """GPT review, GitHub App: the wait unregistered itself before its final set_repo, so a slow write
+        check there let it overwrite a newer binding."""
+        gate = asyncio.Event()
+        slow = {"on": False}
+
+        async def may_write(user, repo):
+            if slow["on"] and repo == OTHER:
+                await gate.wait()                                   # the wait's own check, stalled
+            return True
+
+        async def flow():
+            with mock.patch("pm_settings.may_write", may_write):
+                await self.lp.set_repo(self.room, ANNA, OTHER)
+                _, waiting = self.lp.install_watches["!r"]
+                slow["on"] = True
+                self.fake.installations[OTHER.lower()] = 8          # installed: the wait starts its bind
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    if self.lp.install_watches.get("!r", (None, None))[1] is waiting and len(self.fake.requests) > 3:
+                        break
+                await self.lp.set_repo(self.room, ANNA, REPO)       # a newer choice meanwhile
+                gate.set()
+                await asyncio.sleep(0.05)
+                self.assertTrue(waiting.cancelled())
+        asyncio.run(flow())
+        self.assertEqual(self.written, [room_state.content("off", REPO)])
+
+    def test_a_newer_install_wait_cancels_an_older_one_queued_for_the_lock(self):
+        """GPT review, GitHub App (2nd pass): past its checks, the older wait unregistered itself
+        while it queued for the lock, so a newer wait for another uninstalled repo couldn't stop it."""
+        async def flow():
+            await self.lp.set_repo(self.room, ANNA, OTHER)
+            _, older = self.lp.install_watches["!r"]
+            async with self.lp.lock:                                 # a poll holds the lock
+                self.fake.installations[OTHER.lower()] = 8
+                for _ in range(200):
+                    await asyncio.sleep(0.01)
+                    if any(r[1].endswith("/access_tokens") for r in self.fake.requests[-3:]):
+                        break                                        # the older wait is past its checks
+                await asyncio.sleep(0.05)
+                del self.fake.installations[REPO.lower()]
+                answer = await self.lp.set_repo(self.room, ANNA, REPO)   # newer choice, App not there either
+                self.assertIn("installations/new", answer)
+            await asyncio.sleep(0.05)
+            self.assertTrue(older.cancelled())
+            self.lp.stop_install_watch("!r")
+        asyncio.run(flow())
+        self.assertEqual(self.written, [])
+
+    def test_a_wait_cancelled_mid_write_finishes_that_bind_whole(self):
+        """GPT review, GitHub App (3rd pass): cancelled while Matrix stored the binding, @pm's own
+        records (room_repos, plans) were skipped. The bind now completes, still under the lock."""
+        gate, put = asyncio.Event(), self.lp.client.room_put_state
+
+        async def slow_put(room_id, kind, content):
+            await gate.wait()
+            return await put(room_id, kind, content)
+
+        async def flow():
+            self.lp.client.room_put_state = slow_put
+            await self.lp.set_repo(self.room, ANNA, OTHER)
+            _, waiting = self.lp.install_watches["!r"]
+            self.fake.installations[OTHER.lower()] = 8
+            for _ in range(200):
+                await asyncio.sleep(0.01)
+                if self.lp.lock.locked():
+                    break                                           # the wait is writing the binding
+            self.assertTrue(self.lp.lock.locked())
+            waiting.cancel()
+            await asyncio.sleep(0.02)
+            self.assertTrue(self.lp.lock.locked())                  # not released while the write runs
+            gate.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await waiting
+            self.assertFalse(self.lp.lock.locked())
+        asyncio.run(flow())
+        self.assertEqual(self.written, [room_state.content("off", OTHER)])
+        self.assertEqual(self.lp.room_repos, {"!r": OTHER})          # @pm's records match Matrix
 
     def test_only_moderators_and_allowed_repos_reach_the_install_step(self):
         asyncio.run(self.lp.set_repo(self.room, "@mallory:bridge.localhost", OTHER))

@@ -11,6 +11,7 @@ Never logged or put in an error: the private key, the JWT, an installation token
 import asyncio
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -31,6 +32,10 @@ JWT_TTL_S = 9 * 60           # GitHub's limit is 10 minutes
 TOKEN_MARGIN_S = 5 * 60      # a cached installation token is renewed this long before it expires
 HTTP_TIMEOUT_S = 20
 ERROR_CHARS = 160
+REST_ACCEPT = "application/vnd.github+json"
+GRAPHQL_ACCEPT = "application/vnd.github.merge-info-preview+json"   # PR mergeStateStatus, as gh asks for it
+# Anything shaped like a credential is cut from GitHub's error text before it reaches a room or a log.
+CREDENTIAL_RE = re.compile(r"gh[pousr]_[A-Za-z0-9_]{6,}|eyJ[\w-]+\.[\w-]+\.[\w-]+|-----BEGIN[^-]*-----")
 _tokens: dict[str, tuple[str, float]] = {}       # repo (lower case) -> (installation token, expires at)
 
 
@@ -76,12 +81,21 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_NoRedirect)
 
 
+def scrub(text: object, *secrets: str) -> str:
+    """GitHub's message text with the credentials we sent, and anything shaped like one, cut out."""
+    out = str(text)
+    for secret in secrets:
+        out = out.replace(secret, "<redacted>") if secret else out
+    return CREDENTIAL_RE.sub("<redacted>", out)[:ERROR_CHARS]
+
+
 def _request(method: str, path: str, auth: str, body: dict | None = None) -> tuple[int, object]:
-    req = urllib.request.Request(f"{API}{path}", method=method,
-                                 data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {auth}", "User-Agent": "hagency-rooms-pm",
-                                          "Accept": "application/vnd.github+json",
-                                          "X-GitHub-Api-Version": "2022-11-28"})
+    headers = {"Authorization": f"Bearer {auth}", "User-Agent": "hagency-rooms-pm",
+               "Accept": GRAPHQL_ACCEPT if path == "/graphql" else REST_ACCEPT, "X-GitHub-Api-Version": "2022-11-28"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(f"{API}{path}", method=method, headers=headers,
+                                 data=None if body is None else json.dumps(body).encode())
     try:
         with _opener.open(req, timeout=HTTP_TIMEOUT_S) as r:
             raw = r.read()
@@ -91,7 +105,7 @@ def _request(method: str, path: str, auth: str, body: dict | None = None) -> tup
             detail = json.loads(e.read() or b"{}").get("message", "")
         except (ValueError, AttributeError):
             detail = ""           # not GitHub's JSON error: the status code says enough
-        return e.code, {"message": str(detail)[:ERROR_CHARS]}
+        return e.code, {"message": scrub(detail, auth)}
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         raise github.GitHubError(f"GitHub didn't answer {method} {path.split('?')[0]} ({type(e).__name__})") from None
 
@@ -143,29 +157,44 @@ async def token(repo: str) -> str:
     return data["token"]
 
 
+async def as_app(repo: str, method: str, path: str, body: dict | None = None) -> tuple[int, object]:
+    """One call with `repo`'s installation token; a token GitHub refuses (401) is dropped and the
+    call made once more with a new one (an uninstalled-then-reinstalled App, a revoked token)."""
+    status, data = await call(method, path, await token(repo), body)
+    if status == 401:
+        _tokens.pop(repo.lower(), None)
+        status, data = await call(method, path, await token(repo), body)
+        if status == 401:
+            _tokens.pop(repo.lower(), None)       # refused twice: never reuse either token
+    return status, data
+
+
 async def get(repo: str, path: str) -> object:
     """GET a GitHub REST path (starting with /) as the App on `repo`."""
-    status, data = await call("GET", path, await token(repo))
+    status, data = await as_app(repo, "GET", path)
     if status != 200:
         raise _fail(status, data, path.split("?")[0])
     return data
 
 
 async def graphql(repo: str, query: str, variables: dict) -> dict:
-    status, data = await call("POST", "/graphql", await token(repo), {"query": query, "variables": variables})
+    status, data = await as_app(repo, "POST", "/graphql", {"query": query, "variables": variables})
     if status != 200 or not isinstance(data, dict) or data.get("errors") or not isinstance(data.get("data"), dict):
         errors = data.get("errors") if isinstance(data, dict) else None
         first = errors[0].get("message", "") if isinstance(errors, list) and errors and isinstance(errors[0], dict) else ""
-        raise _fail(status, {"message": str(first)[:ERROR_CHARS]}, "a GraphQL read")
+        raise _fail(status, {"message": scrub(first, *(t for t, _ in _tokens.values()))}, "a GraphQL read")
     return data["data"]
 
 
 async def installed(repo: str) -> bool:
-    """@pm can read `repo`: True when the App is installed there, or when @pm uses the host's gh."""
+    """@pm can read `repo`: True when the App is installed there now (looked up afresh, never from
+    the token cache) and gives a token for it (not suspended, the repo selected), or when @pm uses
+    the host's gh."""
     if not configured():
         return True
+    _tokens.pop(repo.lower(), None)
     try:
-        await installation_id(repo)
+        await token(repo)
     except NotInstalled:
         return False
     return True

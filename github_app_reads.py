@@ -55,7 +55,12 @@ def _issue(raw: dict, fields: list[str]) -> dict:
     return {f: shaped[f] for f in fields}
 
 
-async def _pages(repo: str, path: str, query: dict, limit: int) -> list:
+def _is_dict(item) -> bool:
+    return isinstance(item, dict)
+
+
+async def _pages(repo: str, path: str, query: dict, limit: int, keep=_is_dict) -> list:
+    """Up to `limit` items that `keep` accepts, page by page (the limit counts kept items only)."""
     out: list = []
     page = 1
     while len(out) < limit:
@@ -63,11 +68,15 @@ async def _pages(repo: str, path: str, query: dict, limit: int) -> list:
         batch = await github_app.get(repo, f"/repos/{repo}{path}?{q}")
         if not isinstance(batch, list):
             raise github.GitHubError(f"GitHub's answer for {path} wasn't a list")
-        out += batch
+        out += [item for item in batch if keep(item)]
         if len(batch) < PAGE:
             break
         page += 1
-    return out
+    return out[:limit]
+
+
+def _is_issue(raw) -> bool:
+    return isinstance(raw, dict) and "pull_request" not in raw     # REST lists PRs as issues too; gh doesn't
 
 
 async def issue_list(args: list[str]) -> list:
@@ -75,11 +84,7 @@ async def issue_list(args: list[str]) -> list:
     query = {"state": (_opt(args, "--state") or "open").lower()}
     if _opt(args, "--label"):
         query["labels"] = _opt(args, "--label")
-    issues = []
-    for raw in await _pages(repo, "/issues", query, limit):
-        if isinstance(raw, dict) and "pull_request" not in raw:     # REST lists PRs as issues too; gh doesn't
-            issues.append(_issue(raw, fields))
-    return issues[:limit]
+    return [_issue(raw, fields) for raw in await _pages(repo, "/issues", query, limit, _is_issue)]
 
 
 async def issue_view(args: list[str]) -> dict:
@@ -97,18 +102,18 @@ async def pr_view(args: list[str]) -> dict:
     pr = (data.get("repository") or {}).get("pullRequest")
     if not isinstance(pr, dict):
         raise github.GitHubError(f"no PR #{n} on {repo}")
-    return {f: pr.get(f) for f in fields}
+    return {f: "" if pr.get(f) is None else pr.get(f) for f in fields}   # gh prints null as ""
 
 
 async def label_list(args: list[str]) -> list:
     repo, fields = _repo(args), _fields(args, {"name"})
-    labels = await _pages(repo, "/labels", {}, _limit(args))
-    return [{f: lb.get(f) for f in fields} for lb in labels if isinstance(lb, dict)][:_limit(args)]
+    return [{f: lb.get(f) for f in fields} for lb in await _pages(repo, "/labels", {}, _limit(args))]
 
 
 async def api_get(args: list[str]) -> object:
     m = API_PATH_RE.match(args[1]) if len(args) == 2 else None    # a plain GET: no -X, -f, --input
-    if not m or ".." in args[1]:
+    segments = urllib.parse.unquote(args[1]).split("/") if m else []   # decoded first: %2F and %2e too
+    if not m or any(seg in ("", ".", "..") for seg in segments):
         raise github.GitHubError("@pm reads only repo paths through the GitHub App")
     return await github_app.get(m.group(1), f"/{args[1]}")
 

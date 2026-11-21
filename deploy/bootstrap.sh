@@ -61,13 +61,9 @@ sudo python3 hostfiles.py secret synapse/homeserver.yaml pm-secret "$(id -u)"
 mkdir -p "$PM_DIR/data"
 chmod 700 "$PM_DIR" "$PM_DIR/data"
 # The GitHub App's private key (docs/GITHUB_APP.md): the owner puts it here; @pm reads it read-only.
+# envfile.py check (above, and in deploy.sh before @pm stops) refuses a missing or readable key.
 mkdir -p secrets
 chmod 700 secrets
-if [ -n "$(get GITHUB_APP_ID)" ]; then
-  key=secrets/github-app.pem
-  [ -f "$key" ] && [ ! -L "$key" ] && [ "$(stat -c '%a %u' "$key")" = "600 $(id -u)" ] \
-    || { echo "✗ GITHUB_APP_ID is set: put the App's key in deploy/$key (yours, mode 600)"; exit 1; }
-fi
 
 # 5. Element points at our homeserver; Synapse Admin may only use the admin host.
 python3 hostfiles.py public

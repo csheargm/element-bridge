@@ -138,7 +138,8 @@ class NoSecrets(AppCase):
                     asyncio.run(github.run_json(args))
                 except github.GitHubError as e:
                     errors.append(str(e))
-            self.fake.tokens.clear()                                       # GitHub forgets the token
+            self.fake.tokens.clear()                                       # GitHub forgets the token...
+            self.fake.installations.clear()                                # ...and the App was uninstalled
             try:
                 asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))
             except github.GitHubError as e:
@@ -149,6 +150,45 @@ class NoSecrets(AppCase):
         for text in [*errors, *logs.output]:
             for secret in secrets:
                 self.assertNotIn(secret, text)
+
+
+    def test_an_upstream_that_echoes_the_credential_is_scrubbed(self):
+        """GPT review, GitHub App: GitHub's own message text reaches rooms and logs; never a credential in it."""
+        asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))
+        tok = github_app._tokens[REPO.lower()][0]
+        self.fake.echo_auth = True
+        with self.assertRaises(github.GitHubError) as e:
+            asyncio.run(github_app.get(REPO, f"/repos/{REPO}/nope"))
+        self.assertNotIn(tok, str(e.exception))
+        self.assertIn("<redacted>", str(e.exception))
+        self.assertEqual(github_app.scrub("x eyJa.b-c.d_e ghs_abcdefgh -----BEGIN RSA PRIVATE KEY-----"),
+                         "x <redacted> <redacted> <redacted>")
+
+
+class Retry(AppCase):
+    def test_a_refused_token_is_dropped_and_the_read_retried_once(self):
+        """GPT review, GitHub App: a revoked token stayed cached for up to 55 minutes."""
+        asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))
+        self.fake.tokens.clear()                                          # GitHub revoked it
+        self.assertEqual(asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))["default_branch"], "main")
+        self.assertEqual(len(self.minted()), 2)
+
+    def test_refused_twice_keeps_no_token_and_installed_never_trusts_the_cache(self):
+        asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))
+        with mock.patch.object(self.fake, "repo_read", lambda *a: (401, {"message": "Bad credentials"})):
+            with self.assertRaises(github.GitHubError):
+                asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))
+        self.assertNotIn(REPO.lower(), github_app._tokens)
+        asyncio.run(github_app.get(REPO, f"/repos/{REPO}"))              # cached again...
+        self.fake.installations.clear()                                   # ...then the App is uninstalled
+        self.assertFalse(asyncio.run(github_app.installed(REPO)))
+
+    def test_installed_means_a_token_can_be_had(self):
+        """GPT review, GitHub App: a found installation that can't give a token (suspended, repo not selected)."""
+        self.fake.installations[OTHER.lower()] = 7                        # listed, but the mint will refuse it
+        with mock.patch.object(self.fake, "mint", lambda inst, body: (403, {"message": "suspended"})):
+            with self.assertRaises(github.GitHubError):
+                asyncio.run(github_app.installed(OTHER))
 
 
 class Fallback(unittest.TestCase):

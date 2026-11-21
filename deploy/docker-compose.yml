@@ -81,7 +81,7 @@ services:
     volumes:
       - ../../pm:/app                   # ~/hagency/pm: this commit's files (deploy.sh) and @pm's state
       - ./pm-secret:/run/hagency:ro     # root-owned on the host: @pm can read the secret, never replace it
-      - ./secrets:/run/hagency-github:ro   # the App's private key (bootstrap.sh checks it is mode 600)
+      - ./secrets:/run/hagency-github:ro   # the App's private key (envfile.py checks it: mode 600, PM_UID)
     depends_on: [synapse]
     networks: [edge]
     logging: *logs

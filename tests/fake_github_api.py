@@ -26,6 +26,7 @@ class FakeGitHub:
         self.pages: dict[str, dict] = {}
         self.permissions: dict[tuple, str] = {}        # (repo, login) -> permission
         self.token_ttl_s = 3600
+        self.echo_auth = False                         # a misbehaving upstream: its errors repeat the credential
         self.tokens: dict[str, set] = {}               # token -> repos (lower) it may read
         self.requests: list[tuple] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
@@ -118,6 +119,8 @@ class FakeGitHub:
                 body = json.loads(self.rfile.read(n)) if n else {}
                 fake.requests.append((method, self.path, auth))
                 status, data = fake.answer(method, self.path, auth, body)
+                if fake.echo_auth and status >= 400:
+                    data = {"message": f"{data.get('message')} for {auth}"}
                 raw = json.dumps(data).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
