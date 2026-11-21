@@ -65,13 +65,31 @@ function agentCards(s) {
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
     <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
 }
-// The AI a new agent runs: s.kinds is pm_kinds.KINDS (the one list); "" = the one its computer finds,
-// as before. Ollama: the model is picked on that computer (or named here); remote: base URL and model here.
+// The AI a new agent runs: s.kinds is agent_kinds.kinds() (the one list: kind, name, needs, windows);
+// "" = the one its computer finds, as before. A kind that can't run on Windows says so, and is greyed
+// out when this browser runs on Windows. Choosing one shows what it needs. Ollama: the model is picked
+// on that computer (or named here); remote: base URL and model here.
+const onWindows = () => typeof navigator !== "undefined" && /Win/i.test(navigator.platform || navigator.userAgent || "");
+function kindOption(k) {
+  const needs = `Needs on your computer: ${(k.needs || []).join("; ")}.`;
+  return `<option value="${esc(k.kind)}" data-needs="${esc(needs)}"${!k.windows && onWindows() ? " disabled" : ""}>`
+    + `${esc(k.name)}${k.windows ? "" : " (Mac/Linux only)"}</option>`;
+}
+let needsShown = false;                 // the change listener, added once, at the first draw
+function showNeeds() {
+  if (needsShown || typeof document === "undefined") return;
+  needsShown = true;
+  document.addEventListener("change", e => {   // the chosen kind's needs, under the picker
+    const out = document.getElementById("newneeds"), sel = e.target;
+    if (out && sel && sel.id === "newkind") out.textContent = (sel.selectedOptions[0] || {dataset: {}}).dataset.needs || "";
+  });
+}
 function kindPicker(kinds) {
-  const all = [["", "AI: the one on my computer"], ...Object.entries(kinds || {})];
-  return `<select id="newkind">${all.map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join("")}</select>
+  showNeeds();
+  return `<select id="newkind"><option value="" data-needs="">AI: the one on my computer</option>${(kinds || []).map(kindOption).join("")}</select>
     <input id="newmodel" maxlength="100" placeholder="model (Ollama: optional)">
-    <input id="newbase" maxlength="200" placeholder="base URL (remote only), https://…">`;
+    <input id="newbase" maxlength="200" placeholder="base URL (remote only), https://…">
+    <div class="hint" id="newneeds"></div>`;
 }
 function addValue() {                    // panel.html's Add an agent click: what goes to console.act
   const v = id => (document.getElementById(id) || {value: ""}).value.trim();

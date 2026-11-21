@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import agent_kinds
 import console
 import console_personal
 import panel
@@ -102,7 +103,7 @@ class PersonalPage(unittest.TestCase):
     def test_the_page_shows_my_agents_and_github_only(self):
         page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__EMBEDDERS__", '["https://e"]'), re.S).group(1)
         cards = "\n".join(p.read_text() for p in panel.SCRIPTS.values())
-        view = {"personal": True, "room": "My Hagency", "user": "anna", "can_add": True, "kinds": {"claude": "Claude Code"},
+        view = {"personal": True, "room": "My Hagency", "user": "anna", "can_add": True, "kinds": agent_kinds.kinds(),
                 "agents": [{"name": "anna-agent", "label": "main", "first": True, "follow": "always", "remote": True, "online": True}],
                 "github": {"login": None, "code": None, "url": None}, "html": ""}
         harness = """
@@ -122,7 +123,7 @@ setTimeout(() => {}, 0); setImmediate(() => setImmediate(() => setImmediate(() =
         title, html = done.stdout.split("|", 1)
         self.assertEqual(title, "My Hagency")
         self.assertIn("My agents · 1", html)
-        self.assertIn('<option value="claude">Claude Code</option>', html)     # the AI picker
+        self.assertIn('>Claude Code</option>', html)     # the AI picker
         self.assertIn("<h2>GitHub</h2>", html)
         for room_card in ("<h2>Mode</h2>", "Project repo", "Who can join"):
             self.assertNotIn(room_card, html)

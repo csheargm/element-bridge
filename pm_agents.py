@@ -21,7 +21,7 @@ import connect_page
 import registry
 import remote_agent
 from bridge import ROOT
-from pm_chat import without_quote
+from pm_address import unaddressed
 from pm_rename import Renaming
 from redact import room_safe
 from saved_dict import SavedDict
@@ -37,7 +37,7 @@ NAME_ANSWER_RE = re.compile(r"^\W*((call|name) it|let'?s call it|it'?s)?\s*(?P<l
 ADD_HINT = "\n\nWant another agent too (for example Codex as well as Claude Code)? Click ➕ below."
 ASK_NAME = ("What should I call your new agent? One short word, letters and digits (up to 9), for example "
             "**codex** or **laptop**. (Say \"cancel\" to stop.)")
-BRING_REPLY = ("Your agent is **{agent}**. On the computer where Codex or Claude Code is installed, open "
+BRING_REPLY = ("Your agent is **{agent}**. On the computer where {where} is installed, open "
                "[your Connect page]({link}): it shows the one line to paste there (Mac, Windows or Linux).\n\n"
                "Your code: `{code}` (it works once, within 30 minutes). On a Mac or Linux this is the same line:\n\n"
                "`{line}`\n\nYour agent then runs in the background. It has invited you to a private chat: "
@@ -86,7 +86,7 @@ class MoreAgents(Renaming):
         if await self.on_rename_text(room, event):
             return True
         private = self.in_private(room, event.sender)
-        text = without_quote(event.body) if private else self.addressed_text(event, room)
+        text = unaddressed(event.body) if private else self.addressed_text(event, room)
         if text is None:
             return False
         naming = self.__dict__.setdefault("_naming", {})
@@ -168,8 +168,9 @@ class MoreAgents(Renaming):
             raise RuntimeError("I couldn't open a private chat with just you")
         code = remote_agent.CODES.issue(person, agent=agent)
         more = self.has_connected_agent(person)   # pm_presence.py: "another agent" only once one is connected
+        kind = (registry.find(person, agent) or {}).get("agent_kind")   # the AI it runs (picker); none: as before
         event_id = await self.say(chat, BRING_REPLY.format(
-            agent=agent or registry.agent_of(person), link=connect_page.page_link(code), code=code,
-            line=remote_agent.install_line(code)) + (ADD_HINT if more else ""))
+            agent=agent or registry.agent_of(person), where=pm_kinds.where(kind), code=code,
+            link=connect_page.page_link(code, kind), line=remote_agent.install_line(code, kind)) + (ADD_HINT if more else ""))
         if more:
             await self.offer_add(chat, event_id, person)

@@ -43,7 +43,8 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
    the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
    the wrapper names (`cli_path.py`).
-   **Which agent** (docs/adr/0008-agent-kinds.md): the kind you chose with @pm, or
+   **Which agent** (docs/adr/0008-agent-kinds.md): the kind you chose with @pm (its Connect link
+   and line then name it, `--agent ollama`), or
    `--agent codex|claude|hermes|ollama|remote` (Windows: `-Agent`, no Hermes). **Hermes** needs
    Hermes Agent with a model and Hagency's invite patch (`docs/hermes-matrix-invite-allowlist.patch`),
    on macOS or Linux; it runs as its two profiles, like on the server. **Ollama** runs a model on your

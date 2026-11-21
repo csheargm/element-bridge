@@ -17,9 +17,9 @@ import urllib.parse
 
 from aiohttp import web
 
+import agent_kinds
 import connect_status
 import console
-import pm_kinds
 import identity
 import local_signup
 import pairing
@@ -57,8 +57,11 @@ def client_of(request) -> str:
     return peer
 
 
-def install_line(code: str) -> str:
-    return f"curl -fsSL {console.public_url()}/connect.sh | sh -s -- {code}"
+def install_line(code: str, kind: str | None = None) -> str:
+    """The line to paste on a Mac or Linux; with the agent's kind (agent_kinds.KINDS only), --agent KIND,
+    as the Connect page's own line (static/connect.js commandFor)."""
+    named = f" --agent {kind}" if kind in agent_kinds.KINDS else ""
+    return f"curl -fsSL {console.public_url()}/connect.sh | sh -s -- {code}{named}"
 
 
 def open_dm(agent: str, password: str, person: str) -> str:
@@ -125,14 +128,14 @@ def provision_more(person: str, label: str, picked: dict | None = None) -> str:
             if registry.local_name(person) is None:
                 remote_people.check_new(registry.from_elsewhere(registry.load()), person, further=True)
             try:
-                found = registry.add_agent(person, label, picked=picked)   # pm_kinds.py: the AI it runs
+                found = registry.add_agent(person, label, picked=picked)   # pm_kinds.py: the AI it runs (agent_kinds' fields)
             except ValueError as e:
                 raise AccountError(str(e)) from e
         agent = found["localpart"]
         if found["agent"] != registry.REMOTE or registry.claimants(agent) != [person]:
             raise AccountError("that agent's account name is taken here; choose another name")
         if picked and not found["ready"]:     # finishing an unfinished one: the AI chosen now (GPT review);
-            registry.update(person, agent, **{k: picked.get(k, "") for k in pm_kinds.FIELDS})   # a finished one keeps its own
+            registry.update(person, agent, **{k: picked.get(k, "") for k in agent_kinds.OFFER_KEYS})   # a finished one keeps its own
         password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
         registry.update(person, agent, ready=True)   # made or signed in with our password: ours (disconnect checks)
         if not found.get("dm"):
@@ -206,7 +209,7 @@ def credentials_for(person: str, agent: str | None = None, issued: float | None 
     owner = registry.local_name(person) or person   # a bare name here: what an older connect.py accepts
     return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner,
             **({"label": label} if label else {}),
-            **{k: found[k] for k in pm_kinds.FIELDS if found.get(k)}}   # the AI it runs (none: connect.py picks)
+            **{k: found[k] for k in agent_kinds.OFFER_KEYS if found.get(k)}}   # the AI it runs (none: connect.py picks)
 
 
 def routes() -> list:

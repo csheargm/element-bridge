@@ -22,6 +22,7 @@ import urllib.request
 
 from aiohttp import web
 
+import agent_kinds
 import pm_kinds
 import console_personal
 import console_repo
@@ -149,9 +150,9 @@ async def view(loop, room_id: str, user: str) -> dict:
     mine = my_agents(loop, room, room_id, user)
     if console_personal.is_dm(loop, room):   # My Hagency: their personal cards only (or refused)
         return console_personal.view(loop, room, user, mine, can_add(user, mine),
-                                     {"kinds": pm_kinds.KINDS, "github": github_link.status(user),
+                                     {"kinds": agent_kinds.kinds(), "github": github_link.status(user),
                                       "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None})
-    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": pm_kinds.KINDS, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.kinds(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),

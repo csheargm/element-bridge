@@ -148,8 +148,12 @@ carry, besides `homeserver`, `user_id`, `password`, `owner` and `label`:
 - **Further agents:** still run in a window there, as in ADR 0005.
 
 ## Consequences
-- **Server side:** to offer a kind, the @pm side adds `agent_kind` (and `model` / `base_url`) to
-  `credentials_for`'s answer and uses `agent_kinds.kinds()` for its choices. Older connect.py
+- **Server side (done in batch 12–14):** @pm's picker (`pm_kinds.py`, the panel's Add an agent)
+  offers exactly `agent_kinds.kinds()` and checks with `agent_kinds.valid_model` / `valid_base_url`;
+  `registry` keeps the choice in `agent_kind` / `model` / `base_url` next to `"agent": "remote"`;
+  `remote_agent.credentials_for` adds those fields to the answer; and every Connect message
+  (`pm_agents.send_code`: first agent, ➕, resend, 🔁, the panel) links
+  `connect_page.page_link(code, kind)` and a line ending in `--agent KIND`. Older connect.py
   installs ignore the new keys and behave as before, and connect.sh updates them first anyway.
 - **What a person needs:** ollama and remote need Codex installed, but no OpenAI sign-in. Hermes
   needs a patched Hermes. Each kind's needs are listed in `agent_kinds.ABOUT`.

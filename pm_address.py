@@ -23,6 +23,14 @@ def without_quote(body: str) -> str:
     return "\n".join(lines).strip()
 
 
+def unaddressed(body: str) -> str:
+    """What the person wrote, without its quote and a leading "@pm" / "Product Manager": in our private
+    chat people type the address too ("@pm add another agent …"), and it must read the same."""
+    text = without_quote(body)
+    m = ADDRESS_RE.match(text)
+    return m.group(2) if m else text
+
+
 class Addressing:
     def direct_chats(self) -> dict:
         """room → person: direct chats a person opened with me themselves (pm_follow.py), on disk."""

@@ -9,6 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import agent_kinds
 import pm_kinds
 import console
 import panel
@@ -80,7 +81,7 @@ class PickInChat(flows.Provisioning):
         self.assertEqual(self.run_(console.act(loop, "!r", CX, "add", keyed)), pm_kinds.NO_KEYS)
         mine = console.my_agents(SimpleNamespace(agent_online=lambda a: None, ever_connected=lambda a: False),
                                  SimpleNamespace(users={}, invited_users={}), "!r", CX)
-        self.assertEqual([a["runs"] for a in mine], ["", "Local model (Ollama): qwen2.5-coder:7b"])
+        self.assertEqual([a["runs"] for a in mine], ["", "Ollama (a model on your computer): qwen2.5-coder:7b"])
 
     def test_remove_codex_then_add_codex_again(self):
         """Owner request: the name is theirs to use again; its closed account never comes back."""
@@ -104,12 +105,33 @@ class PanelPicker(unittest.TestCase):
 
     def test_the_picker_lists_the_servers_kinds_and_each_agent_shows_what_it_runs(self):
         state = {"agents": [{"name": "cx-agent", "label": "main", "first": True, "follow": "always", "remote": True,
-                             "online": True, "runs": "Remote: m at openrouter.ai"}], "can_add": True, "kinds": pm_kinds.KINDS}
-        html = self.node(f"process.stdout.write(agentCards({json.dumps(state)}))")
-        for kind, words in pm_kinds.KINDS.items():
-            self.assertIn(f'<option value="{kind}">{words}</option>', html)
+                             "online": True, "runs": "Remote: m at openrouter.ai"}], "can_add": True,
+                 "kinds": agent_kinds.kinds()}
+        mac = "Object.defineProperty(globalThis, 'navigator', {value: {platform: 'MacIntel'}});"
+        html = self.node(f"{mac} process.stdout.write(agentCards({json.dumps(state)}))")
+        self.assertEqual(re.findall(r'<option value="(\w*)"', html), ["", *agent_kinds.KINDS])   # exactly the list
+        for k in agent_kinds.kinds():
+            only = "" if k["windows"] else " (Mac/Linux only)"
+            self.assertRegex(html, rf'<option value="{k["kind"]}" data-needs="Needs on your computer: [^"]+">'
+                                   rf'{re.escape(k["name"] + only)}</option>')
+            self.assertIn(k["needs"][0].split(" (")[0].replace("'", "&#39;"), html)                       # what it needs, from the one list
         self.assertIn('<span class="chip">Remote: m at openrouter.ai</span>', html)
         self.assertIn("API key is asked\n    for on your computer", html)
+
+    def test_on_windows_hermes_is_greyed_out_and_says_mac_linux_only(self):
+        state = {"agents": [], "can_add": True, "kinds": agent_kinds.kinds()}
+        win = "Object.defineProperty(globalThis, 'navigator', {value: {platform: 'Win32'}});"
+        html = self.node(f"{win} process.stdout.write(agentCards({json.dumps(state)}))")
+        self.assertRegex(html, r'<option value="hermes" data-needs="[^"]+" disabled>Hermes \(Mac/Linux only\)</option>')
+        self.assertEqual(re.findall(r'<option value="(\w+)"[^>]* disabled', html), list(agent_kinds.NOT_ON_WINDOWS))
+
+    def test_choosing_a_kind_shows_what_it_needs(self):
+        state = {"agents": [], "can_add": True, "kinds": agent_kinds.kinds()}
+        out = self.node("let h; const els = {newneeds: {textContent: ''}}; const document = {addEventListener: (t, f) => h = f,"
+                        " getElementById: id => els[id]}; agentCards(" + json.dumps(state) + ");"
+                        "h({target: {id: 'newkind', selectedOptions: [{dataset: {needs: 'Needs on your computer: X.'}}]}});"
+                        "process.stdout.write(els.newneeds.textContent)")
+        self.assertEqual(out, "Needs on your computer: X.")
 
     def test_add_sends_the_choice_or_a_plain_name(self):
         fields = {"newagent": "lo", "newkind": "ollama", "newmodel": "llama3.2", "newbase": ""}
