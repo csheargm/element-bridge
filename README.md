@@ -1,8 +1,8 @@
 # Hagency Rooms — chat where each person brings their own agent (Matrix + Element)
 
 One-day prototype: a stock Matrix homeserver (Synapse) and Element as the chat app, plus a
-~270-line Python bridge that lets each person's **own** agent CLI (Codex or Claude Code, using
-their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
+~270-line Python bridge that lets each person's **own** agent (Codex, Claude Code, Hermes, a local
+Ollama model or a remote model, on their own computer) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 
 ## Get started (no setup)
 

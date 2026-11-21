@@ -24,8 +24,7 @@ log = logging.getLogger("loop")
 HOUSE, BRING = "🏠", "🔌"
 USING_RE = re.compile(r"\bbring (my|your) own\b(\s+agent)?\s+(using|with|running)\s+(?P<how>.+?)\W*$", re.I)
 HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
-               "own: type \"bring my own\" (Codex, Claude Code, Hermes, a local Ollama model or a remote model "
-               "on your computer).")
+               f"own: type \"bring my own\" ({agent_kinds.IN_WORDS} on your computer).")
 # Under the first agent's Connect message until it connects (pm_agents.send_code).
 CHOOSE_HINT = ("\n\n{now} For another AI, type for example \"bring my own using hermes\", \"... using ollama "
                "llama3.2\" or \"... using remote https://openrouter.ai/api/v1 openai/gpt-4o\", or choose it in "

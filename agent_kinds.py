@@ -42,6 +42,11 @@ ABOUT = {
 }
 
 
+# Every kind in a few words, for welcome texts (pm_welcome, pm_first, Element's home page: a test keeps
+# deploy/element_page/home.html saying exactly this).
+IN_WORDS = "Codex, Claude Code, Hermes, a local Ollama model or a remote model"
+
+
 class BadConnectInfo(ValueError):
     """The connect info names a kind, model or address this computer won't use."""
 

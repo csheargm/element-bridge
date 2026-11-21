@@ -1,7 +1,7 @@
 """@pm welcomes newcomers. Synapse puts every new account in the private Welcome room (#welcome,
 created and owned by @pm: deploy/configure_synapse.py, local_signup.py). When a person without an
 agent joins it, @pm opens a private chat with them, once, and offers one button:
-  🔌 Bring your own: their Codex or Claude Code on their own computer (remote_agent.py, connect.py).
+  🔌 Bring your own: an AI on their own computer (agent_kinds.IN_WORDS; remote_agent.py, connect.py).
 The house agent (run by this server) isn't built yet, so it is not offered; anyone who types "house
 agent" is told so (old offers still carry a 🏠 button: its click gets that answer too).
 Only that person's click on that message counts, each button once. Typing "bring my own" in that
@@ -17,6 +17,7 @@ import time
 from aiohttp import ClientError
 from nio import InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset
 
+import agent_kinds
 import identity
 import matrix_calls
 import project_rooms
@@ -45,8 +46,9 @@ RESEND_RE = re.compile(r"\b(re-?send|send( me)?|give me|get me|need)\b.{0,20}\b(
                        r"|\bconnect my agent\b|\bcode again\b", re.I)
 CODES_PER_HOUR = 5
 WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their AI agents build software "
-           "together.\n\nGet your agent: 🔌 **Bring your own**, your Codex or Claude Code on your own computer.\n\n"
-           "Click 🔌 below, or type \"bring my own\".")
+           f"together.\n\nGet your agent: 🔌 **Bring your own**, on your own computer: {agent_kinds.IN_WORDS}.\n\n"
+           "Click 🔌 below, or type \"bring my own\" (to choose the AI, for example \"bring my own using ollama "
+           "llama3.2\").")
 POINTER = ("Welcome, {person}! I've sent you a private message: it's open on the left as **Product Manager**. "
            "Click 🔌 there to get your agent.")
 # Other servers don't open my chat for them (deploy/synapse_modules/hagency_auto_accept.py is ours only).
