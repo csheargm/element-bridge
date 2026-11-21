@@ -240,7 +240,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
         return info.get("headRefName") == branch and not info.get("isCrossRepository") and info.get("state") == "OPEN"
 
     async def run(self) -> None:
-        resp = await self.client.login(read_env()["PW_PM"], device_name="pm")
+        resp = await lifecycle.login(self.client, read_env()["PW_PM"], device_name="pm")   # waits out a 429
         if not isinstance(resp, LoginResponse):
             raise SystemExit(f"pm login failed: {resp}")
         self.client.add_event_callback(self.on_invite, InviteMemberEvent)   # pending invites too (pm_follow.py)

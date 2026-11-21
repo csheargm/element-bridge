@@ -237,7 +237,7 @@ class Bridge(BridgeVoice, BridgeCustom):
     # --- lifecycle -----------------------------------------------------------------
     async def run(self) -> None:
         password = agent_password(f"{self.owner}-agent")   # bridge_config.py: .env, or connect.py's file
-        resp = await self.client.login(password, device_name=f"{self.owner}-agent bridge")
+        resp = await lifecycle.login(self.client, password, device_name=f"{self.owner}-agent bridge")
         if not isinstance(resp, LoginResponse):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":   # disconnected (a new sign-in is needed):
                 log.error("%s was disconnected: ask @pm for a new code", self.user_id)

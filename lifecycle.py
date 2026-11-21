@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
-from nio import AsyncClient, SyncResponse
+from nio import AsyncClient, LoginResponse, SyncResponse
 
 # git-ignored (rooms/); tests point this elsewhere so their hand-offs never reach the real bridges
 HANDOFF_DIR = Path(os.environ.get("HANDOFF_DIR", Path(__file__).parent / "rooms" / ".handoff"))
@@ -39,6 +39,23 @@ async def communicate(proc: asyncio.subprocess.Process, data: bytes | None, time
             proc.kill()
         await asyncio.shield(proc.wait())
         raise
+
+
+LOGIN_WAIT_S = 15 * 60
+
+
+async def login(client: AsyncClient, password: str, device_name: str, sleep=asyncio.sleep):
+    """client.login, waiting out Synapse's per-account sign-in limit (429) instead of failing: a
+    failed start restarts and signs in again, which only keeps the limit hit (seen live on @pm)."""
+    waited = 0.0
+    while True:
+        resp = await client.login(password, device_name=device_name)
+        if isinstance(resp, LoginResponse) or getattr(resp, "status_code", "") != "M_LIMIT_EXCEEDED" or waited >= LOGIN_WAIT_S:
+            return resp
+        pause = min(max((getattr(resp, "retry_after_ms", None) or 5000) / 1000, 1.0), LOGIN_WAIT_S - waited)
+        log.warning("Synapse limits %s's sign-ins: waiting %.0fs", client.user_id, pause)
+        await sleep(pause)
+        waited += pause
 
 
 def _path(name: str) -> Path:
