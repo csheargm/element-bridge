@@ -85,7 +85,8 @@ class PanelTrusted(unittest.TestCase):
     def test_only_our_exact_panel_url_skips_both_prompts(self):
         rules = element_home.element_config(VALUES)[element_home.WIDGET_LIFECYCLE]["widget_permissions"]
         self.assertEqual(rules, {"https://rooms.example.org/panel?room=$matrix_room_id":
-                                 {"preload_approved": True, "identity_approved": True}})
+                                 {"preload_approved": True, "identity_approved": True,
+                                  "capabilities_approved": ["org.matrix.msc2931.navigate"]}})
         self.assertFalse(any(pattern.endswith("*") for pattern in rules))   # Element: "*" would match by prefix
 
     def test_element_runs_the_image_that_carries_its_widget_lifecycle_module(self):

@@ -27,6 +27,8 @@ function confirmed(b) {                // panel.py's click handler: false = this
   b.textContent = "Click again to remove it for good";
   return false;
 }
+// "your chat with Product Manager" opens it (panel.html's pmChatLink; without the page: plain words).
+const chatLink = text => typeof pmChatLink === "function" ? pmChatLink(text) : esc(text);
 // A screen test found newcomer jargon here: the label "main" for their only agent, "run the connect
 // line again" for one that never connected, and "the official version" nobody had changed.
 function agentHint(a) {
@@ -35,7 +37,7 @@ function agentHint(a) {
   // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
   const steps = a.first ? 'follow the 🔌 steps (type "resend me the code" there for a fresh one)'
     : `follow its Connect message (for a fresh code, type "add another agent called ${esc(a.label)}" there)`;
-  return `<div class="hint">Not connected yet: open your chat with Product Manager and ${steps}.</div>`;
+  return `<div class="hint">Not connected yet: open ${chatLink("your chat with Product Manager")} and ${steps}.</div>`;
 }
 // Rename: only the name people see (pm_rename.py); its Matrix ID stays. Plain text, up to 40 characters.
 function renameRow(a) {
@@ -56,7 +58,7 @@ function agentRow(a, version, several) {
 function agentCards(s) {
   if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
   const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
-    <button data-a="add" data-v="">Add an agent</button></div><div class="hint">@pm sends its Connect page in your private chat.</div></div>` : "";
+    <button data-a="add" data-v="">Add an agent</button></div><div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}.</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
     <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
 }

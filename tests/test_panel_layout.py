@@ -12,7 +12,7 @@ import project_rooms
 from loop import Loop
 
 PM = "@pm:bridge.localhost"
-WIDGET = {"type": "m.custom", "url": "https://x/panel?room=$matrix_room_id", "name": "Hagency", "id": "hagency"}
+WIDGET = {"type": "m.custom", "url": panel.widget_url(), "name": "Hagency", "id": "hagency"}
 OTHER = {"container": "right", "index": 1}
 
 
@@ -66,6 +66,12 @@ class LiftPanels(unittest.TestCase):
         self.assertEqual(writes, ["!old"])
         self.assertEqual(self.state[("!lobby", panel.LAYOUT_KIND)], {"widgets": {"hagency": {"container": "right"}}})
         self.assertNotIn(("!bare", panel.LAYOUT_KIND), self.state)
+
+    def test_another_page_under_the_panels_key_is_never_promoted(self):
+        """GPT review: anyone allowed to write the widget state could put their own page there."""
+        self.state[("!old", panel.WIDGET_KIND)] = {**WIDGET, "url": "https://evil.example/panel"}
+        self.assertFalse(asyncio.run(panel.lift_to_top(self.lp.client, "!old")))
+        self.assertEqual(self.state[("!old", panel.LAYOUT_KIND)]["widgets"]["hagency"], {"container": "right"})
 
     def test_a_panel_with_no_layout_yet_gets_one(self):
         self.state[("!bare", panel.WIDGET_KIND)] = WIDGET

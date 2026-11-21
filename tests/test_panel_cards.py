@@ -60,16 +60,16 @@ class ProjectRepo(unittest.TestCase):
 
     def test_the_first_click_only_arms_it_and_the_second_removes(self):
         owner = json.dumps(self.OWNER)
-        clicks = ('(() => { const b = {dataset: {a: "unrepo", v: ""}, textContent: ""}; const first = repoConfirmed(b);'
+        clicks = ('(() => { const b = {dataset: {a: "unrepo", v: "", g: "a/x"}, textContent: ""}; const first = repoConfirmed(b);'
                   f' const shown = repoCard({owner}); const second = repoConfirmed(b);'
                   ' return [first, b.dataset.v, shown.includes("Click again to remove the repo"), second, '
                   f'repoCard({owner}).includes("Click again")].join(","); }})()')
-        self.assertEqual(render("panel-project.js", clicks), "false,sure,true,true,false")
+        self.assertEqual(render("panel-project.js", clicks), "false,sure:a/x,true,true,false")
 
     def test_the_page_never_sends_it_without_its_script(self):
         ok = re.search(r"^const ok = .*?; };$", panel.PAGE, re.S | re.M).group(0)
         done = subprocess.run([NODE, "-e", f"const window = {{}}; {ok}\nprocess.stdout.write(String("
-                               'ok({dataset: {a: "unrepo", v: "sure"}})) + String(ok({dataset: {a: "mode"}})))'],
+                               'ok({dataset: {a: "unrepo", v: "sure:a/x"}})) + String(ok({dataset: {a: "mode"}})))'],
                               capture_output=True, text=True)
         self.assertEqual(done.stdout, "falsetrue", done.stderr)
 

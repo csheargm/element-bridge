@@ -39,6 +39,7 @@ NO_REPO_HERE = "This room has no GitHub repo to remove."
 NOT_MODERATOR = "Only the room owner or a maintainer can remove this room's repo."
 UNREADABLE = "I couldn't check this room just now; please try again in a minute."
 NOT_PROJECT = "Only project rooms have a repo."
+CHANGED = "This room's repo changed since you asked, so I haven't removed it. Look again and ask again if you still want to."
 
 
 class RepoRemoval:
@@ -62,7 +63,7 @@ class RepoRemoval:
         asked, now = self.repo_removals(), time.time()
         for old in [e for e, a in asked.items() if a["until"] < now or (a["person"], a["room"]) == (sender, room.room_id)]:
             del asked[old]                    # expired or replaced questions don't pile up
-        asked[event_id] = {"person": sender, "room": room.room_id, "until": now + CONFIRM_S}
+        asked[event_id] = {"person": sender, "room": room.room_id, "until": now + CONFIRM_S, "repo": repo}
         await self.offer_thumb(room.room_id, event_id, "✅")
 
     async def on_repo_removal_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
@@ -76,31 +77,31 @@ class RepoRemoval:
         if time.time() > asked["until"]:
             await self.say(room.room_id, "That question timed out; say \"@pm remove the repo\" again if you still want to.")
             return True
-        await self.remove_repo(room, event.sender)
+        await self.remove_repo(room, event.sender, asked["repo"])   # only the repo they were asked about
         return True
 
-    async def remove_repo(self, room: MatrixRoom, sender: str) -> str:
-        """Remove the room's repo now (already confirmed); says the answer in the room and returns it."""
+    async def remove_repo(self, room: MatrixRoom, sender: str, seen: str) -> str:
+        """Remove the room's repo now (already confirmed for `seen`, the repo the person was shown: GPT
+        review, a rebind since then is never removed by it); says the answer in the room and returns it."""
         answer = self.not_a_project(room)
         if answer is None and not await room_state.is_moderator(self.client, room, sender):
             answer = NOT_MODERATOR
         if answer is None:
             async with self.lock:             # as choose_repo: nothing starts in between, and it finishes whole
-                answer = await asyncio.shield(asyncio.ensure_future(self.unbind_checked(room, sender)))
+                job = asyncio.ensure_future(self.unbind_checked(room, sender, seen))
+                try:
+                    answer = await asyncio.shield(job)
+                except asyncio.CancelledError:   # GPT review: the lock is held until it has finished
+                    await job
+                    raise
         await self.say(room.room_id, answer)
         return answer
 
-    async def unbind_checked(self, room: MatrixRoom, sender: str) -> str:
+    async def unbind_checked(self, room: MatrixRoom, sender: str, seen: str) -> str:
         rid = room.room_id
         if any(v.get("room") == rid and v.get("stage") in ACTIVE for v in self.state.values()):
             return settings_text("BUSY")
-        try:
-            if not await room_state.joined_moderator(self.client, rid, sender):   # read now, not the cached room
-                return NOT_MODERATOR
-        except room_state.StateUnreadable as e:
-            log.warning("requester check before removing %s's repo failed: %s", rid, e)
-            return UNREADABLE
-        failed = await self.write_unbound(rid)
+        failed = await self.write_unbound(rid, sender, seen)
         if failed:
             return failed
         self.forget_repo(rid)
@@ -109,16 +110,21 @@ class RepoRemoval:
         log.info("%s removed the repo of %s", sender, rid)
         return DONE
 
-    async def write_unbound(self, rid: str) -> str | None:
-        """The binding with no repo, read and written under the binding lock (pm_settings.write_level)."""
+    async def write_unbound(self, rid: str, sender: str, seen: str) -> str | None:
+        """The binding with no repo, read and written under the binding lock (pm_settings.write_level);
+        the requester is re-read just before the write (GPT review: a demotion while it waited counts)."""
         async with self.__dict__.setdefault("_binding_lock", asyncio.Lock()):
             try:
                 repo, _ = await room_state.binding_of(self.client, rid, strict=True)
+                if repo is None:
+                    return NO_REPO_HERE
+                if repo.lower() != seen.lower():
+                    return CHANGED
+                if not await room_state.joined_moderator(self.client, rid, sender):   # read now, not the cached room
+                    return NOT_MODERATOR
             except room_state.StateUnreadable as e:
-                log.warning("couldn't read %s's binding: %s", rid, e)
+                log.warning("couldn't check %s before removing its repo: %s", rid, e)
                 return UNREADABLE
-            if repo is None:
-                return NO_REPO_HERE
             resp = await self.client.room_put_state(rid, github.LEVEL_EVENT, room_state.unbound())
         if not hasattr(resp, "event_id"):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":
@@ -139,15 +145,20 @@ class RepoRemoval:
         self.drop_conflict_offers(rid)        # an older 🙋/➕ question is settled
 
     async def blank_board(self, rid: str) -> None:
-        """The pinned board says "no repo yet", and the status agents read names no repo (room_context.status)."""
+        """The pinned board says "no repo yet", and the status agents read names no repo (room_context.status).
+        Until all of that is done the board stays marked "unbound" and each poll tries again (GPT review)."""
         import status_board                   # here: it imports pm_settings, which imports this module
         text = status_board.render({}, "off", [], time.time(), "")
-        board = self.boards.get(rid, {})
-        if board.get("event_id"):
+        board, done = {**self.boards.get(rid, {}), "unbound": True}, True
+        if board.get("event_id") and board.get("text") != text:
             event_id = await self.show(rid, board["event_id"], text, "")
             if event_id:
-                board = {**board, "event_id": event_id, "text": text, "pinned": event_id == board["event_id"]}
+                pinned = event_id == board["event_id"] or await self.pin(rid, event_id, board["event_id"])
+                board.update(event_id=event_id, text=text, pinned=pinned)
+            done = bool(event_id)
         board["published"] = await self.publish(rid, text, "")
+        if done and board["published"]:
+            board.pop("unbound")
         self.boards[rid] = board
         self.save_boards()
 

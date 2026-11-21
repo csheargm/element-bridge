@@ -22,7 +22,7 @@ class Rename(unittest.TestCase):
     def setUp(self):
         use_registry(self, PEOPLE)
         self.lp = Loop.__new__(Loop)
-        self.lp.user_id, self.lp._welcomes, self.said = PM, {}, []
+        self.lp.user_id, self.lp._welcomes, self.lp.busy, self.said = PM, {}, set(), []
 
         async def say(room_id, body, *a, **k):
             self.said.append((room_id, body))
@@ -44,13 +44,17 @@ class Rename(unittest.TestCase):
 
     def chat(self, sender, words, room="!dm"):
         event = SimpleNamespace(sender=sender, body=words, source={"content": {"body": words}})
-        handled = asyncio.run(self.lp.on_welcome_text(SimpleNamespace(room_id=room, users={sender: None, PM: None}), event))
+        async def go():
+            done = await self.lp.on_welcome_text(SimpleNamespace(room_id=room, users={sender: None, PM: None}), event)
+            await asyncio.gather(*self.lp.busy)          # answered in the background (GPT review)
+            return done
+        handled = asyncio.run(go())
         return handled, self.said[-1][1] if self.said else ""
 
     def test_the_owner_renames_from_the_panel(self):
         answer = asyncio.run(console.act(self.lp, "!r", CX, "rename", "  Codex the Builder ", "cx-codex-agent"))
         self.assertEqual(answer, "Your agent is now called Codex the Builder (its ID @cx-codex-agent:bridge.localhost stays the same).")
-        self.assertEqual(self.calls, [("PUT", "/_synapse/admin/v2/users/%40cx-codex-agent%3Abridge.localhost",
+        self.assertEqual([c for c in self.calls if c[0] == "PUT"], [("PUT", "/_synapse/admin/v2/users/%40cx-codex-agent%3Abridge.localhost",
                                        {"displayname": "Codex the Builder"})])
         self.assertEqual(self.said[-1], ("!dm", answer))                   # also in our private chat
         mine = console.my_agents(self.lp_with_presence(), self.lp.client.rooms["!r"], "!r", CX)
@@ -106,6 +110,17 @@ class Rename(unittest.TestCase):
         for i in range(pm_rename.RENAMES_PER_HOUR):
             self.assertIn("now called", asyncio.run(self.lp.rename_agent("!dm", BETTY, None, f"Name {i}")))
         self.assertIn("several renames this hour", asyncio.run(self.lp.rename_agent("!dm", BETTY, None, "Again")))
+
+    def test_a_name_only_reserved_here_is_never_renamed(self):
+        """GPT review: a set-up that never finished (not "ready") may name an account someone else made."""
+        use_registry(self, {**PEOPLE, BETTY: {"agent": "remote", "ready": False}})
+        self.assertEqual(asyncio.run(self.lp.rename_agent("!dm", BETTY, None, "Mine")), "You have no agent here yet.")
+        self.assertEqual(self.calls, [])
+
+    def test_a_missing_account_is_never_created_by_a_rename(self):
+        self.answer = {"_status": 404, "errcode": "M_NOT_FOUND"}
+        self.assertIn("couldn't rename it", asyncio.run(self.lp.rename_agent("!dm", BETTY, None, "Helper")))
+        self.assertEqual([c[0] for c in self.calls], ["GET"])                  # update only: no PUT
 
     def test_nothing_sets_an_agents_name_back_on_a_restart(self):
         """Only @pm's own name is ever set at start (setup_accounts), and only this module and that one

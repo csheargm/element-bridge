@@ -17,8 +17,10 @@ import room_context
 import room_state
 from tests.test_projects import ANNA, BETTY, PM, REPO, Base, project, run
 
+SURE = f"sure:{REPO}"                         # the page's second click names the repo it showed
 
-class RemoveRepo(Base):
+
+class Setup(Base):
     def setUp(self):
         super().setUp()
         self.a, self.b = project("!a", "Alpha"), project("!b", "Beta")
@@ -54,9 +56,11 @@ class RemoveRepo(Base):
         self.assertEqual(room_state.level_of({**self.binding(), "level": "autonomous"}), "off")
         self.assertEqual(self.said[-1], ("!a", pm_unbind.DONE))
 
+
+class RemoveRepo(Setup):
     def test_the_owner_removes_it_from_the_panel(self):
         self.state["!a"][github.LEVEL_EVENT] = (room_state.content("assist", REPO), PM)
-        answer = run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+        answer = run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         self.assertEqual(answer, pm_unbind.DONE)
         self.assert_removed()
         self.assertEqual(room_state.level_of(self.binding()), "off")       # mode is off after
@@ -89,7 +93,7 @@ class RemoveRepo(Base):
     def test_a_contributor_is_refused(self):
         self.assertTrue(self.tell(BETTY, "remove the repo"))
         self.assertEqual(self.said[-1][1], pm_unbind.NOT_MODERATOR)
-        self.assertEqual(run(console.act(self.lp, "!a", BETTY, "unrepo", "sure")), pm_unbind.NOT_MODERATOR)
+        self.assertEqual(run(console.act(self.lp, "!a", BETTY, "unrepo", SURE)), pm_unbind.NOT_MODERATOR)
         self.assertEqual(room_state.repo_in(self.binding()), REPO)
 
     def test_a_moderator_who_left_since_asking_is_refused(self):
@@ -101,14 +105,14 @@ class RemoveRepo(Base):
 
     def test_running_work_is_refused_until_stopped(self):
         self.lp.state = {f"{REPO}#3": {"room": "!a", "repo": REPO, "stage": "building"}}
-        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", "sure")), pm_settings.BUSY)
+        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", SURE)), pm_settings.BUSY)
         self.assertEqual(room_state.repo_in(self.binding()), REPO)
         self.lp.state[f"{REPO}#3"]["stage"] = "stopped"
-        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", "sure")), pm_unbind.DONE)
+        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", SURE)), pm_unbind.DONE)
 
     def test_the_freed_repo_can_be_taken_by_another_room(self):
         self.assertIn("already the project of another room", run(self.lp.set_repo(self.b, ANNA, REPO)))
-        run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         self.assertIn(f"now works on **{REPO}**", run(self.lp.set_repo(self.b, ANNA, REPO)))
         self.assertEqual(room_state.repo_in(self.binding("!b")), REPO)
         self.assertFalse(room_state.is_discussion(self.binding("!b")))
@@ -118,14 +122,14 @@ class RemoveRepo(Base):
         self.lp.pending["!a"] = {"kind": "plan", "event_id": "$p"}
         watch = mock.Mock(done=lambda: False)
         self.lp.install_watches["!a"] = (REPO, watch)
-        run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         self.assertEqual(self.lp._discussions, {"!d": "!b"})
         self.assertNotIn("!a", self.lp.pending)
         watch.cancel.assert_called_once()
 
     def test_the_status_board_names_no_repo(self):
         self.lp.boards["!a"] = {"event_id": "$old", "text": "📋 board", "pinned": True, "panel": True}
-        run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         self.assertIn("no repo yet", self.lp.boards["!a"]["text"])
         self.assertTrue(self.lp.boards["!a"]["panel"])
         status = self.state["!a"][github.STATUS_EVENT][0]
@@ -135,7 +139,7 @@ class RemoveRepo(Base):
             self.assertEqual(room_context.status("t", "!a", None), "")
 
     def test_each_agents_copy_of_the_repo_is_pruned_on_its_next_turn(self):
-        run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         event = {"sender": room_context.PM_ID, "content": self.binding()}  # what an agent reads (bridge.answer)
         with mock.patch.object(room_context, "api", lambda *a, **k: event):
             repo = room_context.room_repo("agent-token", "!a")
@@ -146,21 +150,64 @@ class RemoveRepo(Base):
         self.assertEqual(list(projects.iterdir()), [])
 
     def test_nothing_to_remove_says_so(self):
-        run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
-        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", "sure")), pm_unbind.NO_REPO_HERE)
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
+        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", SURE)), pm_unbind.NO_REPO_HERE)
 
     def test_a_listed_room_keeps_its_address_rules(self):
         self.state["!a"]["xyz.hagencylabs.visibility"] = ({"visibility": "listed"}, PM)
         with mock.patch("room_address.follow", mock.AsyncMock(return_value="")) as follow:
-            run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+            run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         follow.assert_awaited_once_with(self.lp.client, "!a", True, "Alpha", None)
 
     def test_a_stop_after_removal_never_writes_the_repo_back(self):
-        run(console.act(self.lp, "!a", ANNA, "unrepo", "sure"))
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
         self.assertIsNone(run(self.lp.change_level("!a", "off")))
         self.assertIsNone(room_state.repo_in(self.binding()))
 
 
+class ReviewFixes(Setup):
+    """GPT review of the batch: each adopted point, as a test."""
+
+    def test_a_confirmation_never_removes_a_repo_bound_since(self):
+        self.tell(ANNA, "remove the repo")                                   # asked about REPO
+        self.bind("!a", "a/public-one")                                     # another maintainer rebinds
+        self.click(ANNA)
+        self.assertEqual(self.said[-1][1], pm_unbind.CHANGED)
+        self.assertEqual(run(console.act(self.lp, "!a", ANNA, "unrepo", SURE)), pm_unbind.CHANGED)   # the page too
+        self.assertEqual(room_state.repo_in(self.binding()), "a/public-one")
+
+    def test_a_demotion_while_waiting_for_the_binding_lock_counts(self):
+        async def go():
+            lock = self.lp.__dict__.setdefault("_binding_lock", asyncio.Lock())
+            async with lock:                                                # a mode write in progress
+                job = asyncio.create_task(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
+                await asyncio.sleep(0.01)
+                self.mods["!a"] = set()                                     # demoted meanwhile
+            return await job
+        self.assertEqual(run(go()), pm_unbind.NOT_MODERATOR)
+        self.assertEqual(room_state.repo_in(self.binding()), REPO)
+
+    def test_cancelling_keeps_the_poll_lock_until_the_removal_is_done(self):
+        async def go():
+            job = asyncio.create_task(self.lp.remove_repo(self.a, ANNA, REPO))
+            await asyncio.sleep(0)
+            job.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await job
+            return self.lp.lock.locked(), room_state.repo_in(self.binding())
+        self.assertEqual(run(go()), (False, None))                          # finished whole, then released
+
+    def test_a_board_edit_that_failed_is_retried_by_the_poll(self):
+        self.lp.boards["!a"] = {"event_id": "$old", "text": "📋 board", "pinned": True}
+        self.lp.client.room_send = mock.AsyncMock(return_value=SimpleNamespace())   # the edit and repost fail
+        run(console.act(self.lp, "!a", ANNA, "unrepo", SURE))
+        self.assertTrue(self.lp.boards["!a"]["unbound"])
+        self.lp.client.room_send = mock.AsyncMock(side_effect=lambda rid, kind, content: RoomSendResponse("$b", rid))
+        self.lp.ensure_panel = mock.AsyncMock()
+        self.lp.level = mock.AsyncMock(return_value="off")
+        run(self.lp.refresh_boards())
+        self.assertNotIn("unbound", self.lp.boards["!a"])
+        self.assertIn("no repo yet", self.lp.boards["!a"]["text"])
 
 
 if __name__ == "__main__":

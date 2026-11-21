@@ -141,10 +141,10 @@ async def lift_to_top(client, room_id: str) -> bool:
     widget, only when it isn't on top already; other widgets keep their places. True when moved.
     Raises RuntimeError when the room's state can't be read or written (the caller goes on)."""
     widget = await client.room_get_state_event(room_id, WIDGET_KIND, WIDGET_ID)
-    if not isinstance(getattr(widget, "content", None), dict) or not widget.content.get("url"):
+    if not isinstance(getattr(widget, "content", None), dict) or widget.content.get("url") != widget_url():
         if getattr(widget, "status_code", None) not in (None, "M_NOT_FOUND"):
             raise RuntimeError(f"couldn't read the panel widget: {widget}")
-        return False                          # no panel here (or removed): nothing to place
+        return False                          # not my panel (GPT review: never another page put under its key)
     found = await client.room_get_state_event(room_id, LAYOUT_KIND, "")
     content = getattr(found, "content", None)
     if not isinstance(content, dict):

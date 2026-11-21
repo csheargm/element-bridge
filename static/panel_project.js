@@ -25,13 +25,13 @@ function repoCard(s) {
     <button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`;
   const more = !s.repo ? '<div class="hint">One GitHub repo per room.</div>'
     : `<div class="hint"><button data-a="check">Check readiness</button>${s.moderator ? ` <button data-a="unrepo"
-      data-v="${armed ? "sure" : ""}">${armed ? "Click again to remove the repo" : "Remove repo"}</button>` : ""}</div>`;
+      data-v="${armed ? "sure:" + esc(s.repo) : ""}" data-g="${esc(s.repo)}">${armed ? "Click again to remove the repo" : "Remove repo"}</button>` : ""}</div>`;
   return `<section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${choose}${more}</section>`;
 }
 function repoConfirmed(b) {              // panel.html's click handler: false = this click only armed it
-  if (b.dataset.v === "sure" && Date.now() < unrepoArmed) { unrepoArmed = 0; return true; }
+  if (b.dataset.v.startsWith("sure:") && Date.now() < unrepoArmed) { unrepoArmed = 0; return true; }
   unrepoArmed = Date.now() + 8000;
-  b.dataset.v = "sure";
+  b.dataset.v = "sure:" + b.dataset.g;   // the repo this card showed: a newer one is never removed by it
   b.textContent = "Click again to remove the repo";
   return false;
 }

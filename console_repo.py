@@ -12,7 +12,9 @@ async def act(loop, room, user: str, action: str, value: str) -> str:
     if action == "repo":
         return await loop.set_repo(room, user, value.strip())
     if action == "unrepo":
-        return await loop.remove_repo(room, user) if value == "sure" else "click Remove repo twice to remove it"
+        seen = value.removeprefix("sure:")    # the repo the page showed (GPT review: never a newer one)
+        return await loop.remove_repo(room, user, seen) if value.startswith("sure:") and seen else \
+            "click Remove repo twice to remove it"
     return await check_repo(loop, room, user)
 
 

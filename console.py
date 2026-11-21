@@ -150,6 +150,7 @@ async def view(loop, room_id: str, user: str) -> dict:
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
             "follow": registry.follow(user) if agent else None, "github": github_link.status(user),   # pm_github.py
+            "pm_chat": (getattr(loop, "dm_rooms", None) or {}).get(user),   # my private chat with them (their view only): its links open it
             "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
             "remote": bool(agent and registry.load().get(user, {}).get("agent") == registry.REMOTE),   # on their computer
             "online": loop.agent_online(agent.split(":")[0][1:]) if agent else None,

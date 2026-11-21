@@ -13,7 +13,8 @@ function githubCard(s) {
     and enter <input id="ghcode" class="code" readonly size="10" value="${esc(g.code)}">
     <button data-copy="${esc(g.code)}">${Date.now() < copiedUntil ? "Copied ✓" : "Copy"}</button></div>${
     g.login ? "" : '<button data-a="github" data-v="disconnect">Cancel</button>'}</div>
-    <div class="hint">Waiting for you to approve on GitHub… Enter the code only if you asked for it here.</div>`;
+    <div class="hint">Waiting for you to approve on GitHub… Enter the code only if you asked for it here. It's also in
+    ${typeof pmChatLink === "function" ? pmChatLink("your chat with Product Manager") : "your chat with Product Manager"}.</div>`;
   else if (!g.login) body += `<div class="set"><div>Show @pm which GitHub account is yours.</div>
     <button class="primary" data-a="github" data-v="connect">Connect GitHub</button></div>`;
   return `<section class="card"><h2>GitHub</h2>${body}<div class="hint">Choosing a room's repo needs write access to it
@@ -36,7 +37,7 @@ async function copyCode(b, field, clipboard) {
 // pending: Connect was clicked; shown: its code appeared. Returns the next mark, and "" to clear the line.
 function githubMsgAfter(mark, s) {
   const code = !!(s.github && s.github.code);
-  if (mark === "pending") return code ? "shown" : "pending";
+  if (mark === "pending") return code ? "shown" : s.github && s.github.login ? "" : "pending";   // connected before a view
   if (mark === "shown") return code ? "shown" : "";
   return mark;
 }

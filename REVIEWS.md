@@ -1094,3 +1094,33 @@ Re-check (GPT, the fix commit): six points. Adopted, with tests:
 Rejected: **a failed Welcome lookup skips the Lobby lookup** and **is_welcome_room checks only the
 main address** (both pre-existing; the address check still guards, the next start retries; out of
 scope, R8).
+
+## GPT review of feat/remove-repo (remove repo, GitHub banner + Copy, panel on top, rename agent, R15)
+GPT (Codex) on origin/master..HEAD: two blocking, five medium, one low. Adopted, each verified in
+the code, with tests:
+- **Blocking: rename trusted a registry reservation as proof of the account.** A remote agent's name
+  is only reserved before its account is made, and Synapse's admin PUT creates a missing account.
+  Rename now needs an account @pm made or holds ("ready", or one this server runs) under the exact
+  name it must have, reads the account first (update only), under the set-up lock (remote_agent.
+  WRITING), which also keeps Synapse and agents.json in one order. test_rename_agent
+  (test_a_name_only_reserved_here_…, test_a_missing_account_is_never_created_…).
+- **Blocking: a confirmation removed whatever repo the room had then.** The ✅ question and the
+  panel's second click carry the repo the person saw; a different binding is refused (CHANGED).
+  test_remove_repo (test_a_confirmation_never_removes_a_repo_bound_since).
+- **Medium: cancelling released the poll lock before the removal finished.** As choose_repo: the
+  lock is held until the shielded job ends. test_cancelling_keeps_the_poll_lock_…
+- **Medium: the moderator check came before waiting for the binding lock.** It is read inside it,
+  right before the write. test_a_demotion_while_waiting_for_the_binding_lock_counts.
+- **Medium: rename held up the sync loop** (an admin sign-in can wait) **and AccountError escaped.**
+  The chat path runs in the background; AccountError is a refusal.
+- **Medium: a failed board edit stayed for good** (unbound rooms were skipped). The board stays
+  marked "unbound" and each poll retries; a reposted board is pinned. test_a_board_edit_that_failed_…
+- **Medium: any page under the panel's widget key was promoted.** Only our exact widget URL.
+  test_panel_layout (test_another_page_under_the_panels_key_is_never_promoted).
+- **Low: a focused code field froze the card on a stale code; a sign-in finished before the first
+  view kept the line.** The field is redrawn once its code changes; connected clears the line.
+  test_panel_github_card (test_connected_before_any_view_showed_the_code_clears_it_too).
+Rejected: **a binding revision for "removed then rebound to the same repo"** (the person confirmed
+removing that repo, within 10 minutes; the check above covers a different one) and **the layout
+read/write gap** (Element changes a room's layout only on a moderator's drag; the next start
+re-checks).

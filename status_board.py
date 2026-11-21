@@ -98,6 +98,8 @@ class Boards:
             await self.ensure_panel(room_id)  # as soon as I'm a moderator: it's where the repo is picked
             repo = await room_state.repo_of(self.client, room_id)
             if repo is None:
+                if self.boards.get(room_id, {}).get("unbound"):   # its repo was removed: the board not blanked yet
+                    await self.blank_board(room_id)               # pm_unbind.py
                 continue                      # not a project room (no repo yet)
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id and v.get("repo") == repo}
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now, repo)

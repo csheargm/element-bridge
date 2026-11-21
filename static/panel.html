@@ -68,16 +68,25 @@ function signedIn(s) { session = s;       // the watchdog runs on until the firs
   refresh(); }
 // Inside Element only: the Matrix widget API, talking to Element's exact origin and our parent frame.
 let openidRequest = null, gotCredentials = false, capable = false, expired = 0;
+// "Your chat with Product Manager" is a link (pmChatLink): inside Element it opens that chat in place through
+// the widget API's navigate (MSC2931; pre-approved for our panel only: deploy/element_home.py), else (or
+// if Element refuses) a matrix.to link in a new tab.
+const NAVIGATE = "org.matrix.msc2931.navigate";
+let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
   if (ev.origin !== ELEMENT || ev.source !== window.parent || m.widgetId !== wid) return;
   if (m.api === "toWidget") {
     const ack = {api: "toWidget", widgetId: wid, requestId: m.requestId, action: m.action, data: {},
-                 response: m.action === "capabilities" ? {capabilities: []} : {}};   // never echo credentials
+                 response: m.action === "capabilities" ? {capabilities: [NAVIGATE]} : {}};   // never echo credentials
     window.parent.postMessage(ack, ELEMENT);
     if (m.action === "capabilities" && !capable) { capable = true; if (!session) setTimeout(askOpenId, 300); }
+    if (m.action === "notify_capabilities") canNavigate = ((m.data || {}).approved || []).includes(NAVIGATE);
     if (m.action === "openid_credentials" && openidRequest && m.data && m.data.original_request_id === openidRequest)
       m.data.state === "allowed" ? gotToken(m.data.access_token) : failed(REFUSED);   // after Element's prompt
+  } else if (m.api === "fromWidget" && navRequest && m.requestId === navRequest && m.response) {
+    navRequest = null;
+    if (m.response.error) window.open(navHref, "_blank", "noopener");   // refused: the link's own way
   } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
     const r = m.response;
     if (r.state === "allowed") gotToken(r.access_token);
@@ -101,7 +110,17 @@ let msgMark = "";                         // the line came from Connect GitHub: 
 async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
   $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error);
-  msgMark = action === "github" && value === "connect" ? "pending" : ""; refresh(); }
+  msgMark = action === "github" && value === "connect" ? "pending" : "";
+  if (msgMark && pmChat) $("msg").innerHTML = esc($("msg").textContent) + " " + pmChatLink("Open our private chat");
+  refresh(); }
+function pmChatLink(text) {
+  if (!pmChat) return esc(text);           // no private chat with @pm yet: plain words
+  return `<a href="https://matrix.to/#/${esc(encodeURIComponent(pmChat))}" target="_blank" rel="noopener noreferrer" data-pmchat="1">${esc(text)}</a>`;
+}
+document.addEventListener("click", e => { const a = e.target.closest && e.target.closest("a[data-pmchat]");
+  if (!a || !embedded || !canNavigate) return;      // a new tab, by the link itself
+  e.preventDefault(); navHref = a.href; navRequest = "nav-" + crypto.randomUUID();
+  window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: navRequest, action: NAVIGATE, data: {uri: a.href}}, ELEMENT); });
 // A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
 const card = (name, s) => typeof window[name] === "function" ? window[name](s)
   : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;
@@ -135,10 +154,11 @@ async function show() {
       return ++expired > 2 ? failed(NO_ANSWER) : start(); }
     s = await r.json(); } catch (e) { return failed(OFFLINE); }
   if (s.error) return failed(s.error);
-  expired = 0; clearTimeout(watchdog);
+  expired = 0; clearTimeout(watchdog); pmChat = s.pm_chat || null;
   if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
   const typing = document.activeElement && document.activeElement.id;
-  if (typing && (["repo", "newagent", "ghcode"].includes(typing) || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
+  const sameCode = typing === "ghcode" && s.github && s.github.code === $("ghcode").value;   // a code gone: redrawn
+  if (typing && (["repo", "newagent"].includes(typing) || sameCode || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;

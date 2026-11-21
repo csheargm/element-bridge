@@ -16,11 +16,14 @@ import urllib.parse
 
 from nio import MatrixRoom, RoomMessageText
 
+import identity
 import local_signup
 import registry
 from bridge_config import SERVER_NAME
 from identity import plain
 from pm_chat import without_quote
+from remote_agent import WRITING
+from setup_accounts import AccountError
 
 log = logging.getLogger("loop")
 NAME_MAX = 40
@@ -41,17 +44,34 @@ def clean_name(text: str) -> str | None:
     return name
 
 
-def set_display_name(agent: str, name: str) -> bool:
-    """Blocking: Synapse's admin API sets @agent's display name (its member events in rooms follow)."""
-    user = urllib.parse.quote(f"@{agent}:{SERVER_NAME}")
-    try:
-        r = local_signup.admin_call("PUT", f"/_synapse/admin/v2/users/{user}", {"displayname": name})
-    except (SystemExit, OSError, ValueError) as e:   # admin-bot can't sign in, Synapse away: a refusal
-        log.error("couldn't rename @%s: %s", agent, str(e)[:120])
-        return False
-    if "_status" in r:
-        log.error("couldn't rename @%s: %s", agent, r.get("errcode"))
-        return False
+def ours(person: str, agent: dict) -> bool:
+    """An account @pm made (or signed in to with its own password) for this person's agent under the
+    name it must have: never one someone else registered under a name only reserved here (GPT review),
+    as removal checks (agent_removal.remove)."""
+    named = identity.agent_localpart(person, SERVER_NAME, None if agent["first"] else agent["label"])
+    made_here = agent["agent"] != registry.REMOTE or agent["ready"]   # one this server runs, or a finished set-up
+    return made_here and agent["localpart"] == named and registry.owns(person, agent["localpart"])
+
+
+def set_display_name(person: str, agent: str, name: str) -> bool:
+    """Blocking: Synapse's admin API sets @agent's display name (its member events in rooms follow),
+    then agents.json, under the set-up lock: account changes one at a time, so the two always agree."""
+    user = f"@{agent}:{SERVER_NAME}"
+    with WRITING:
+        try:
+            found = registry.find(person, agent)
+            if found is None or not ours(registry.person_id(person), found):
+                return False
+            if "_status" in local_signup.admin_call("GET", f"/_synapse/admin/v2/users/{urllib.parse.quote(user)}", None):
+                return False                  # missing: a PUT would create it (update only)
+            r = local_signup.admin_call("PUT", f"/_synapse/admin/v2/users/{urllib.parse.quote(user)}", {"displayname": name})
+        except (SystemExit, OSError, ValueError, AccountError) as e:   # admin-bot can't sign in, Synapse away
+            log.error("couldn't rename %s: %s", user, str(e)[:120])
+            return False
+        if "_status" in r:
+            log.error("couldn't rename %s: %s", user, r.get("errcode"))
+            return False
+        registry.update(person, agent, display=name)   # the panel shows it
     return True
 
 
@@ -63,8 +83,8 @@ class Renaming:
         if not m:
             return False
         name = m.group("a") or m.group("b") or m.group("c")
-        await self.rename_agent(room.room_id, event.sender, m.group("label") or m.group("label2"), name)
-        return True
+        self.in_background(self.rename_agent(room.room_id, event.sender, m.group("label") or m.group("label2"), name))
+        return True                           # (GPT review: an admin sign-in can wait; the sync loop never does)
 
     def renames_left(self, person: str) -> bool:
         times = self.__dict__.setdefault("_renames", {})
@@ -77,7 +97,7 @@ class Renaming:
 
     def which_agent(self, person: str, which: str | None) -> tuple[dict | None, str | None]:
         """(their agent, or why not): only their own agents are ever looked at or named."""
-        mine = [a for a in registry.agents_of(person) if registry.owns(person, a["localpart"])]
+        mine = [a for a in registry.agents_of(person) if ours(registry.person_id(person), a)]
         if which:
             found = [a for a in mine if which.lower() in (a["localpart"], a["label"])]
             return (found[0], None) if found else (None, f"You have no agent called {plain(which)}.")
@@ -97,8 +117,7 @@ class Renaming:
         elif agent and not self.renames_left(person):
             answer = "That's several renames this hour; please try again later."
         elif agent:
-            if await asyncio.to_thread(set_display_name, agent["localpart"], name):
-                registry.update(person, agent["localpart"], display=name)   # the panel shows it
+            if await asyncio.to_thread(set_display_name, person, agent["localpart"], name):
                 answer = DONE.format(name=plain(name), agent=f"@{agent['localpart']}:{SERVER_NAME}")
                 log.info("%s renamed @%s", person, agent["localpart"])
             else:

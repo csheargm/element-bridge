@@ -72,6 +72,10 @@ class Banner(unittest.TestCase):
     def test_the_line_goes_when_the_sign_in_expires_or_is_cancelled(self):
         self.assertEqual(self.lines([NONE, CODE, NONE]), [pm_github.ON_CARD, ""])
 
+    def test_connected_before_any_view_showed_the_code_clears_it_too(self):
+        """GPT review: a sign-in finished before the first poll saw its code left the line for good."""
+        self.assertEqual(self.lines([NONE, LINKED, LINKED]), ["", ""])
+
     def test_a_refusal_stays_readable(self):
         """No code ever came (a rate limit): that answer is never wiped as if it were stale."""
         limited = "You've asked for several GitHub codes this hour; please try again later."
