@@ -25,6 +25,7 @@ PORT = console.PORT
 HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
 WIDGET_KIND, LAYOUT_KIND = "im.vector.modular.widgets", "io.element.widgets.layout"   # the room state Element reads
+TOP = {"container": "top", "index": 0, "width": 100, "height": 40}   # pinned above the chat, in every project room
 STATIC = Path(__file__).resolve().parent / "static"
 # The panel's card scripts, by the URL the page loads them from. The one list: the page's <script>
 # tags and the routes come from it, and deploy/Caddyfile's @pm route must name every one (test_panel).
@@ -130,8 +131,33 @@ async def add_to_room(client, room_id: str) -> bool:
                                         "id": WIDGET_ID, "data": {}}, state_key=WIDGET_ID)
     if not hasattr(resp, "event_id"):
         return False
-    await client.room_put_state(room_id, LAYOUT_KIND,                       # pinned above the chat
-                                {"widgets": {WIDGET_ID: {"container": "top", "index": 0, "width": 100, "height": 40}}})
+    await client.room_put_state(room_id, LAYOUT_KIND, {"widgets": {WIDGET_ID: TOP}})   # pinned above the chat
+    return True
+
+
+async def lift_to_top(client, room_id: str) -> bool:
+    """Older rooms have the panel in Element's right-side Extensions list ({"container": "right"}),
+    where owners took it for missing (seen live): put it on top as in new rooms. Only a room with my
+    widget, only when it isn't on top already; other widgets keep their places. True when moved.
+    Raises RuntimeError when the room's state can't be read or written (the caller goes on)."""
+    widget = await client.room_get_state_event(room_id, WIDGET_KIND, WIDGET_ID)
+    if not isinstance(getattr(widget, "content", None), dict) or not widget.content.get("url"):
+        if getattr(widget, "status_code", None) not in (None, "M_NOT_FOUND"):
+            raise RuntimeError(f"couldn't read the panel widget: {widget}")
+        return False                          # no panel here (or removed): nothing to place
+    found = await client.room_get_state_event(room_id, LAYOUT_KIND, "")
+    content = getattr(found, "content", None)
+    if not isinstance(content, dict):
+        if getattr(found, "status_code", None) != "M_NOT_FOUND":
+            raise RuntimeError(f"couldn't read the widget layout: {found}")
+        content = {}
+    places = content.get("widgets") if isinstance(content.get("widgets"), dict) else {}
+    mine = places.get(WIDGET_ID)
+    if isinstance(mine, dict) and mine.get("container") == "top":
+        return False
+    new = {**content, "widgets": {**places, WIDGET_ID: TOP}}
+    if not hasattr(await client.room_put_state(room_id, LAYOUT_KIND, new), "event_id"):
+        raise RuntimeError("couldn't save the widget layout")
     return True
 
 

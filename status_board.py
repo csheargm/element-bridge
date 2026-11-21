@@ -139,6 +139,24 @@ class Boards:
             self.boards[room_id] = {**board, "panel": True}
             self.save_boards()
 
+    async def at_start(self) -> None:
+        """Once per start, in the background: the panel on top in older rooms, then readable addresses."""
+        await self.lift_panels()
+        await self.give_addresses()           # pm_projects.py
+
+    async def lift_panels(self) -> None:
+        """Every project room's panel above the chat, as new rooms get it (panel.lift_to_top). One room's
+        failure never stops the others; the next start retries it. A person who minimized the panel
+        keeps that: Element stores their own choice per user, over the room's layout."""
+        for room_id, room in list(self.client.rooms.items()):
+            if project_rooms.is_front_door(room) or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms):
+                continue
+            try:
+                if await panel.lift_to_top(self.client, room_id):
+                    log.info("moved the Hagency panel to the top of %s", room_id)
+            except Exception:                 # noqa: BLE001 - one room (unreadable, refused, network) never stops the rest
+                log.exception("couldn't move the Hagency panel in %s", room_id)
+
     async def publish(self, room_id: str, text: str, repo: str) -> bool:
         """The same status as room state, so every agent in the room can read it (room_context.py)."""
         resp = await self.client.room_put_state(room_id, github.STATUS_EVENT,
