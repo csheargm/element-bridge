@@ -129,11 +129,16 @@ class Settings(Projects):
         except github_app.NotInstalled:           # access is read as the App: not until it's there
             self.watch_install(room, sender, repo)
             return repo_refusals.install(repo)    # the one missing step (repo_refusals.py: confirms nothing)
-        if not allowed:
-            return await repo_refusals.cant_write(sender, repo)
+        if not allowed:                           # a private repo (or GitHub can't say): the install words
+            told = await repo_refusals.cant_write(sender, repo)   # too, and a wait that stays quiet unless
+            if told is None:                      # it can bind (repo_refusals.py: never an existence oracle)
+                self.watch_install(room, sender, repo)
+            return told or repo_refusals.install(repo)
         missing = await self.app_missing(room, sender, repo)
         if missing:
             return missing
+        if github.any_repo():                     # no list to spell it: GitHub's own spelling, one key everywhere
+            repo = await github_app.full_name(repo)
         self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
             binding = asyncio.ensure_future(self.bind_checked(rid, sender, repo, separate_from, proof))
@@ -161,9 +166,11 @@ class Settings(Projects):
             self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
 
     async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
-        """After an install link: once the App is on `repo`, ask again for the person (every check
-        re-runs: moderator, allowed repo, write access). The wait stays registered until it ends, so
-        a newer choice in the room cancels it even during that last bind (GPT review, GitHub App)."""
+        """After the install words: once the App is on `repo` and the person can write there, choose it
+        again for them (every check re-runs). Otherwise it ends quietly, saying only what a public repo
+        allows (repo_refusals.cant_write): an answer that differs would confirm a private repo. The wait
+        stays registered until it ends, so a newer choice in the room cancels it even during that last
+        bind (GPT review, GitHub App)."""
         try:
             for _ in range(INSTALL_RECHECKS):
                 await asyncio.sleep(INSTALL_RECHECK_S)
@@ -173,13 +180,25 @@ class Settings(Projects):
                 except github.GitHubError as e:  # GitHub unreachable for a moment: the next look may work
                     log.warning("install re-check for %s: %s", repo, str(e)[:160])
             else:
-                await self.say(room.room_id, f"I still don't see the Hagency Rooms app on {repo}. Once it's "
-                                             f"installed, say \"@pm this room works on {repo}\" again.")
+                return                            # never installed: they were told the step once
+            if not await self.may_bind_now(room, sender, repo):
                 return
-            await self.set_repo(room, sender, repo)   # every check again; says the answer either way
+            await self.set_repo(room, sender, repo)   # every check again, and the answer
         finally:
             if self.install_watches.get(room.room_id, ("", None))[1] is asyncio.current_task():
                 del self.install_watches[room.room_id]     # (a newer wait may have replaced this one)
+
+    async def may_bind_now(self, room: MatrixRoom, sender: str, repo: str) -> bool:
+        """The App is there: true if they can write; else only a public repo's refusal is said."""
+        try:
+            if await may_write(sender, repo):
+                return True
+        except github_app.NotInstalled:           # gone again already: quiet, they can ask again
+            return False
+        told = await repo_refusals.cant_write(sender, repo)
+        if told:
+            await self.say(room.room_id, told)
+        return False
 
     def stop_install_watch(self, rid: str) -> None:
         watch = self.install_watches.get(rid)
@@ -211,10 +230,12 @@ class Settings(Projects):
             self.last_plans.pop(rid, None)
         self.room_repos[rid] = repo
         self.drop_conflict_offers(rid)            # pm_projects.py: an older 🙋/➕ question is settled
+        moved = current and current.lower() != repo.lower()   # from a private repo: never open after (pm_unbind)
+        past = (await self.mark_private_past(rid, current) if moved else None) or ""
         if runs_in:
-            return f"This room now discusses **{repo}**; its build loop runs in the room that already works on it."
+            return f"This room now discusses **{repo}**; its build loop runs in the room that already works on it.{past}"
         return (f"This room now works on **{repo}**. Check that it is ready (the agents' write access, the merge "
-                "rule and the agent-ok label) with Check readiness under Project repo in the Hagency console.")
+                f"rule and the agent-ok label) with Check readiness under Project repo in the Hagency console.{past}")
 
     async def send_console_link(self, room: MatrixRoom, sender: str) -> None:
         """A one-time sign-in link to the console for this room, sent privately (it's a credential)."""

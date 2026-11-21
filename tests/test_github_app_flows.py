@@ -149,13 +149,16 @@ class Binding(BindingSetup):
         self.assertIn("now works on **octo/other**", self.said[-1])
         self.assertEqual(self.lp.install_watches, {})
 
-    def test_after_ten_minutes_it_stops_looking_and_says_so(self):
+    def test_after_ten_minutes_it_stops_looking_quietly(self):
+        """GPT review, batch 12–14: a closing "still not installed" line (and silence for a private repo
+        that has the App) would tell the two apart; the install step was said once, at the start."""
         async def flow():
             await self.lp.set_repo(self.room, ANNA, OTHER)
             await asyncio.wait_for(self.lp.install_watches["!r"][1], 5)
         asyncio.run(flow())
         self.assertEqual(self.written, [])
-        self.assertIn("still don't see the Hagency Rooms app on octo/other", self.said[-1])
+        self.assertEqual(len(self.said), 1)
+        self.assertIn("Install the Hagency Rooms app on octo/other", self.said[-1])
 
     def test_a_newer_choice_ends_the_older_wait(self):
         async def flow():

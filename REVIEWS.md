@@ -1348,10 +1348,30 @@ already reads room messages this way, and Element sends a mention as the display
   - the install link when the App isn't on the repo;
   - "Your GitHub account @login can't write to owner/name";
   - "This server only allows certain repos" when a list is set.
-- **Kept shared, and why:** for a *private* repo with the App installed but no write access (or when
-  GitHub can't say), the words don't say "can't write". That answer, different from the install
-  step, would confirm to anyone in any room that a private repo of that name exists and has our App.
-  The install step itself confirms nothing: GitHub answers "not installed" alike for a missing repo
-  and a private one without the App.
-- **Install waits** are no longer quiet. The person was told the step, so once the App is there, @pm
-  re-runs every check and says the answer. The quiet-wait code is gone (R1).
+- **Kept shared, and why:** a *private* repo with the App installed but no write access (or one
+  GitHub can't tell us about) gets the install step's words, and its wait ends quietly. Any other
+  answer would confirm to anyone in any room that a private repo of that name exists and has our
+  App. The install step itself confirms nothing, because GitHub answers "not installed" the same way
+  for a missing repo and for a private one without the App. (GPT's review below found the first
+  version, which had its own shared sentence, was still an oracle.)
+
+GPT review of this change (three blocking, two medium, two low). Adopted, with tests
+(test_any_repo, test_github_link_more, test_github_app_flows, test_batch_review):
+- **Blocking: install words vs a separate shared sentence was an oracle.** A private repo with the
+  App and no access now reads exactly like a repo without the App, and both waits end quietly: no
+  closing "still not installed" line, no denial. A public repo still names the account that can't
+  write.
+- **Blocking: switching from a private repo to another skipped the never-open marker.** bind() sets
+  it when the old repo was private, as removing does.
+- **Medium: case.** With no list to spell it, the bound name is GitHub's own `full_name`, so one repo
+  is one key in every record.
+
+Deferred:
+- **Blocking (pre-existing): a renamed or deleted repo whose name is reused** by another repo that
+  also installs our App. A binding stores only owner/name; storing GitHub's repo ID at bind and
+  checking it on every read is its own change. The new owner must install our App on the new repo,
+  so this needs that owner's own action.
+- **Medium: a list set later** hides unlisted bindings from @pm but not from agents on people's
+  computers (they have no list). Operator guidance: remove such rooms' repos first. A Matrix-side
+  revocation is a later change.
+- **Low: an install wait drops ➕'s "discuss here" choice;** the person is asked again.

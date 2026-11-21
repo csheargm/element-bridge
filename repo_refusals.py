@@ -9,8 +9,9 @@ it, and their connected GitHub account can write there. An operator may still re
     install). GitHub answers "not installed" alike for a repo that doesn't exist and a private one
     without the App, so this never confirms a repo.
   - no write access: NO_WRITE, naming their account, for a public repo only. For a private repo (or
-    when GitHub can't say), SHARED instead: "the App is on it, but you can't write" would confirm to
-    anyone that a private repo of that name exists (REVIEWS.md, batch 12–14).
+    when GitHub can't say), the INSTALL words again, and the wait stays quiet unless it can bind:
+    any other answer would tell anyone in any room that a private repo of that name exists and has
+    our App (GPT review, batch 12–14; REVIEWS.md).
 """
 import logging
 
@@ -23,8 +24,6 @@ NOT_LISTED = "This server only allows certain repos, and {repo} isn't one of the
 INSTALL = ("Install the Hagency Rooms app on {repo} (read-only): {url}. I'll finish setting up this room as soon as "
            "it's installed.")
 NO_WRITE = "Your GitHub account @{login} can't write to {repo}, so this room can't use it."
-SHARED = ("I can't use {repo} for this room: your GitHub account @{login} can't use it here. Check the name, and that "
-          "your account can write to it.")
 NO_WRITE_HERE = "Your agent's GitHub account can't write to {repo}, so this room can't use it."   # no App: local gh
 LINK_CHANGED = "Your GitHub connection changed while I was checking; please ask again."
 
@@ -37,8 +36,9 @@ def install(repo: str) -> str:
     return INSTALL.format(repo=repo, url=github_app.install_url())
 
 
-async def cant_write(user: str, repo: str) -> str:
-    """The answer when `user` can't write to `repo` (or GitHub couldn't tell)."""
+async def cant_write(user: str, repo: str) -> str | None:
+    """The answer when `user` can't write to `repo`, for a public repo; None for a private one (or when
+    GitHub couldn't tell): the caller then says INSTALL, as for a repo without the App."""
     if not github_app.configured():
         return NO_WRITE_HERE.format(repo=repo)
     login = (github_link.link_of(user) or {}).get("login") or "?"
@@ -48,4 +48,4 @@ async def cant_write(user: str, repo: str) -> str:
         log.warning("couldn't read %s for its refusal: %s", repo, str(e)[:160])
         info = None
     public = isinstance(info, dict) and info.get("private") is False
-    return (NO_WRITE if public else SHARED).format(login=login, repo=repo)
+    return NO_WRITE.format(login=login, repo=repo) if public else None

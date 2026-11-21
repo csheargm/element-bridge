@@ -211,3 +211,14 @@ async def permission(repo: str, login: str, github_id: int | None = None) -> str
     if github_id is not None and (not isinstance(user, dict) or user.get("id") != github_id):
         return "none"
     return str(data.get("permission") or "none")
+
+
+async def full_name(repo: str) -> str:
+    """GitHub's own spelling of `repo` (owner/Name as created), so one repo is one key in every record
+    when no operator list spells it (GPT review, batch 12–14); `repo` itself when GitHub can't say."""
+    try:
+        data = await get(repo, f"/repos/{repo}")
+    except github.GitHubError:
+        return repo
+    name = data.get("full_name") if isinstance(data, dict) else None
+    return name if isinstance(name, str) and github.REPO_RE.match(name) and name.lower() == repo.lower() else repo

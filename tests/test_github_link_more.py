@@ -214,13 +214,33 @@ class InstallWait(BindCase):
             self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), repo_refusals.LINK_CHANGED)
         self.assertEqual(self.written, [])
 
-    def test_never_installed_says_so_at_the_end(self):
+    def test_never_installed_ends_quietly(self):
         async def flow():
             await asyncio.wait_for(await self.wait()(), 5)
         with mock.patch.object(pm_settings, "INSTALL_RECHECKS", 2):
             asyncio.run(flow())
-        self.assertEqual(self.said[0], repo_refusals.install(OTHER))
-        self.assertIn("I still don't see the Hagency Rooms app on octo/other", self.said[-1])
+        self.assertEqual(self.said, [repo_refusals.install(OTHER)])
+        self.assertEqual(self.written, [])
+
+    def test_a_private_repo_with_the_app_reads_like_one_without(self):
+        """GPT review, batch 12–14: the same words and the same quiet end, so no room can tell that a
+        private repo of that name exists and has our App."""
+        missing = "octo/never-made"
+        self.fake.installations[OTHER.lower()] = 8
+        self.fake.private.add(OTHER.lower())                                        # installed, private, read only
+
+        async def flow():
+            first = await self.lp.set_repo(self.room, ANNA, OTHER)
+            await asyncio.wait_for(self.lp.install_watches["!r"][1], 5)
+            second = await self.lp.set_repo(self.room, ANNA, missing)
+            await asyncio.wait_for(self.lp.install_watches["!r"][1], 5)
+            return first, second
+        with mock.patch.object(pm_settings, "INSTALL_RECHECKS", 2):
+            first, second = asyncio.run(flow())
+        self.assertEqual(first, repo_refusals.install(OTHER))
+        self.assertEqual(second, repo_refusals.install(missing))
+        self.assertEqual(first.replace(OTHER, "X"), second.replace(missing, "X"))
+        self.assertEqual(self.said, [first, second])                               # nothing more for either
         self.assertEqual(self.written, [])
 
 

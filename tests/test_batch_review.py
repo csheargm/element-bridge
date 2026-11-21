@@ -166,3 +166,17 @@ class Pages(unittest.TestCase):
         self.assertIn("add another agent called codex&quot;", reused.replace('"', "&quot;"))
         self.assertNotIn("codex2", reused)
         self.assertIn("Rename it here to one short word", spaced)
+
+
+class SwitchFromPrivate(repos.Setup):
+    def test_switching_from_a_private_repo_keeps_the_room_from_opening(self):
+        """GPT review (any repo): the marker was set on removal only, not when another repo replaced it."""
+        private = mock.AsyncMock(side_effect=lambda r: r == repos.REPO)
+        with mock.patch("project_rooms.repo_is_private", private):
+            self.assertIn("now works on **a/public-one**", asyncio.run(self.lp.bind("!a", "a/public-one")))
+            self.assertEqual(self.state["!a"][project_rooms.PRIVATE_PAST_EVENT][0], {"private": True})
+            self.assertTrue(asyncio.run(project_rooms.had_private_repo(self.lp.client, "!a")))
+
+    def test_switching_from_a_public_repo_marks_nothing(self):
+        asyncio.run(self.lp.bind("!a", "a/public-one"))
+        self.assertNotIn(project_rooms.PRIVATE_PAST_EVENT, self.state["!a"])

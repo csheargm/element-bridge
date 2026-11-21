@@ -66,3 +66,20 @@ class AnyRepo(BindCase):
         self.assertTrue(github.any_repo())
         self.assertEqual(github.allowed_repo(ANY), ANY)
         self.assertIsNone(github.allowed_repo("not a repo"))
+
+    def test_an_agents_process_reads_what_pm_bound(self):
+        """An agent's process (no App settings, no list) reads @pm's binding through room_context."""
+        import room_context
+        event = {"sender": room_context.PM_ID, "content": room_state.content("off", ANY)}
+        with mock.patch.object(github_app, "APP_ID", ""), mock.patch.object(room_context, "api", return_value=event):
+            self.assertEqual(room_context.room_repo("tok", "!r"), ANY)
+            with mock.patch.object(room_context, "api", return_value={**event, "sender": "@mallory:x"}):
+                self.assertIsNone(room_context.room_repo("tok", "!r"))          # only @pm's own state
+
+    def test_githubs_own_spelling_is_kept(self):
+        """GPT review: "Someone-Else/Brand-New" and "someone-else/brand-new" are one repo, one key."""
+        self.fake.installations[ANY.lower()] = 9
+        self.fake.permissions[(ANY.upper(), "anna-gh")] = "write"
+        self.fake.names[ANY.lower()] = ANY                                       # as GitHub spells it
+        self.assertIn(f"now works on **{ANY}**", self.choose(ANY.upper()))
+        self.assertEqual(self.written, [room_state.content("off", ANY)])

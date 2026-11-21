@@ -271,8 +271,8 @@ class ConnectThenBind(BindCase):
         self.fake.private.add(OTHER.lower())
         self.fake.permissions[(OTHER, "anna-gh")] = "read"
         answer = asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER))
-        self.assertEqual(answer, repo_refusals.SHARED.format(login="anna-gh", repo=OTHER))
-        self.assertNotIn("Install", answer)
+        self.assertEqual(answer, repo_refusals.install(OTHER))                  # as for a repo without the App
+        self.assertNotIn("can't write", answer)
         self.assertEqual(self.written, [])
 
     def test_app_not_installed_yet_waits_then_checks_access_and_binds(self):
