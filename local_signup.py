@@ -42,7 +42,9 @@ def setup() -> bool:
     tmp.write_text(new)
     tmp.chmod(CONFIG.stat().st_mode & 0o777)
     tmp.replace(CONFIG)
-    subprocess.run(["docker", "compose", "restart", "synapse"], cwd=ROOT, check=True)   # this folder's compose only
+    # up, not restart: a container made before the module mount (compose) must be recreated with it
+    subprocess.run(["docker", "compose", "up", "-d", "synapse"], cwd=ROOT, check=True)   # this folder's compose only
+    subprocess.run(["docker", "compose", "restart", "synapse"], cwd=ROOT, check=True)
     for _ in range(60):
         try:
             with urllib.request.urlopen(f"{HS}/_matrix/client/versions", timeout=2):

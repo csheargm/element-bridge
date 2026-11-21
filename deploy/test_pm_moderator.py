@@ -22,6 +22,12 @@ class WithPm(unittest.TestCase):
         self.assertTrue(m.with_pm(config, ANNA, PM))
         self.assertEqual(config["power_level_content_override"]["users"], {PM: 50})
 
+    def test_a_co_creator_is_never_put_in_users(self):
+        """GPT review 23: additional creators live in creation_content; Synapse refuses them in "users"."""
+        config = {"creation_content": {"additional_creators": [BOB]}}
+        self.assertTrue(m.with_pm(config, ANNA, PM))
+        self.assertEqual(config["power_level_content_override"]["users"], {PM: 50})
+
     def test_the_creators_own_levels_are_kept(self):
         config = {"power_level_content_override": {"users": {BOB: 50}, "invite": 100}}
         m.with_pm(config, ANNA, PM)
@@ -32,8 +38,11 @@ class WithPm(unittest.TestCase):
     def test_never_when_pm_is_a_creator_or_the_room_is_older(self):
         """Synapse refuses a creator in "users" (v12), and older versions would lose the creator's 100."""
         for config, creator in (({}, PM), ({"preset": "trusted_private_chat", "invite": [PM]}, ANNA),
-                                ({"additional_creators": [PM]}, ANNA), ({"room_version": "10"}, ANNA),
-                                ({"power_level_content_override": "x"}, ANNA)):
+                                ({"creation_content": {"additional_creators": [PM]}}, ANNA), ({"room_version": "10"}, ANNA),
+                                ({"power_level_content_override": "x"}, ANNA), ({"power_level_content_override": None}, ANNA),
+                                ({"initial_state": [{"type": "m.room.power_levels", "state_key": "", "content": {}}]}, ANNA),
+                                ({"preset": "trusted_private_chat", "invite": 5}, PM),
+                                ({"creation_content": {"additional_creators": [{"x": 1}]}, "room_version": "10"}, ANNA)):
             before = dict(config)
             self.assertFalse(m.with_pm(config, creator, PM))
             self.assertEqual(config, before)

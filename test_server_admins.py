@@ -18,6 +18,9 @@ class Admins(unittest.TestCase):
             self.assertTrue(server_admins.is_admin("@owner:s"))
             self.assertTrue(server_admins.is_admin("@owner:s"))
         call.assert_called_once()
+        with mock.patch.object(server_admins.time, "time", return_value=server_admins.time.time() + 2 * server_admins.REMEMBER_S), \
+                mock.patch.object(server_admins.local_signup, "admin_call", return_value={"admin": False}):
+            self.assertFalse(server_admins.is_admin("@owner:s"))                    # demoted: seen after a day
         with mock.patch.object(server_admins.local_signup, "admin_call", return_value={"admin": False}):
             self.assertFalse(server_admins.is_admin("@anna:s"))
 

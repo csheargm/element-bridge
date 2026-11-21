@@ -549,3 +549,18 @@ Rejected or deferred:
 - Re-check: follow-me skipped only the current chat, so an old one replaced by a new chat could
   still pull the agent in: any two-person chat named as @pm's chats (now or before) is skipped.
   A failed leave is logged; a failing membership check still ends in leaving.
+
+@pm moderates new rooms, the panel comes first, no welcome for admins (GPT, the two commits),
+adopted with tests:
+- Co-creators are in creation_content.additional_creators, not a top-level field: read there
+  (Synapse refuses a creator in "users"). Requests the module doesn't expect (a null or odd
+  override, non-list invites, power levels in initial_state) are left exactly as they came.
+- The dev server's Synapse is recreated (`compose up`) so it gets the module mount before restart.
+- The panel's moderator check is room_state.is_moderator (v12 creators count).
+- Admin status is remembered for a day, not forever.
+Rejected or deferred:
+- Rolling back past this commit leaves the `modules:` line with no /modules mount: a rollback
+  must drop that line (noted here; rollbacks are by commit and rare).
+- The widget layout write replaces other widgets' placements and isn't retried on failure;
+  replacing a pre-existing multi-line `modules:` block; `.synapse-loaded` written before Synapse
+  is healthy: all pre-existing or not present on this server's generated config.

@@ -134,7 +134,7 @@ class Boards:
         room, board = self.client.rooms.get(room_id), self.boards.get(room_id, {})
         if (board.get("panel") or room is None or self.is_welcome_room(room)
                 or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
-                or room.power_levels.get_user_level(self.user_id) < room_state.MODERATOR_LEVEL):
+                or not await room_state.is_moderator(self.client, room, self.user_id)):   # creators too (v12)
             return
         if await panel.add_to_room(self.client, room_id):
             self.boards[room_id] = {**board, "panel": True}
