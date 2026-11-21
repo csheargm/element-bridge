@@ -62,8 +62,11 @@ def tie_or_say(home: Path, tie=tie_children_to_me) -> None:
     try:
         tie()
     except OSError as e:
-        with open_log(home / "logs" / "connect_win.log") as log:
-            log.write(f"[connect_win] no job for the agent ({e}); stopping this may leave the bridge running\n".encode())
+        try:
+            with open_log(home / "logs" / "connect_win.log") as log:
+                log.write(f"[connect_win] no job for the agent ({e}); stopping this may leave the bridge running\n".encode())
+        except OSError:
+            pass                              # can't even say so: running the agent matters more than the note
 
 
 def hold_lock(path: Path):

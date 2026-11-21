@@ -49,7 +49,7 @@ function Invoke-Checked([string]$What, [scriptblock]$Run) {
 function Test-Ours([string]$Text) {
     # Does this command line (a task's, a shortcut's) run this installation's keeper for this folder?
     $has = { param($part) $Text.IndexOf($part, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
-    [bool]($Text -and (& $has (Join-Path $App 'connect_win.py')) -and (& $has $HagencyHome))
+    [bool]($Text -and (& $has ('"{0}"' -f (Join-Path $App 'connect_win.py'))) -and (& $has ('--home "{0}"' -f $HagencyHome)))
 }
 
 function Get-OurTasks {
@@ -161,7 +161,9 @@ function Protect-Home {
     $acl.SetAccessRuleProtection($true, $false)
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
         [Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-    Set-Acl -Path $HagencyHome -AclObject $acl
+    $dir = Get-Item -Force $HagencyHome          # not Set-Acl: it also tries the audit list, which needs admin
+    if ($dir.PSObject.Methods['SetAccessControl']) { $dir.SetAccessControl($acl) }       # Windows PowerShell 5.1
+    else { [IO.FileSystemAclExtensions]::SetAccessControl($dir, $acl) }                 # PowerShell 7
     if (Get-ChildItem -Force $HagencyHome) {
         Invoke-Checked 'protecting the sign-in folder' { icacls (Join-Path $HagencyHome '*') /reset /t /q | Out-Null }
     }

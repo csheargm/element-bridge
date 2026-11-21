@@ -618,6 +618,9 @@ Connect page and the Windows installer (GPT re-check), adopted with tests:
 - -RestartCount 255 (Task Scheduler's maximum). Old tasks and Startup entries are matched by
   this installation's keeper AND sign-in folder, case-insensitively; a PID is stopped only if it
   is a Python running our keeper or bridge. A refused Windows job is logged, not fatal.
+- (third pass) Set-Acl also writes the audit list, which needs admin on a rerun: the folder's
+  DACL is set with SetAccessControl. `--home "<folder>"` is matched whole, so ~/.hagency never
+  matches ~/.hagency-test. A log that can't be written never stops the agent from starting.
 Rejected or deferred:
 - A CLI reachable only through a PowerShell profile's PATH: the hint says it must be on the PATH.
 - README describes the link @pm will send: it lands with the @pm change (PR notes).

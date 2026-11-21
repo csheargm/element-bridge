@@ -166,6 +166,15 @@ class WindowsInstaller(unittest.TestCase):
         """GPT review: an npm .cmd wrapper passes Get-Command but not the bridge's shell-less start."""
         self.assertIn('Get-Command "$Name.exe" -CommandType Application', self.text)
 
+    def test_the_folder_lock_needs_no_admin(self):
+        """GPT review: Set-Acl also writes the audit list (admin only); SetAccessControl writes the DACL."""
+        self.assertNotRegex(self.text, r"(?m)^[^#]*\bSet-Acl -")
+        self.assertIn("SetAccessControl($acl)", self.text)
+
+    def test_other_installations_entries_are_left_alone(self):
+        """GPT review: ~/.hagency must not match ~/.hagency-test: the quoted folder is matched whole."""
+        self.assertIn("""('--home "{0}"' -f $HagencyHome)""", self.text)
+
     def test_the_task_restarts_and_runs_as_the_person(self):
         for piece in ("New-ScheduledTaskTrigger -AtLogOn", "-RestartCount 255", "-RunLevel Limited", "-LogonType Interactive"):
             self.assertIn(piece, self.text)                       # 255: Task Scheduler's most restarts
