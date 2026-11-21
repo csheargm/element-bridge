@@ -24,6 +24,7 @@ import registry
 PORT = console.PORT
 HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
+WIDGET_KIND, LAYOUT_KIND = "im.vector.modular.widgets", "io.element.widgets.layout"   # the room state Element reads
 STATIC = Path(__file__).resolve().parent / "static"
 # The panel's card scripts, by the URL the page loads them from. The one list: the page's <script>
 # tags and the routes come from it, and deploy/Caddyfile's @pm route must name every one (test_panel).
@@ -31,6 +32,7 @@ SCRIPTS = {"panel-agents.js": STATIC / "panel_agents.js",      # "My agents"
            "panel-project.js": STATIC / "panel_project.js",    # "Who can join", "Run from another room"
            "panel-github.js": STATIC / "panel_github.js"}      # "Connect GitHub" (pm_github.py)
 REFRESH_MS = 3000
+SIGNIN_MS = 20000                 # no answer from Element by then: the panel says so instead of "Signing in…"
 HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
@@ -88,18 +90,32 @@ __SCRIPTS__
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
 const ELEMENT = __ELEMENT_ORIGIN__;
 const embedded = window.parent !== window && !!wid;
-let session = sessionStorage.getItem("hagency-session");
+let session = null;
+try { session = sessionStorage.getItem("hagency-session"); } catch (e) { /* storage blocked: signs in on each load */ }
 // A login code arrives after "#" (never sent to the server): take it, then wipe it at once.
 const linkCode = new URLSearchParams(location.hash.slice(1)).get("login");
 if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Signing in never hangs silently (screen test: "Signing in…" forever): every way it can fail says so in one line.
+const LINK = ' Or say "@pm send me my console link" in the room.';
+const NO_ANSWER = "Couldn't sign you in: Element didn't answer. Reload the page to try again." + LINK;
+const REFUSED = "Couldn't sign you in: Element didn't share who you are." + LINK;
+const OFFLINE = "The Hagency server didn't answer properly just now. Reload the page to try again.";
+let watchdog = null;
+const say = t => { $("me").textContent = t; };
+function failed(t) { clearTimeout(watchdog); say(t); }
+function signingIn() { clearTimeout(watchdog); say("Signing in…"); watchdog = setTimeout(() => failed(NO_ANSWER), __SIGNIN_MS__); }
 async function post(path, body) {
-  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json",
-    "Authorization": "Bearer " + (session || "")}, body: JSON.stringify(body)}); return r.json(); }
-function signedIn(s) { session = s; sessionStorage.setItem("hagency-session", s); refresh(); }
+  try { const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json",
+      "Authorization": "Bearer " + (session || "")}, body: JSON.stringify(body)}); return await r.json(); }
+  catch (e) { return {error: OFFLINE}; }    // no network, or a proxy's error page instead of our JSON
+}
+function signedIn(s) { clearTimeout(watchdog); session = s;
+  try { sessionStorage.setItem("hagency-session", s); } catch (e) { /* storage blocked: kept for this page only */ }
+  refresh(); }
 // Inside Element only: the Matrix widget API, talking to Element's exact origin and our parent frame.
-let openidRequest = null, gotCredentials = false;
+let openidRequest = null, gotCredentials = false, capable = false, expired = 0;
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
   if (ev.origin !== ELEMENT || ev.source !== window.parent || m.widgetId !== wid) return;
@@ -107,23 +123,26 @@ if (embedded) window.addEventListener("message", ev => {
     const ack = {api: "toWidget", widgetId: wid, requestId: m.requestId, action: m.action, data: {},
                  response: m.action === "capabilities" ? {capabilities: []} : {}};   // never echo credentials
     window.parent.postMessage(ack, ELEMENT);
-    if (m.action === "capabilities" && !openidRequest) setTimeout(askOpenId, 300);
-    if (m.action === "openid_credentials" && openidRequest && m.data && m.data.state === "allowed")
-      gotToken(m.data.access_token);
+    if (m.action === "capabilities" && !capable) { capable = true; if (!session) setTimeout(askOpenId, 300); }
+    if (m.action === "openid_credentials" && openidRequest && m.data && m.data.original_request_id === openidRequest)
+      m.data.state === "allowed" ? gotToken(m.data.access_token) : failed(REFUSED);   // after Element's prompt
   } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
-    if (m.response.state === "allowed") gotToken(m.response.access_token);
-    else if (m.response.state === "blocked") $("me").textContent = "Element didn't share who you are.";
+    const r = m.response;
+    if (r.state === "allowed") gotToken(r.access_token);
+    else if (r.state === "request") failed("Allow Hagency in Element's prompt to sign in.");   // a person's answer: no timeout
+    else failed(r.state === "blocked" ? REFUSED : NO_ANSWER);   // an error reply ({error}) included
   }
 });
-function askOpenId() { openidRequest = "openid-" + crypto.randomUUID();
+function askOpenId() { gotCredentials = false; openidRequest = "openid-" + crypto.randomUUID(); signingIn();
   window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: openidRequest, action: "get_openid", data: {}}, ELEMENT); }
 async function gotToken(t) { if (gotCredentials) return; gotCredentials = true;
-  const r = await post("/auth/openid", {access_token: t}); r.session ? signedIn(r.session) : ($("me").textContent = r.error); }
+  const r = await post("/auth/openid", {access_token: t}); r.session ? signedIn(r.session) : failed(r.error || NO_ANSWER); }
 async function start() {
   if (linkCode) { const r = await post("/auth/link", {code: linkCode});
-    return r.session ? signedIn(r.session) : ($("me").textContent = r.error); }
+    return r.session ? signedIn(r.session) : failed(r.error || OFFLINE); }
   if (session) return refresh();
-  if (!embedded) $("me").innerHTML = 'Say <b>@pm send me my console link</b> in the room to sign in here.';
+  if (!embedded) return void ($("me").innerHTML = 'Say <b>@pm send me my console link</b> in the room to sign in here.');
+  capable ? askOpenId() : signingIn();      // a session that expired: ask Element again
 }
 async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
@@ -145,9 +164,13 @@ document.addEventListener("click", e => { const b = e.target.closest("button[dat
     : b.dataset.v, b.dataset.g); });
 async function refresh() {
   if (!session) return;
-  const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
-  if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
-  const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
+  let s;
+  try { const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
+    if (r.status === 401) { session = null; try { sessionStorage.removeItem("hagency-session"); } catch (e) { /* blocked */ }
+      return ++expired > 2 ? failed(NO_ANSWER) : start(); }
+    s = await r.json(); } catch (e) { return failed(OFFLINE); }
+  if (s.error) return failed(s.error);
+  expired = 0;
   if (document.activeElement && ["repo", "newagent"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
@@ -167,6 +190,7 @@ async function refresh() {
 }
 start(); setInterval(refresh, %d);
 </script>""" % REFRESH_MS
+PAGE = PAGE.replace("__SIGNIN_MS__", str(SIGNIN_MS))
 PAGE = PAGE.replace("__SCRIPTS__", "".join(f'<script src="{name}"></script>' for name in SCRIPTS))
 
 
@@ -242,11 +266,27 @@ async def start(loop) -> web.AppRunner | None:
 
 async def add_to_room(client, room_id: str) -> bool:
     """Add the panel to the room as an Element widget, pinned at the top above the chat."""
-    resp = await client.room_put_state(room_id, "im.vector.modular.widgets",
+    resp = await client.room_put_state(room_id, WIDGET_KIND,
                                        {"type": "m.custom", "url": widget_url(), "name": "Hagency",
                                         "id": WIDGET_ID, "data": {}}, state_key=WIDGET_ID)
     if not hasattr(resp, "event_id"):
         return False
-    await client.room_put_state(room_id, "io.element.widgets.layout",       # pinned above the chat
+    await client.room_put_state(room_id, LAYOUT_KIND,                       # pinned above the chat
                                 {"widgets": {WIDGET_ID: {"container": "top", "index": 0, "width": 100, "height": 40}}})
     return True
+
+
+async def remove_from_room(client, room_id: str) -> bool:
+    """Take the panel out of a room that isn't a project room (the Lobby, Welcome: screen test, where it
+    sat at "Signing in…"). True once it's gone; nothing is written when it was never there."""
+    found = await client.room_get_state_event(room_id, WIDGET_KIND, WIDGET_ID)
+    if not isinstance(getattr(found, "content", None), dict):
+        return getattr(found, "status_code", None) == "M_NOT_FOUND"   # never added; any other failure: retried
+    if not found.content.get("url"):
+        return True                           # removed already
+    layout = getattr(await client.room_get_state_event(room_id, LAYOUT_KIND, ""), "content", None)
+    places = layout.get("widgets") if isinstance(layout, dict) else None
+    if isinstance(places, dict) and WIDGET_ID in places:     # other widgets keep their places
+        await client.room_put_state(room_id, LAYOUT_KIND, {**layout, "widgets": {
+            k: v for k, v in places.items() if k != WIDGET_ID}})
+    return hasattr(await client.room_put_state(room_id, WIDGET_KIND, {}, state_key=WIDGET_ID), "event_id")

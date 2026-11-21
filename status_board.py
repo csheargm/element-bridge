@@ -21,6 +21,7 @@ import github
 from loop_progress import num
 import panel
 import pm_settings
+import project_rooms
 import room_state
 
 log = logging.getLogger("loop")
@@ -108,9 +109,6 @@ class Boards:
                 if not board.get("published"):
                     board["published"] = await self.publish(room_id, text, repo)
                     self.save_boards()
-                if not board.get("panel"):           # the side panel widget, once per room
-                    board["panel"] = await panel.add_to_room(self.client, room_id)
-                    self.save_boards()
                 continue
             event_id = await self.show(room_id, board.get("event_id"), text, repo)
             if event_id:
@@ -124,9 +122,16 @@ class Boards:
 
     async def ensure_panel(self, room_id: str) -> None:
         """The side panel, once per project room, as soon as I may add it (a moderator), repo or not.
-        Never in Welcome or my private chats."""
+        Never in my front doors (Welcome, the Lobby: taken out once per start if there) or my private chats."""
         room, board = self.client.rooms.get(room_id), self.boards.get(room_id, {})
-        if (board.get("panel") or room is None or self.is_welcome_room(room)
+        if room is not None and project_rooms.is_front_door(room):
+            cleared = self.__dict__.setdefault("_front_doors_cleared", set())
+            if room_id not in cleared and await panel.remove_from_room(self.client, room_id):
+                cleared.add(room_id)          # a failure is retried at the next poll
+                if board.pop("panel", None):
+                    self.save_boards()
+            return
+        if (board.get("panel") or room is None
                 or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
                 or not await room_state.is_moderator(self.client, room, self.user_id)):   # creators too (v12)
             return

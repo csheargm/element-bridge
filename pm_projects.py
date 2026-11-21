@@ -124,7 +124,7 @@ class Projects(Finding, Joining):
         return " Your agent joins once it's connected on your computer." if mine else ""
 
     async def set_visibility(self, room: MatrixRoom, sender: str, value: str) -> str:
-        if getattr(room, "canonical_alias", None) in project_rooms.FRONT_DOORS or self.is_private_chat(room):
+        if project_rooms.is_front_door(room) or self.is_private_chat(room):
             return "Only project rooms have this setting."
         async with self.lock:                 # never between a private repo's bind and its closing
             try:                              # read now, under the lock: never a cached role or "no repo" on a failed read

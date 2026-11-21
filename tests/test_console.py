@@ -92,9 +92,9 @@ class Auth(unittest.TestCase):
 
     def test_sessions(self):
         token = console.new_session(ANNA)
-        self.assertEqual(console.user_of(SimpleNamespace(headers={"Authorization": f"Bearer {token}"})), ANNA)
-        self.assertIsNone(console.user_of(SimpleNamespace(headers={"Authorization": "Bearer nope"})))
-        self.assertIsNone(console.user_of(SimpleNamespace(headers={})))
+        self.assertEqual(console.session_of(SimpleNamespace(headers={"Authorization": f"Bearer {token}"})), (ANNA, None))
+        self.assertIsNone(console.session_of(SimpleNamespace(headers={"Authorization": "Bearer nope"})))
+        self.assertIsNone(console.session_of(SimpleNamespace(headers={})))
 
 
 class Actions(unittest.TestCase):

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from nio import RoomGetStateEventResponse, RoomPutStateResponse, RoomSendResponse
 
+import project_rooms
 import room_state
 import status_board
 from status_board import Boards, render
@@ -176,7 +177,7 @@ class PanelFirst(unittest.TestCase):
 
     def test_not_before_i_am_a_moderator_nor_in_welcome_or_my_private_chats(self):
         self.b.dm_rooms = {"@anna:bridge.localhost": "!dm"}
-        self.b.client.rooms = {"!r": self.room(pm_level=0), "!welcome": self.room("!welcome"),
+        self.b.client.rooms = {"!r": self.room(pm_level=0), "!welcome": SimpleNamespace(**vars(self.room("!welcome")), canonical_alias=project_rooms.WELCOME_ALIAS),
                                "!dm": self.room("!dm"), "!old": self.room("!old", name="Hagency (private)")}
         asyncio.run(self.b.refresh_boards())
         self.assertFalse(hasattr(self.b.client, "widget"))

@@ -82,11 +82,6 @@ def session_of(request) -> tuple[str, str | None] | None:
     return (user, scope) if user and time.time() < expires else None
 
 
-def user_of(request) -> str | None:
-    found = session_of(request)
-    return found[0] if found else None
-
-
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *a, **k):
         return None                           # verification stays on our own homeserver
@@ -143,6 +138,8 @@ async def view(loop, room_id: str, user: str) -> dict:
     room = loop.client.rooms.get(room_id)
     if room is None or not loop.is_person(room, user):
         return {"error": "you're not in that room"}
+    if project_rooms.is_front_door(room):     # screen test: the panel sat at "Signing in…" in the Lobby
+        return {"error": project_rooms.NOT_A_PROJECT}
     local = user.split(":")[0].lstrip("@")
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
