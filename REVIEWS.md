@@ -757,3 +757,8 @@ Rejected or deferred:
 - Step ③ "Invite people" is guidance, not a button (no room exists yet at that point).
 - m.direct can still race a client's own write (the built-in module has the same limit).
 - Element's new config can reach a browser a moment before Caddy's new route (one deploy, once).
+- (re-check) Adopted: a test where the invite is withdrawn between two join tries. Deferred: the
+  check-then-join gap inside Synapse (a replacement invite in that instant is joined; only @pm can
+  invite in its chats, so it would be @pm's own); Caddy's path matcher is case-insensitive (the
+  folder only ever holds the three files hostfiles.py writes); the e2e's invite helper is the
+  existing one, restored unchanged for the agent's chat.

@@ -150,6 +150,19 @@ class Module(unittest.TestCase):
             deliver(api, invite(PM, ANNA))
             self.assertEqual((api.joins, api.data), ([], {}), now)
 
+    def test_an_invite_withdrawn_between_tries_stops_the_retries(self):
+        """GPT re-check: the first try fails, then the invite is withdrawn before the second."""
+        api = self.make(fail=1)
+        real = api.update_room_membership
+
+        async def fail_then_withdraw(**kw):
+            if api.fail:
+                api.membership = "$leave"     # withdrawn while the first try was failing
+            await real(**kw)
+        api.update_room_membership = fail_then_withdraw
+        deliver(api, invite(PM, ANNA))
+        self.assertEqual((api.joins, api.data), ([], {}))
+
     def test_the_new_modules_load_before_pm_starts(self):
         """GPT review: @pm's chats opened on start must already meet the new module."""
         boot = (Path(__file__).parent / "bootstrap.sh").read_text()
