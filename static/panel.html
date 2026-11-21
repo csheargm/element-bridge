@@ -118,7 +118,7 @@ function buttons(name, values, current, enabled) {
     ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
   if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
-    : b.dataset.v, b.dataset.g); });
+    : b.dataset.a === "rename" ? $("rename-" + b.dataset.g).value.trim() : b.dataset.v, b.dataset.g); });
 let polling = false;                        // one view request at a time (GPT review: a late 401 of an old session)
 async function refresh() {
   if (!session || polling) return;
@@ -137,7 +137,8 @@ async function show() {
   if (s.error) return failed(s.error);
   expired = 0; clearTimeout(watchdog);
   if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
-  if (document.activeElement && ["repo", "newagent", "ghcode"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
+  const typing = document.activeElement && document.activeElement.id;
+  if (typing && (["repo", "newagent", "ghcode"].includes(typing) || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;

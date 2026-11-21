@@ -22,6 +22,7 @@ import registry
 import remote_agent
 from bridge import ROOT, SERVER_NAME
 from pm_chat import without_quote
+from pm_rename import Renaming
 from redact import room_safe
 from saved_dict import SavedDict
 from setup_accounts import AccountError
@@ -44,7 +45,7 @@ BRING_REPLY = ("Your agent is **{agent}**. On the computer where Codex or Claude
 HAVE = "You already have an agent here: {agents}." + ADD_HINT
 
 
-class MoreAgents:
+class MoreAgents(Renaming):
     def add_offers(self) -> dict:
         """➕ message event id → {"person", "dm"}, on disk: only that person's click there counts."""
         if "_add_offers" not in self.__dict__:
@@ -80,7 +81,10 @@ class MoreAgents:
         return mine or self.is_one_to_one(room, person)
 
     async def on_add_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
-        """True if the message asked for another agent, or answered my "what should I call it?"."""
+        """True if the message asked for another agent, or answered my "what should I call it?" (or
+        renamed one: pm_rename.py)."""
+        if await self.on_rename_text(room, event):
+            return True
         private = self.in_private(room, event.sender)
         text = without_quote(event.body) if private else self.addressed_text(event, room)
         if text is None:

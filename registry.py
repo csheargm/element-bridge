@@ -151,7 +151,7 @@ def _agents(person: str, info: dict) -> list[dict]:
              "localpart": _text(info.get("agent_user"), LOCALPART_RE.fullmatch) or identity.agent_localpart(person, SERVER_NAME),
              "ready": info.get("ready") is True,
              "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
-             "disconnected": info.get("disconnected")}
+             "disconnected": info.get("disconnected"), "display": _text(info.get("display"))}   # pm_rename.py
     found, labels = ([], set()) if info.get(FIRST_GONE) is True else ([first], {first["label"]})
     for e in info.get(MORE) if isinstance(info.get(MORE), list) else []:
         label = e.get("label") if isinstance(e, dict) else None
@@ -161,7 +161,8 @@ def _agents(person: str, info: dict) -> list[dict]:
         found.append({"label": label, "agent": _text(e.get("agent")) or REMOTE, "first": False, "created": e.get("created"),
                       "localpart": identity.agent_localpart(person, SERVER_NAME, label), "dm": _text(e.get("dm")),
                       "follow": e.get("follow") if e.get("follow") in FOLLOW else "never",
-                      "disconnected": e.get("disconnected"), "ready": e.get("ready") is True})
+                      "disconnected": e.get("disconnected"), "ready": e.get("ready") is True,
+                      "display": _text(e.get("display"))})
     return found
 
 

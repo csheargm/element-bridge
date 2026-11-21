@@ -37,12 +37,18 @@ function agentHint(a) {
     : `follow its Connect message (for a fresh code, type "add another agent called ${esc(a.label)}" there)`;
   return `<div class="hint">Not connected yet: open your chat with Product Manager and ${steps}.</div>`;
 }
+// Rename: only the name people see (pm_rename.py); its Matrix ID stays. Plain text, up to 40 characters.
+function renameRow(a) {
+  return `<li><div class="field"><input id="rename-${esc(a.name)}" maxlength="40" placeholder="Name people see"
+    value="${esc(a.display || "")}"><button data-a="rename" data-v="" data-g="${esc(a.name)}">Rename</button></div></li>`;
+}
 function agentRow(a, version, several) {
-  const title = several ? `<b>${esc(a.label)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`;
+  const shown = a.display ? `<b>${esc(a.display)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`;
+  const title = several ? `<b>${esc(a.label)}</b> <span class="muted">·</span> ${shown}` : shown;
   const where = a.here ? ' <span class="chip">in this room</span>'
     : a.invited ? ' <span class="chip">invited to this room</span>' : "";
   return `<li><div>${title}${where}${agentHint(a)}</div>
-    <div>${agentStatus(a)}</div></li>
+    <div>${agentStatus(a)}</div></li>${renameRow(a)}
     <li><div class="hint">Comes along when I join a project room${a.first ? "" : " (or invite it yourself)"}</div>${agentSeg("follow", a.name, ["always", "ask", "never"], a.follow)}</li>
     ${a.first && version ? `<li><div class="hint">Code it runs: your own version (${esc(version)})</div>
       <button data-a="goback" data-v="">Go back to official</button></li>` : ""}`;

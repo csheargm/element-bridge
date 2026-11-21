@@ -48,7 +48,8 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
    any time); **Remove** (click twice, or "@pm remove my agent codex" and ✅) closes its account for
    good and frees its place, and the first agent goes last. A removed agent's name can't be used
-   again. @pm never lets two of your agents review each other: a review always needs a different
+   again. **Rename** changes only the name people see (its ID stays; "@pm call my agent NAME" or
+   "@pm rename my agent codex to NAME" works too), even while its computer is off. @pm never lets two of your agents review each other: a review always needs a different
    person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
    new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top

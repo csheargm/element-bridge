@@ -101,6 +101,15 @@ class MyAgents(unittest.TestCase):
         self.assertIn("Offline", card)
         self.assertIn("in this room", card)
 
+    def test_each_agent_can_be_renamed_and_shows_its_name(self):
+        """pm_rename.py: the name people see, with its ID beside it; every value escaped."""
+        named = {**NEVER, "display": 'Night <b>"Shift"</b>'}
+        html = render("panel-agents.js", f"agentCards({json.dumps({'agents': [named], 'can_add': False})})")
+        self.assertIn('<input id="rename-newbie1-agent" maxlength="40"', html)
+        self.assertIn('value="Night &lt;b&gt;&quot;Shift&quot;&lt;/b&gt;"', html)
+        self.assertIn('data-a="rename" data-v="" data-g="newbie1-agent">Rename</button>', html)
+        self.assertIn('<b>Night &lt;b&gt;&quot;Shift&quot;&lt;/b&gt;</b> <span class="muted">· newbie1-agent</span>', html)
+
     def test_labels_show_when_there_are_several_and_a_custom_version_shows(self):
         codex = {**NEVER, "name": "newbie1-codex-agent", "label": "codex", "first": False}
         card = self.card([NEVER, codex], version="abc1234")

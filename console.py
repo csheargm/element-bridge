@@ -120,6 +120,7 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
         if registry.owns(user, a["localpart"]):
             aid = f"@{a['localpart']}:{SERVER_NAME}"
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
+                          "display": a.get("display") or "",                    # pm_rename.py
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
                           "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
                           "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
@@ -207,6 +208,8 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     if action == "remove" and value == "sure":   # pm_remove.py: for good; the page asked twice first
         done = await loop.remove_for_good(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't remove it (see my message)"
+    if action == "rename":                # pm_rename.py: their own agent's display name, answered in our chat
+        return await loop.rename_agent(await loop.private_room(user) or room_id, user, agent or None, value)
     if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
         done = await loop.disconnect(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't disconnect it (see my message)"
