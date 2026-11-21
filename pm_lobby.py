@@ -73,7 +73,15 @@ class Lobby:
         entry = self.lobby_greeted().get(event.sender)
         if not entry or entry.get("event") != event.reacts_to or entry.get("room") != room.room_id:
             return False
-        if event.key.replace("️", "") == GET and not entry.get("done"):
-            self.lobby_greeted()[event.sender] = {**entry, "done": True}
+        clicking = self.__dict__.setdefault("_lobby_clicking", set())
+        if event.key.replace("️", "") != GET or entry.get("done") or event.sender in clicking:
+            return True
+        clicking.add(event.sender)
+        try:
             await self.offer_again(room, event.sender)     # pm_welcome.py: my private offer, and where it is
+            self.lobby_greeted()[event.sender] = {**entry, "done": True}   # only once it went out (GPT review)
+        except RuntimeError as e:             # loop.SendError: the button still works for another click
+            log.error("couldn't send %s my offer: %s", event.sender, e)
+        finally:
+            clicking.discard(event.sender)
         return True

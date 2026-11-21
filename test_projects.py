@@ -11,6 +11,7 @@ from unittest import mock
 from nio import RoomGetStateResponse, RoomPutStateResponse
 
 import github
+import pm_projects
 import project_rooms
 import registry
 import room_state
@@ -44,6 +45,8 @@ class Base(unittest.TestCase):
         self.lp.started_ms = 0
         self.lp._join_requests, self.lp._lobby_greeted = {}, {}
         self.said, self.buttons, self.state = [], [], {}         # state: room → {event type: (content, sender)}
+        self.members = {}                                         # (room, user) → membership, as the server says
+        self.lp.lock = asyncio.Lock()
 
         async def say(room_id, body, *a, **k):
             self.said.append((room_id, body))
@@ -56,12 +59,17 @@ class Base(unittest.TestCase):
             return RoomGetStateResponse([{"type": t, "state_key": "", "sender": who, "content": c}
                                          for t, (c, who) in self.state.get(rid, {}).items()], rid)
 
+        async def get_state_event(rid, kind, key):
+            if kind == "m.room.member":
+                return SimpleNamespace(content={"membership": self.members.get((rid, key))})
+            return SimpleNamespace(content=self.state.get(rid, {}).get(kind, ({}, PM))[0])
+
         async def put_state(rid, kind, content, state_key=""):
             self.state.setdefault(rid, {})[kind] = (content, PM)
             return RoomPutStateResponse("$s", rid)
         self.lp.say, self.lp.offer_thumb = say, thumb
         self.lp.client = mock.Mock(user_id=PM, rooms={}, access_token="tok", room_get_state=get_state,
-                                   room_put_state=put_state)
+                                   room_put_state=put_state, room_get_state_event=get_state_event)
         self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=200, release=lambda: None))
         self.lp.private_room = mock.AsyncMock(side_effect=lambda who: f"!dm-{who}")
         self.lp.kick = lambda: None
@@ -88,7 +96,8 @@ class RoomPerRepo(Base):
 
     def test_a_second_room_on_the_same_repo_gets_two_choices(self):
         answer = run(self.lp.set_repo(self.b, ANNA, REPO))
-        self.assertIn("already the project of **Alpha**", answer)
+        self.assertIn("already the project of another room", answer)
+        self.assertNotIn("Alpha", answer)                                   # people here may not know that room
         self.assertEqual([k for r, _, k in self.buttons], ["🙋", "➕"])
         self.assertNotIn(github.LEVEL_EVENT, self.state.get("!b", {}))      # nothing bound yet
 
@@ -99,9 +108,9 @@ class RoomPerRepo(Base):
         self.assertTrue(run(self.lp.on_conflict_reaction(self.b, click)))
         content = self.state["!b"][github.LEVEL_EVENT][0]
         self.assertEqual((room_state.runs_in(content), room_state.level_of({**content, "level": "autonomous"})), ("!a", "off"))
-        self.assertIn("build loop runs in **Alpha**", self.said[-1][1])
+        self.assertIn("build loop runs in the room that already works on it", self.said[-1][1])
         refused = run(self.lp.change_level("!b", "autonomous"))           # assist/autonomous refused there
-        self.assertIn("runs in **Alpha**", refused)
+        self.assertEqual(refused, pm_projects.RUN_ELSEWHERE)
         self.assertIsNone(run(self.lp.change_level("!b", "off")))
         self.assertEqual(room_state.runs_in(self.state["!b"][github.LEVEL_EVENT][0]), "!a")   # kept on a stop
 
@@ -116,6 +125,28 @@ class RoomPerRepo(Base):
         asks = [(r, b) for r, b in self.said if r == f"!dm-{BETTY}"]
         self.assertEqual(len(asks), 1)
         self.assertIn(f"anna ({ANNA}) asks to join **Alpha**", asks[0][1])
+
+    def test_two_rooms_choosing_at_once_never_both_run_the_repo(self):
+        """GPT review: the check and the bind are one step under the lock."""
+        self.state.pop("!a")
+        self.lp.room_repos.clear()
+        async def both():
+            return await asyncio.gather(self.lp.set_repo(self.a, ANNA, REPO), self.lp.set_repo(self.b, ANNA, REPO))
+        answers = run(both())
+        self.assertEqual(sum("now works on" in a for a in answers), 1)
+        self.assertEqual(sum("another room" in a for a in answers), 1)
+
+    def test_right_after_a_start_bound_rooms_are_still_found(self):
+        self.lp.room_repos.clear()                                        # the poll hasn't run yet
+        self.assertIn("another room", run(self.lp.set_repo(self.b, ANNA, REPO)))
+
+    def test_an_old_question_is_dropped_once_the_room_binds(self):
+        run(self.lp.set_repo(self.b, ANNA, REPO))
+        offer = self.buttons[0][1]
+        self.state.pop("!a")
+        self.lp.room_repos.pop("!a")
+        run(self.lp.set_repo(self.b, ANNA, REPO))                         # !a let go: !b now runs it
+        self.assertFalse(run(self.lp.on_conflict_reaction(self.b, SimpleNamespace(sender=ANNA, key="➕", reacts_to=offer))))
 
     def test_a_discussion_room_is_never_the_repos_primary(self):
         self.bind("!b", runs_in="!a")
@@ -148,12 +179,18 @@ class Visibility(Base):
             self.assertTrue(run(self.lp.set_visibility(self.room, ANNA, "listed")).startswith("This room is now listed"))
         self.assertNotIn("public", json.dumps(self.state["!a"]["m.room.join_rules"][0]))
 
-    def test_an_open_room_bound_to_a_private_repo_becomes_listed(self):
-        run(self.lp.set_visibility(self.room, ANNA, "open"))
+    def test_an_open_room_is_closed_before_a_private_repo_is_bound(self):
+        """GPT review: by its real join rule (not my record), and no bind if closing fails."""
+        self.state["!a"] = {"m.room.join_rules": ({"join_rule": "public"}, ANNA)}   # set by hand in Element
         with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
-            note = run(self.lp.keep_private_repo_closed("!a", REPO))
-        self.assertIn("now listed instead of open", note)
-        self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": "knock"})
+            refused, note = run(self.lp.close_for_private("!a", REPO))
+            self.assertIsNone(refused)
+            self.assertIn("now listed instead of open", note)
+            self.assertEqual(self.state["!a"]["m.room.join_rules"][0], {"join_rule": "knock"})
+            self.state["!a"]["m.room.join_rules"] = ({"join_rule": "public"}, ANNA)
+            self.lp.client.send = mock.AsyncMock(return_value=SimpleNamespace(status=500, release=lambda: None))
+            refused, _ = run(self.lp.close_for_private("!a", REPO))
+        self.assertIn("I haven't set the repo", refused)
 
     def test_someone_elses_record_is_ignored_and_front_doors_have_no_setting(self):
         self.state["!a"] = {project_rooms.VISIBILITY_EVENT: ({"visibility": "open"}, ANNA)}
@@ -221,10 +258,14 @@ class Panel(Visibility):
         import console
         self.lp.client.rooms["!b"] = project("!b", "Beta")
         self.bind("!b", runs_in="!a")
-        shown = run(console.runs_in(self.lp, "!b"))
+        shown = run(console.runs_in(self.lp, "!b", ANNA))
         self.assertEqual(shown["name"], "Alpha")
         self.assertTrue(shown["link"].endswith("/#/room/%21a"))
-        self.assertIsNone(run(console.runs_in(self.lp, "!a")))
+        self.assertEqual(run(console.runs_in(self.lp, "!b", "@carl:x")), {"name": "another room", "link": ""})
+        self.assertIsNone(run(console.runs_in(self.lp, "!a", ANNA)))
+
+    def test_room_names_are_shown_as_text_never_as_links_or_instructions(self):
+        self.assertEqual(project_rooms.plain("[Approve](http://x)\n**now**"), "\\[Approve\\]\\(http://x\\) \\*\\*now\\*\\*")
 
 
 if __name__ == "__main__":

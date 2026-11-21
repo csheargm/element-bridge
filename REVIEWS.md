@@ -762,3 +762,32 @@ Rejected or deferred:
   invite in its chats, so it would be @pm's own); Caddy's path matcher is case-insensitive (the
   folder only ever holds the three files hostfiles.py writes); the e2e's invite helper is the
   existing one, restored unchanged for the agent's chat.
+
+Onboarding phase 2: lobby, project rooms, one room per repo, who can join (GPT, feat/onboarding), adopted with tests:
+- One room per repo raced: the primary lookup ran before the lock and only saw rooms the poll had
+  cached. The lookup, the private-repo check and the bind are now one step under the binding lock,
+  and the lookup reads every room I'm in (so right after a start too). write_level reads the repo
+  and runs_in in one read, so a stop can't drop runs_in.
+- A private repo's room could stay open: before binding, the room's real join rule (not my record)
+  is checked and the room made listed; if that fails, the repo isn't set. Visibility changes take
+  the same lock.
+- Join decisions could outlive the moderator and the request: the clicker must be a joined
+  moderator now (asked of the server), a knock must still be that knock, someone already in or
+  invited isn't acted on, and a failed invite or kick leaves the request open.
+- Leaks: the conflict answer and a discussion room's messages no longer name the other room; the
+  panel shows its name and link only to that room's own members. "Ask to join owner/name" answers
+  first, then looks in the background (no timing difference). Listed rooms say their name and
+  topic are public.
+- 🙋/➕ buttons are keyed by their own message, expire after a day and are dropped once the room
+  binds; ➕ that meets a new conflict gets new buttons.
+- Room names are shown as text (markdown escaped, one line) in every message.
+- Cooldowns are kept apart from requests (a settled request still counts), expired requests are
+  pruned, all requests together are capped per hour, "find a project" reads at most 300 rooms.
+- A Lobby click is used up only once the offer was sent.
+- New rooms are created as room version 12 explicitly (the power override relies on it).
+Rejected or deferred:
+- A room set to public by hand in Element, or a repo that turns private later, isn't reconciled
+  until the next bind; people already in an open room stay when it closes (that's Matrix).
+- A stop racing a rebind outside the lock: one read narrows it; the loop also treats a runs_in room
+  as off whatever its level says (room_state.level_of).
+- A federated knock round trip and directory publication need a live stack (not run here).

@@ -65,6 +65,19 @@ async def repo_of(client: AsyncClient, room_id: str) -> str | None:
     return repo_in(await read_binding(client, room_id))
 
 
+async def binding_of(client: AsyncClient, room_id: str) -> tuple[str | None, str | None]:
+    """(repo, the room that runs it if this one only discusses it), from ONE read of the binding."""
+    content = await read_binding(client, room_id)
+    return repo_in(content), runs_in(content)
+
+
+async def membership(client: AsyncClient, room_id: str, user: str) -> str | None:
+    """A user's membership in a room now, asked of the server (not a cached view)."""
+    r = await client.room_get_state_event(room_id, "m.room.member", user)
+    content = getattr(r, "content", None)
+    return content.get("membership") if isinstance(content, dict) else None
+
+
 async def runs_in_of(client: AsyncClient, room_id: str) -> str | None:
     """The room that runs this room's repo, when this room only discusses it (else None)."""
     return runs_in(await read_binding(client, room_id))

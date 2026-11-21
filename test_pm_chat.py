@@ -66,7 +66,7 @@ class Talk(unittest.TestCase):
         for target, name, value in ((pm_brain, "BRAIN", "off"),
                                     (room_state, "bound", mock.AsyncMock(return_value=True)),
                                     (room_state, "repo_of", mock.AsyncMock(return_value="your-name/hagency-hello")),
-                                    (room_state, "runs_in_of", mock.AsyncMock(return_value=None))):   # a project room
+                                    (room_state, "binding_of", mock.AsyncMock(return_value=("your-name/hagency-hello", None)))):   # a project room
             p = mock.patch.object(target, name, value)
             p.start()
             self.addCleanup(p.stop)

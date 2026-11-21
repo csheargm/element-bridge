@@ -100,7 +100,7 @@ class Welcome(Lobby):
         if is_stale(event, self.started_ms) or event.prev_membership == event.membership:
             return
         if event.membership == "knock":
-            await self.on_knock(room, event.state_key)          # pm_joining.py: "Ask to join"
+            await self.on_knock(room, event.state_key, event.event_id)   # pm_joining.py: "Ask to join"
         elif event.membership != "join":
             return
         elif not self.is_welcome_room(room):

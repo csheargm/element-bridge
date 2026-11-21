@@ -10,6 +10,7 @@ Joining never gives anyone a say in how the room runs: mode, repo and approvals 
 """
 import json
 import logging
+import re
 import urllib.parse
 
 from nio import AsyncClient, RoomGetStateResponse
@@ -29,9 +30,25 @@ VISIBILITIES = (PRIVATE, LISTED, OPEN)
 JOIN_RULE = {PRIVATE: "invite", LISTED: "knock", OPEN: "public"}
 DIRECTORY = {PRIVATE: "private", LISTED: "public", OPEN: "public"}
 WORDS = {PRIVATE: "private: people join by invite, or by asking me with the exact repo name",
-         LISTED: "listed: shown in Find a project; people ask to join and an owner lets them in",
+         LISTED: ("listed: shown in Find a project and the room directory (its name and topic are public); "
+                  "people ask to join and an owner lets them in"),
          OPEN: "open: listed, and anyone can join"}
 NOT_OPEN = "This room works on a private repo, so it can't be open to anyone; it can be listed (people ask to join)."
+
+
+def plain(text: str) -> str:
+    """A name someone chose (a room's), shown as text in my markdown messages: no links, emphasis or
+    line breaks that could pass for my own instructions (GPT review)."""
+    flat = " ".join(str(text).split())[:80]
+    return re.sub(r"([\\`*_{}\[\]()<>#+!|~-])", r"\\\1", flat)
+
+
+async def join_rule(client: AsyncClient, room_id: str) -> str:
+    """The room's join rule now, asked of the server; "public" when unreadable (fail closed)."""
+    r = await client.room_get_state_event(room_id, "m.room.join_rules", "")
+    content = getattr(r, "content", None)
+    rule = content.get("join_rule") if isinstance(content, dict) else None
+    return rule if isinstance(rule, str) else "public"
 
 
 def visibility_in(events: list, pm: str) -> str:
@@ -96,4 +113,4 @@ def listing_line(name: str, room_id: str, server: str, repo: str | None, repo_pr
     """One room in "Find a project": its name and a link; a repo's name only when the repo is public."""
     link = f"https://matrix.to/#/{urllib.parse.quote(room_id)}?via={urllib.parse.quote(server)}"
     shown = f" · {repo}" if repo and not repo_private else ""
-    return f"- **{name}**{shown}: [open it]({link})"
+    return f"- **{plain(name)}**{shown}: [open it]({link})"

@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from nio import RoomInviteResponse, RoomResolveAliasError, RoomResolveAliasResponse
+from nio import RoomInviteError, RoomInviteResponse, RoomKickResponse, RoomResolveAliasError, RoomResolveAliasResponse
 
 import pm_joining
 import pm_lobby
@@ -34,7 +34,8 @@ class AskToJoin(Base):
         self.room = project("!a", "Alpha", mods=(ANNA, BETTY))
         self.lp.client.rooms = {"!a": self.room}
         self.lp.client.room_invite = mock.AsyncMock(return_value=RoomInviteResponse())
-        self.lp.client.room_kick = mock.AsyncMock()
+        self.lp.client.room_kick = mock.AsyncMock(return_value=RoomKickResponse())
+        self.members.update({("!a", ANNA): "join", ("!a", BETTY): "join"})
 
     def asks(self):
         return [(r, b) for r, b in self.said if "asks to join" in b]
@@ -62,15 +63,42 @@ class AskToJoin(Base):
         self.assertIn("no longer an owner", self.said[-1][1])
 
     def test_a_declined_knock_is_turned_down(self):
+        self.members[("!a", NEW)] = "knock"
         run(self.lp.on_welcome_member(self.room, member(NEW, "knock", "leave")))          # Element's "Ask to join"
         q, req = next(iter(self.lp._join_requests.items()))
-        self.assertTrue(req["knock"])
+        self.assertEqual(req["knock"], "$m")
         run(self.lp.on_join_reaction(SimpleNamespace(room_id=req["dm"]), click(req["moderator"], "👎", q)))
         self.lp.client.room_kick.assert_awaited_once()
         self.lp.client.room_invite.assert_not_called()
 
+    def test_a_withdrawn_knock_or_someone_already_in_is_never_acted_on(self):
+        """GPT review: a stale 👍 must not invite, a stale 👎 must not kick."""
+        self.members[("!a", NEW)] = "knock"
+        run(self.lp.on_knock(self.room, NEW, "$k"))
+        q, req = next(iter(self.lp._join_requests.items()))
+        self.members[("!a", NEW)] = "leave"                                               # they withdrew
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=req["dm"]), click(req["moderator"], "👎", q)))
+        self.lp.client.room_kick.assert_not_called()
+        self.assertIn("no longer stands", self.said[-1][1])
+
+    def test_a_moderator_who_left_the_room_cant_decide(self):
+        run(self.lp.ask_to_join("!a", NEW))
+        q = next(e for e, r in self.lp._join_requests.items() if r["moderator"] == ANNA)
+        self.members[("!a", ANNA)] = "leave"                                              # power kept, membership gone
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=f"!dm-{ANNA}"), click(ANNA, "👍", q)))
+        self.lp.client.room_invite.assert_not_called()
+
+    def test_a_failed_invite_leaves_the_request_open(self):
+        run(self.lp.ask_to_join("!a", NEW))
+        self.lp.client.room_invite = mock.AsyncMock(return_value=RoomInviteError("busy"))
+        q = next(e for e, r in self.lp._join_requests.items() if r["moderator"] == ANNA)
+        run(self.lp.on_join_reaction(SimpleNamespace(room_id=f"!dm-{ANNA}"), click(ANNA, "👍", q)))
+        self.assertIn("didn't work", self.said[-1][1])
+        self.assertEqual(len(self.lp._join_requests), 2)                                    # another click can still do it
+
     def test_asking_is_rate_limited(self):
         self.assertTrue(run(self.lp.ask_to_join("!a", NEW)))
+        self.lp._join_requests.clear()                                                     # settled: still a day apart
         self.assertFalse(run(self.lp.ask_to_join("!a", NEW)))                              # same room: once a day
         rooms = {f"!r{i}": project(f"!r{i}", f"R{i}") for i in range(pm_joining.ASKS_PER_HOUR + 1)}
         self.lp.client.rooms.update(rooms)
@@ -85,8 +113,12 @@ class AskToJoin(Base):
         self.lp.addressed_text = lambda event: event.body
         lobby = project("!l", "Lobby")
         self.bind("!a")
-        run(self.lp.on_project_text(lobby, SimpleNamespace(sender=NEW, body=f"ask to join {REPO}")))
-        run(self.lp.on_project_text(lobby, SimpleNamespace(sender=NEW, body="ask to join someone/elses-private")))
+        async def both():
+            await self.lp.on_project_text(lobby, SimpleNamespace(sender=NEW, body=f"ask to join {REPO}"))
+            self.assertEqual(self.said, [("!l", pm_joining.ASKED)])                        # answered before any lookup
+            await self.lp.on_project_text(lobby, SimpleNamespace(sender=NEW, body="ask to join someone/elses-private"))
+            await asyncio.gather(*self.lp.busy)
+        run(both())
         replies = [b for r, b in self.said if r == "!l"]
         self.assertEqual(replies, [pm_joining.ASKED, pm_joining.ASKED])
         self.assertEqual(len(self.asks()), 2)                                              # anna and betty, for Alpha only
@@ -113,6 +145,14 @@ class LobbyGreeting(Base):
         self.assertFalse(run(self.lp.on_lobby_reaction(self.lobby, click(BETTY, "👍", "$e1"))))
         run(self.lp.on_lobby_reaction(self.lobby, click(NEW, "👍", "$e1")))
         self.lp.offer_again.assert_awaited_once_with(self.lobby, NEW)                       # once
+
+    def test_a_failed_offer_doesnt_use_up_the_button(self):
+        run(self.lp.on_welcome_member(self.lobby, member(NEW, "join", "leave")))
+        self.lp.offer_again = mock.AsyncMock(side_effect=[RuntimeError("M_LIMIT_EXCEEDED"), None])
+        run(self.lp.on_lobby_reaction(self.lobby, click(NEW, "👍", "$e1")))
+        run(self.lp.on_lobby_reaction(self.lobby, click(NEW, "👍", "$e1")))
+        self.assertEqual(self.lp.offer_again.await_count, 2)
+        self.assertTrue(self.lp._lobby_greeted[NEW]["done"])
 
     def test_people_with_agents_agents_and_my_private_chats_get_nothing(self):
         dm = project("!dm", "Product Manager")

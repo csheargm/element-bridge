@@ -6,10 +6,12 @@
   - "ask to join owner/name": pm_joining.py.
 ONE PROJECT ROOM PER REPO: @pm's loop runs per room, so two rooms on one repo would hand the same
 GitHub issues out twice. When a room picks a repo another room already runs, I answer with
-🙋 "Ask to join <room>" and ➕ "Make a separate room anyway": a separate room may discuss the repo,
-but its mode stays off (room_state.runs_in), and its panel says where the repo is run from.
+🙋 "Ask to join that room" and ➕ "Make a separate room anyway": a separate room may discuss the
+repo, but its mode stays off (room_state.runs_in). I never name the other room here: people in this
+room may not be allowed to know it (GPT review). The check and the bind happen under one lock.
 Mixed into pm_settings.Settings (client, user_id, say, offer_thumb, addressed_text, room_repos, choose_repo).
 """
+import asyncio
 import logging
 import re
 import time
@@ -17,25 +19,30 @@ import time
 from nio import MatrixRoom, ReactionEvent, RoomMessageText, RoomPreset
 
 import panel
-import pm_settings                            # a module object: pm_settings imports this module too
 import project_rooms
 import room_state
 from bridge import SERVER_NAME
 from pm_chat import without_quote
 from pm_joining import ASKED, Joining
+from project_rooms import plain
 
 log = logging.getLogger("loop")
 ASK, SEPARATE = "🙋", "➕"
 ROOMS_PER_HOUR = 3
 MAX_LISTED = 20
+MAX_SCANNED = 300              # "find a project" reads at most this many rooms
+OFFER_S = 86400                # a 🙋/➕ question is answerable for a day
 MAKE_RE = re.compile(r"^\W*(please\s+)?(make|create|start|set up|open)\s+(me\s+)?(a\s+)?(new\s+)?project(\s+room)?"
                      r"(\s+(called|named)\s+(?P<name>[^\n]{1,60}?))?[\s.!]*$", re.I)
 FIND_RE = re.compile(r"^\W*(please\s+)?(find|list|show|browse)\s+(me\s+)?(a\s+|the\s+|some\s+)?projects?(\s+to join)?\W*$", re.I)
 ASK_RE = re.compile(r"\bask to join\s+(?:https?://github\.com/)?(?P<repo>[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100})", re.I)
 VIS_RE = re.compile(r"\b(?:make|set)\s+(?:this|the)\s+(?:room|project)\s+(?:to\s+)?(?P<vis>private|listed|open|public)\b"
                     r"|\b(?P<un>un)?list this (?:room|project)\b", re.I)
-RUN_ELSEWHERE = ("This room only discusses its repo: the build loop for it runs in **{name}**. Ask there, "
-                 "or ask to join it.")
+RUN_ELSEWHERE = ("This room only discusses its repo: its build loop runs in the room that already works on it. "
+                 "Ask there, or ask to join it.")
+CONFLICT = ("**{repo}** is already the project of another room here: one room per repo, so two build loops never "
+            "take the same issues.\n{ask} Ask to join that room · {sep} Make a separate room anyway (it can discuss "
+            "{repo}, but its build loop runs in the other room)")
 
 
 class Projects(Joining):
@@ -51,10 +58,8 @@ class Projects(Joining):
         elif FIND_RE.match(text):
             await self.say(room.room_id, await self.find_projects())
         elif m := ASK_RE.search(text):
-            target = await self.primary_room_for(m.group("repo"))
-            if target and target != room.room_id:
-                await self.ask_to_join(target, event.sender)
-            await self.say(room.room_id, ASKED)       # the same words either way: never confirms a room
+            await self.say(room.room_id, ASKED)       # first, and the same words either way: never confirms a room
+            self.in_background(self.ask_by_repo(m.group("repo"), event.sender, room.room_id))
         elif m := VIS_RE.search(text):
             vis = {"public": project_rooms.OPEN}.get((m.group("vis") or "").lower(), (m.group("vis") or "").lower())
             vis = vis or (project_rooms.PRIVATE if m.group("un") else project_rooms.LISTED)
@@ -62,6 +67,19 @@ class Projects(Joining):
         else:
             return False
         return True
+
+    def in_background(self, coro) -> None:
+        job = asyncio.create_task(coro)
+        self.busy.add(job)                    # a restart lets it finish (lifecycle.py)
+        job.add_done_callback(self.busy.discard)
+
+    async def ask_by_repo(self, repo: str, person: str, origin: str) -> None:
+        target = await self.primary_room_for(repo)
+        if target and target != origin:
+            try:
+                await self.ask_to_join(target, person)
+            except RuntimeError as e:         # loop.SendError: they can ask again tomorrow
+                log.error("couldn't forward %s's request: %s", person, e)
 
     async def make_project_room(self, origin: MatrixRoom, person: str, name: str) -> None:
         local = person.split(":")[0].lstrip("@")
@@ -72,20 +90,20 @@ class Projects(Joining):
             return
         recent.append(time.time())
         name = name or f"{local}'s project"
-        resp = await self.client.room_create(name=name, preset=RoomPreset.private_chat, invite=[person],
+        resp = await self.client.room_create(name=name, preset=RoomPreset.private_chat, invite=[person], room_version="12",
                                              power_level_override={"users": {person: 100}})   # they own it; I made it
         if not hasattr(resp, "room_id"):
             await self.say(origin.room_id, f"⚠️ I couldn't create the room: {getattr(resp, 'message', resp)}")
             return
         await panel.add_to_room(self.client, resp.room_id)
-        await self.say(resp.room_id, f"This is **{name}**. Next: pick its GitHub repo in the Hagency panel above (or say "
-                                     "\"@pm this room works on owner/name\"), then invite people: Room info → Invite.")
-        await self.say(origin.room_id, f"Made **{name}**: accept its invite on the left (under Invites), then pick "
+        await self.say(resp.room_id, f"This is **{plain(name)}**. Next: pick its GitHub repo in the Hagency panel above "
+                                     "(or say \"@pm this room works on owner/name\"), then invite people: Room info → Invite.")
+        await self.say(origin.room_id, f"Made **{plain(name)}**: accept its invite on the left (under Invites), then pick "
                                        "its GitHub repo in the Hagency panel at the top. Your agent comes along when you join.")
 
     async def find_projects(self) -> str:
         lines = []
-        for rid, room in list(self.client.rooms.items()):
+        for rid, room in list(self.client.rooms.items())[:MAX_SCANNED]:
             if len(lines) >= MAX_LISTED or await project_rooms.visibility(self.client, rid) == project_rooms.PRIVATE:
                 continue
             repo = await room_state.repo_of(self.client, rid)
@@ -99,28 +117,35 @@ class Projects(Joining):
     async def set_visibility(self, room: MatrixRoom, sender: str, value: str) -> str:
         if not await room_state.is_moderator(self.client, room, sender):
             return "Only the room owner or a maintainer can change who can find and join this room."
+        from pm_settings import is_my_chat    # here: pm_settings imports this module
         if (getattr(room, "canonical_alias", None) in project_rooms.FRONT_DOORS
-                or pm_settings.is_my_chat(room, self.user_id, getattr(self, "dm_rooms", {}))):
+                or is_my_chat(room, self.user_id, getattr(self, "dm_rooms", {}))):
             return "Only project rooms have this setting."
-        repo = await room_state.repo_of(self.client, room.room_id)
-        refused = project_rooms.refusal(value, value == project_rooms.OPEN and await project_rooms.repo_is_private(repo))
-        failed = refused or await project_rooms.apply(self.client, room.room_id, value)
+        async with self.lock:                 # never between a private repo's bind and its closing
+            repo = await room_state.repo_of(self.client, room.room_id)
+            refused = project_rooms.refusal(value, value == project_rooms.OPEN and await project_rooms.repo_is_private(repo))
+            failed = refused or await project_rooms.apply(self.client, room.room_id, value)
         return failed or f"This room is now {project_rooms.WORDS[value]}."
 
-    async def keep_private_repo_closed(self, room_id: str, repo: str) -> str:
-        """A room that becomes bound to a private repo can't stay open: it becomes listed."""
-        if (await project_rooms.visibility(self.client, room_id) != project_rooms.OPEN
+    async def close_for_private(self, room_id: str, repo: str) -> tuple[str | None, str]:
+        """Before binding `repo` (under the lock): a room anyone can join (its real join rule, not my
+        record) becomes listed if the repo is private; if that fails, the repo isn't set. (refusal, note)"""
+        if (await project_rooms.join_rule(self.client, room_id) != "public"
                 or not await project_rooms.repo_is_private(repo)):
-            return ""
+            return None, ""
         failed = await project_rooms.apply(self.client, room_id, project_rooms.LISTED)
-        return f"\n{failed}" if failed else "\nIts repo is private, so the room is now listed instead of open (people ask to join)."
+        if failed:
+            return f"{failed} I haven't set the repo: a room on a private repo can't be open to anyone.", ""
+        return None, "\nIts repo is private, so the room is now listed instead of open (people ask to join)."
 
     async def primary_room_for(self, repo: str, exclude: str | None = None) -> str | None:
-        """The room that runs `repo` here (bound to it, not a separate discussion room)."""
-        for rid in [r for r, known in list(self.room_repos.items()) if known and known.lower() == repo.lower()]:
-            binding = await room_state.read_binding(self.client, rid)
-            found = room_state.repo_in(binding)
-            if rid != exclude and found and found.lower() == repo.lower() and not room_state.runs_in(binding):
+        """The room that runs `repo` here (bound to it, not a separate discussion room): every room
+        I'm in, read now (the poll's cache is empty right after a start)."""
+        for rid in list(self.client.rooms):
+            if rid == exclude or (rid in self.room_repos and (self.room_repos[rid] or "").lower() != repo.lower()):
+                continue                      # a room the poll has seen on another repo (refreshed every poll)
+            found, runs_in = await room_state.binding_of(self.client, rid)
+            if found and found.lower() == repo.lower() and not runs_in:
                 return rid
         return None
 
@@ -130,33 +155,40 @@ class Projects(Joining):
 
     def conflict_answer(self, room_id: str, sender: str, repo: str, other: str) -> str:
         """My answer when `repo` is already run from `other`; set_repo adds the two buttons under it."""
-        self.__dict__.setdefault("_conflicts", {})[room_id] = {"repo": repo, "other": other, "by": sender, "event": None}
-        name = self.room_name(other)
-        return (f"**{repo}** is already the project of **{name}**: one room per repo, so two build loops never take "
-                f"the same issues.\n{ASK} Ask to join {name} · {SEPARATE} Make a separate room anyway (it can discuss "
-                f"{repo}, but its build loop runs in {name})")
+        self.__dict__.setdefault("_conflict_next", {})[room_id] = {"repo": repo, "other": other, "by": sender,
+                                                                   "room": room_id, "at": time.time()}
+        return CONFLICT.format(repo=repo, ask=ASK, sep=SEPARATE)
 
     async def offer_conflict_buttons(self, room_id: str, event_id: str) -> None:
-        offer = self.__dict__.get("_conflicts", {}).get(room_id)
-        if offer is not None and offer["event"] is None:
-            offer["event"] = event_id
+        offer = self.__dict__.get("_conflict_next", {}).pop(room_id, None)
+        if offer is not None:                 # keyed by the very message the buttons are under
+            self.__dict__.setdefault("_conflicts", {})[event_id] = offer
             for key in (ASK, SEPARATE):
                 await self.offer_thumb(room_id, event_id, key)
 
+    def drop_conflict_offers(self, room_id: str) -> None:
+        for eid in [e for e, o in self.__dict__.get("_conflicts", {}).items() if o["room"] == room_id]:
+            self._conflicts.pop(eid, None)
+
     async def on_conflict_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
-        offer = self.__dict__.get("_conflicts", {}).get(room.room_id)
-        if offer is None or event.reacts_to != offer["event"]:
+        offer = self.__dict__.get("_conflicts", {}).get(event.reacts_to)
+        if offer is None or offer["room"] != room.room_id:
             return False
         key = event.key.replace("️", "")
-        if key not in (ASK, SEPARATE) or not await room_state.is_moderator(self.client, room, event.sender):
+        if (key not in (ASK, SEPARATE) or time.time() - offer["at"] > OFFER_S
+                or not await room_state.is_moderator(self.client, room, event.sender)):
             return True                       # the choice is the room's owners' (as choosing the repo is)
-        self._conflicts.pop(room.room_id, None)
+        self._conflicts.pop(event.reacts_to, None)
         if key == ASK:
             await self.ask_to_join(offer["other"], event.sender)
-            await self.say(room.room_id, f"I've asked the owners of **{self.room_name(offer['other'])}** to let you in.")
-        else:
-            await self.say(room.room_id, await self.choose_repo(room, event.sender, offer["repo"], separate_from=offer["other"]))
+            await self.say(room.room_id, "I've asked that room's owners to let you in; its invite appears on the left.")
+        else:                                 # re-checked from the start (moderator, access, the other room, under the lock)
+            await self.set_repo_separately(room, event.sender, offer["repo"], offer["other"])
         return True
+
+    async def set_repo_separately(self, room: MatrixRoom, sender: str, repo: str, other: str) -> None:
+        answer = await self.choose_repo(room, sender, repo, separate_from=other)
+        await self.offer_conflict_buttons(room.room_id, await self.say(room.room_id, answer))   # a new conflict: new buttons
 
     async def on_project_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         return await self.on_join_reaction(room, event) or await self.on_conflict_reaction(room, event)
