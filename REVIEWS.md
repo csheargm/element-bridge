@@ -689,3 +689,52 @@ Rejected or deferred:
   updates the app first, so only a hand-run old copy is affected (it says so; ask for a new code).
 - Re-checking a stored checker before each re-dispatch: results are what count, and they are
   checked; assignments made before this change had no further agents.
+
+Owner CLI powers, work folders, answers without @ (GPT, two passes over the branch), adopted with tests:
+- Hermes gives one toolset to every turn, so @pm's loop tasks (other people's issue text) would
+  have had the owner's terminal/file/web tools: the default profile obeys only its owner;
+  a loop profile kept the contained tools and @pm (later, by the owner's decision: both run
+  side by side on one account, see ADR 0006). Leftover
+  GATEWAY_ALLOWED_USERS / *_ALLOW_ALL_USERS lines are removed from the profile's .env.
+- A member's locked turn (--allow-members) resumed the owner's conversation: separate session key.
+- The refusal note broke task output (final `VERDICT:` line, plan JSON): only owner turns get it.
+- Locked Codex builds inherited the owner's `sandbox_workspace_write` network/extra roots: forced off.
+- Owner Codex turns: an own permission profile (`profile`, `default_permissions`) is never mixed
+  with our sandbox/network defaults.
+- Migration: copy only on a cross-disk error, via a unique staging folder; symlinked old folders
+  never adopted; absolute work root; the Claude session's own folder copied; odd state dropped.
+- Hermes YAML: an empty or commented toolset list, or `{matrix: [...]}` inline, is never widened;
+  inline approvals/terminal kept; the cwd is quoted.
+- Errors are scrubbed before they are cut short; a truncated private key's body is cut too.
+- Follow-ups: queued candidates are re-checked under the room lock; a failed or NO_REPLY turn
+  (also with a progress line or refusal note) posts nothing; a member's answer never closes the
+  owner's question.
+Rejected or deferred:
+- A follow-up turns an owner's unrelated message into a full-power turn: by design (the owner's
+  own words, the owner's direction); the agent decides and says NO_REPLY.
+- Under --allow-members a locked turn can still read the owner's work folder and disk read-only
+  (as before; documented in README). A legacy shared session may hold member turns from an old
+  --allow-members run (rare; drop .bridge-session.json to reset).
+- Locked turns still load the owner's Claude user hooks and Codex project layers (pre-existing).
+- Follow-up state is per room, not per thread; a voice answer without the agent's name isn't a
+  follow-up; a code change leaves an open question open; Hermes replies aren't scrubbed by the
+  bridge (it posts directly); the hagency MCP web tools still follow the per-room grant
+  (retiring grants touches console.py/panel.py, under parallel edit).
+- A symlinked destination parent, and a crash between the move and the transcript copy
+  (needs local write access / a crash in a millisecond window; a missing transcript just starts fresh).
+
+Two Hermes profiles per agent, after the rebase onto several agents per person (GPT, whole branch), adopted with tests:
+- Hermes also admits users paired earlier: each profile's Matrix pairing store is cleared when it
+  is written, so its allowlist alone decides (and @pm can never reach the personal profile).
+- The loop profile's hagency MCP server still offered web_search/fetch_page (gated on the owner's
+  room grant, not on who drove the turn): refused there (HAGENCY_LOOP_ONLY).
+- A follow-up was offered when the owner named another agent in plain text ("anna-codex-agent: …"):
+  not any more. A queued follow-up carries the question it was offered for and runs only while
+  that same question is still open and in its window.
+Rejected or deferred:
+- A running supervisor started before re-onboarding doesn't start the new loop profile until it
+  restarts: re-run onboard, then restart ./start.sh (in the PR notes).
+- Hermes onboarding still uses `<person>-agent`, not a registry `agent_user` override (pre-existing).
+- An owner's project-level Codex config disabling web search is overridden by our `-c` default;
+  inherited GATEWAY_ALLOW_ALL_USERS in the supervisor's own environment (not set by us); locked
+  Claude turns load user hooks; an old shared session from an --allow-members run (as before).

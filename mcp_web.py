@@ -8,6 +8,7 @@
 """
 import html
 import asyncio
+import os
 import re
 import time
 import urllib.parse
@@ -16,6 +17,7 @@ import capabilities
 import intents
 import mcp_core as core
 import safe_fetch
+from hermes_profile import LOOP_ONLY_ENV
 from mcp_context import owners_asks, owners_room
 from mcp_core import mcp
 
@@ -57,6 +59,8 @@ def page_text(raw: str) -> str:
 
 async def web_room() -> tuple[str | None, str | None]:
     """(room, None) if the owner granted web in the room they're talking to the agent in, else (None, why)."""
+    if os.environ.get(LOOP_ONLY_ENV) == "1":    # a Hermes loop profile: driven by @pm's tasks, never the web
+        return None, "this agent's loop work has no web access (ask it yourself, with an @mention)"
     room = await asyncio.to_thread(owners_room)
     if room is None:
         return None, "I can't tell which room this is for (ask me in one room, with an @mention)"

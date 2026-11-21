@@ -11,7 +11,6 @@ Never logged or put in an error: the private key, the JWT, an installation token
 import asyncio
 import json
 import os
-import re
 import time
 import urllib.error
 import urllib.parse
@@ -22,6 +21,7 @@ from pathlib import Path
 import jwt   # PyJWT[crypto] (requirements.txt): RS256 with `cryptography`
 
 import github
+from redact import secret_safe
 
 APP_ID = os.environ.get("GITHUB_APP_ID", "").strip()
 KEY_PATH = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
@@ -35,7 +35,6 @@ ERROR_CHARS = 160
 REST_ACCEPT = "application/vnd.github+json"
 GRAPHQL_ACCEPT = "application/vnd.github.merge-info-preview+json"   # PR mergeStateStatus, as gh asks for it
 # Anything shaped like a credential is cut from GitHub's error text before it reaches a room or a log.
-CREDENTIAL_RE = re.compile(r"gh[pousr]_[A-Za-z0-9_]{6,}|eyJ[\w-]+\.[\w-]+\.[\w-]+|-----BEGIN[^-]*-----")
 _tokens: dict[str, tuple[str, float]] = {}       # repo (lower case) -> (installation token, expires at)
 
 
@@ -83,10 +82,7 @@ _opener = urllib.request.build_opener(_NoRedirect)
 
 def scrub(text: object, *secrets: str) -> str:
     """GitHub's message text with the credentials we sent, and anything shaped like one, cut out."""
-    out = str(text)
-    for secret in secrets:
-        out = out.replace(secret, "<redacted>") if secret else out
-    return CREDENTIAL_RE.sub("<redacted>", out)[:ERROR_CHARS]
+    return secret_safe(text, *secrets)[:ERROR_CHARS]
 
 
 def _request(method: str, path: str, auth: str, body: dict | None = None) -> tuple[int, object]:

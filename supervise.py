@@ -111,10 +111,14 @@ def children(agent: str, allow_members: bool) -> list[Child]:
         choice, person = info.get("agent", agent), registry.local_name(key)
         if choice == registry.REMOTE or not person:   # runs on the person's own computer (connect.py), not here
             continue
-        if choice == "hermes":
-            hermes_profile.set_repos(f"{person}room")    # its MCP server works on this run's repos
-            kids.append(Child(f"{person}-agent", ["hermes", "-p", f"{person}room", "gateway", "run"],
-                              owner=person, profile=f"{person}room"))
+        if choice == "hermes":           # two profiles, one account: the owner's, and @pm's loop tasks
+            for name, profile in zip(("agent", "loop"), hermes_profile.profile_names(person)):
+                if not (hermes_profile.profile_dir(profile) / "config.yaml").exists():
+                    print(f"[supervise] no Hermes profile {profile}: run onboard.py {person} --agent hermes", flush=True)
+                    continue
+                hermes_profile.set_repos(profile)    # its MCP server works on this run's repos
+                kids.append(Child(f"{person}-{name}", ["hermes", "-p", profile, "gateway", "run"],
+                                  owner=person, profile=profile))
             kids.append(Child(f"{person}-buttons", [PY, "bridge.py", person, "--buttons-only"]))   # always official
         else:
             kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra], owner=person))

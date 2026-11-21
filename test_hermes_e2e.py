@@ -1,5 +1,6 @@
-"""Spike: bring-your-own Hermes. Who may drive the agent is MATRIX_ALLOWED_USERS (its owner, plus
-pm for tasks); there is no room allowlist, so the owner can also DM it. Anna's agent is a Hermes profile (`annatest`, separate from the demo's `annaroom`) talking to Matrix
+"""Spike: bring-your-own Hermes. Anna's agent runs as two Hermes profiles on one account
+(`annatestroom`: only anna, her own tools; `annatestloop`: only pm's tasks, contained tools; ADR 0006);
+there is no room allowlist, so the owner can also DM it. Both talk to Matrix
 through Hermes's own gateway and to the GitHub loop through hagency_mcp.py; betty's agent is the
 Codex bridge. Real Matrix, real Hermes and Codex, fake GitHub. Stop ./start.sh first.
 Run: .venv/bin/python test_hermes_e2e.py
@@ -28,7 +29,8 @@ from test_loop_e2e import make_fake_github, say, wait_for
 ROOT = Path(__file__).parent
 PY = str(ROOT / ".venv" / "bin" / "python")
 HERMES = "anna-hermes-agent"
-PROFILE = hermes_profile.profile_dir("annatest")
+PERSONAL, LOOP = hermes_profile.profile_names("annatest")   # anna's Hermes: her own profile + @pm's loop one
+PROFILE = hermes_profile.profile_dir(PERSONAL)
 STEP_S = 900
 test_loop_e2e.STEP_TIMEOUT_S = STEP_S
 test_loop_e2e.ISSUES = {
@@ -76,18 +78,19 @@ def main():
     for agent in (HERMES,):
         (Path(gh_env["GH_IDENTITY_ROOT"]) / agent).mkdir(parents=True, exist_ok=True)
         (Path(gh_env["GH_IDENTITY_ROOT"]) / agent / "hosts.yml").write_text("github.com: {}\n")
-    hermes_profile.configure("annatest", owner="anna", agent=HERMES, password=password, home_room=room_id,
-                             mcp_env={"HAGENCY_ROOM": room_id, **gh_env})
-    for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # each run starts with no
-        path = PROFILE / stale                                                 # memory of earlier runs
-        shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
+    hermes_profile.configure_both("annatest", owner="anna", agent=HERMES, password=password, home_room=room_id,
+                                  mcp_env={"HAGENCY_ROOM": room_id, **gh_env})
+    for profile in (PERSONAL, LOOP):
+        for stale in ("sessions", "state.db", "state.db-wal", "state.db-shm"):   # each run starts with no
+            path = hermes_profile.profile_dir(profile) / stale                  # memory of earlier runs
+            shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
     agents_file = tmp / "agents.json"                    # anna's agent here is anna-hermes-agent
     agents_file.write_text(json.dumps({"anna": {"agent_user": HERMES}, "betty": {}}))
     run_env = {**os.environ, **gh_env, "HAGENCY_AGENTS": str(agents_file)}
     logs = open(tmp / "procs.log", "w")
     procs = [subprocess.Popen([PY, *a], cwd=ROOT, env=run_env, stdout=logs, stderr=logs)
              for a in (["bridge.py", "betty"], ["loop.py"])]
-    procs.append(subprocess.Popen(["hermes", "-p", "annatest", "gateway", "run"], stdout=logs, stderr=logs))
+    procs += [subprocess.Popen(["hermes", "-p", p, "gateway", "run"], stdout=logs, stderr=logs) for p in (PERSONAL, LOOP)]
     anna, betty = login("anna", env["PW_ANNA"]), login("betty", env["PW_BETTY"])
     me = f"@{HERMES}:{SERVER_NAME}"
     agent = lambda who: f"@{who}-agent:{SERVER_NAME}"

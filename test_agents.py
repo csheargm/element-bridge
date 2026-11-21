@@ -10,12 +10,12 @@ import agents
 
 
 class Argv(unittest.TestCase):
-    def test_codex_is_read_only_and_reads_prompt_from_stdin(self):
+    def test_locked_codex_is_read_only_and_reads_prompt_from_stdin(self):
         argv = agents._codex_argv(Path("/w"), None)
         self.assertIn('sandbox_mode="read-only"', argv)
         self.assertEqual(argv[-1], "-")
 
-    def test_claude_limits_tools_and_mcp(self):
+    def test_locked_claude_limits_tools_and_mcp(self):
         argv = agents._claude_argv(Path("/w"), None)
         self.assertEqual(argv[argv.index("--tools") + 1], "Read,Grep,Glob")
         self.assertIn("--strict-mcp-config", argv)
@@ -34,7 +34,7 @@ class Argv(unittest.TestCase):
                 return proc
 
             with mock.patch("asyncio.create_subprocess_exec", fake_exec):
-                self.assertEqual(asyncio.run(agents.run_turn("codex", Path(d), "x")), "hi")
+                self.assertEqual(asyncio.run(agents.run_turn("codex", Path(d), "x", owner=True)), "hi")
             self.assertNotIn("--dangerously-x", seen["argv"])
             self.assertNotIn("resume", seen["argv"])
             saved = json.loads((Path(d) / ".bridge-session.json").read_text())

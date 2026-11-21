@@ -36,7 +36,7 @@ duplicate them.
 - The agent's owner decides what it can do.
 - The recommended room profile obeys only its owner and @pm (`MATRIX_ALLOWED_USERS`). There is
   no room allowlist, so the owner can also DM their agent.
-- It has no file, terminal, web or browser toolsets. Approvals are manual. It edits repos only
+- (Superseded by ADR 0006: it now has its owner's own toolsets and approval settings.) It had no file, terminal, web or browser toolsets. It edits repos only
   through `hagency_mcp.py`'s `read_file` and `write_files`, which are confined to the task's
   checkout.
 - The room never holds anyone's tools or secrets.
