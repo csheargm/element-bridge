@@ -13,6 +13,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ENV, EXAMPLE = HERE / ".env", HERE / ".env.example"
+REPO = r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}"   # owner/name, as github.REPO_RE
 DOMAIN = r"(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
 RULES = {
     "ROOMS_DOMAIN": DOMAIN, "MATRIX_DOMAIN": DOMAIN, "SERVER_NAME": DOMAIN, "ADMIN_DOMAIN": DOMAIN,
@@ -21,9 +22,13 @@ RULES = {
     "PM_UID": r"[1-9][0-9]{2,5}",            # @pm's container runs as the deploy user (owns ~/hagency/pm)
     "ALLOW_REMOTE": r"[01]",                 # people from other servers may get an agent (default 1)
     "REMOTE_PER_HOUR": r"[0-9]{1,4}",        # how many of their agents per hour (default 10)
+    "GITHUB_APP_ID": r"[0-9]{1,12}",         # @pm's GitHub App (docs/GITHUB_APP.md); empty: no GitHub reads
+    "GITHUB_APP_SLUG": r"[a-z0-9][a-z0-9-]{0,62}",   # its github.com/apps/<slug> name, for install links
+    "HAGENCY_REPOS": rf"{REPO}(,{REPO}){{0,49}}",   # the repos rooms may choose, comma-separated
 }
 SECRETS = {"POSTGRES_PASSWORD"}
-OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR"}   # OPERATOR: empty until the operator has an account
+OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR",     # OPERATOR: empty until the operator has an account
+            "GITHUB_APP_ID", "GITHUB_APP_SLUG", "HAGENCY_REPOS"}  # the GitHub App: empty until it is registered
 
 
 def read() -> dict:

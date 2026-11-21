@@ -1,3 +1,6 @@
 matrix-nio==0.26.0
 markdown==3.11.3
 mcp==1.26.0
+# @pm's GitHub App JWT (github_app.py, RS256). Already installed with mcp (which needs pyjwt[crypto]);
+# named here because @pm imports it directly. The pin matches the version mcp pulls in today.
+PyJWT[crypto]==2.15.1

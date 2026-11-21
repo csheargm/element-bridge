@@ -142,6 +142,19 @@ class EnvUpgrade(unittest.TestCase):
         self.assertEqual(envfile.validate({**base, "ALLOW_REMOTE": "0", "REMOTE_PER_HOUR": "5"}), [])
         self.assertEqual(len(envfile.validate({**base, "ALLOW_REMOTE": "yes please", "REMOTE_PER_HOUR": "-1"})), 2)
 
+    def test_the_github_app_settings_are_optional_and_checked(self):
+        import envfile
+        base = {"ROOMS_DOMAIN": "r.org", "MATRIX_DOMAIN": "m.org", "SERVER_NAME": "m.org", "ADMIN_DOMAIN": "a.org",
+                "POSTGRES_PASSWORD": "ab" * 32, "PM_UID": "1001"}
+        good = {"GITHUB_APP_ID": "123456", "GITHUB_APP_SLUG": "hagency-rooms", "HAGENCY_REPOS": "a/b,c-d/e.f"}
+        self.assertEqual(envfile.validate({**base, **good}), [])
+        bad = {"GITHUB_APP_ID": "12;id", "GITHUB_APP_SLUG": "../x", "HAGENCY_REPOS": "a/b c/d"}
+        self.assertEqual(len(envfile.validate({**base, **bad})), 3)
+        compose = (Path(__file__).parent / "docker-compose.yml").read_text()
+        self.assertIn("./secrets:/run/hagency-github:ro", compose)               # the key: read-only, never in .env
+        self.assertIn("GITHUB_APP_PRIVATE_KEY_PATH: /run/hagency-github/github-app.pem", compose)
+        self.assertIn("secrets/", (Path(__file__).parent / ".gitignore").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

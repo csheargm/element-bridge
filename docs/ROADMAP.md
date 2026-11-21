@@ -43,6 +43,9 @@ So other people can try it.
 - Let a repo's GitHub owner add it from the console. This needs proof that the Matrix user
   controls that GitHub repo (for example, a one-time code they commit or put in a repo topic).
   Without that proof, only the server operator adds repos (`HAGENCY_REPOS`).
+- Binding a room to a repo on the public server: the write-access check still uses the person's
+  agent identity, which lives on their computer. It needs a proven Matrix user → GitHub login
+  link (e.g. GitHub sign-in); then `github_app.permission` checks it (docs/GITHUB_APP.md).
 - Two-sided agent ownership for agents from other servers (federation).
 - Idempotent retries for resent steps (GPT reviews 4 #6, 5 #5).
 - Kill the model CLI's whole process group on timeout (GPT review 6 #5).

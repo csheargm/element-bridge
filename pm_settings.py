@@ -6,6 +6,7 @@
   - the one-time console link, sent in a private room (it is a credential).
 Mixed into loop.Loop (client, user_id, say, level, state, room_repos, pending, dm_rooms, kick).
 """
+import asyncio
 import logging
 import urllib.parse
 
@@ -13,6 +14,7 @@ from nio import MatrixRoom, RoomPreset
 
 import console
 import github
+import github_app
 import github_setup
 import registry
 import room_state
@@ -29,6 +31,8 @@ PM_ONLY = 100
 CHAT_NAMES = (DISPLAY_NAMES["pm"], "Hagency (private)")   # my private chats' names, now and before
 NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner/name\" (owner or maintainer), "
            "or set it in the Hagency console.")
+INSTALL_RECHECK_S = 30        # after an install link: look again this often...
+INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
@@ -71,8 +75,53 @@ class Settings:
         if repo is None or not await may_write(sender, repo):    # one answer for both: never confirms a name
             return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
                     "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+        missing = await self.app_missing(room, sender, repo)
+        if missing:
+            return missing
+        self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
             return await self.bind(rid, repo)
+
+    async def app_missing(self, room: MatrixRoom, sender: str, repo: str) -> str | None:
+        """None when @pm can read `repo`; else the one-click install link (and I look again after)."""
+        try:
+            if await github_app.installed(repo):
+                return None
+        except github.GitHubError as e:          # its text never carries the key or a token
+            return f"I can't check {repo} on GitHub right now ({str(e)[:160]}); please try again in a minute."
+        watch = self.install_watches.get(room.room_id)
+        if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
+            self.stop_install_watch(room.room_id)
+            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
+        minutes = INSTALL_RECHECK_S * INSTALL_RECHECKS // 60
+        return (f"One step first: install the Hagency Rooms GitHub App on {repo} (read-only; the repo's owner or "
+                f"an org admin clicks Install): {github_app.install_url()}\nI'll look again every "
+                f"{INSTALL_RECHECK_S} seconds for {minutes} minutes and finish setting up this room once it's there.")
+
+    async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
+        """After an install link: once the App is on `repo`, ask again for the person (every check
+        re-runs: moderator, allowed repo, write access)."""
+        try:
+            for _ in range(INSTALL_RECHECKS):
+                await asyncio.sleep(INSTALL_RECHECK_S)
+                try:
+                    if await github_app.installed(repo):
+                        break
+                except github.GitHubError as e:  # GitHub unreachable for a moment: the next look may work
+                    log.warning("install re-check for %s: %s", repo, str(e)[:160])
+            else:
+                await self.say(room.room_id, f"I still don't see the Hagency Rooms app on {repo}. Once it's "
+                                             f"installed, say \"@pm this room works on {repo}\" again.")
+                return
+        finally:
+            if self.install_watches.get(room.room_id, ("", None))[1] is asyncio.current_task():
+                del self.install_watches[room.room_id]     # (a newer wait may have replaced this one)
+        await self.set_repo(room, sender, repo)
+
+    def stop_install_watch(self, rid: str) -> None:
+        watch = self.install_watches.pop(rid, None)
+        if watch is not None:
+            watch[1].cancel()
 
     async def bind(self, rid: str, repo: str) -> str:
         if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):

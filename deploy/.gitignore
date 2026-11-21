@@ -7,3 +7,4 @@ pm-secret/
 synapse-admin-config.json
 .deploy.lock
 .synapse-loaded
+secrets/
