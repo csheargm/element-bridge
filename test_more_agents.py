@@ -147,7 +147,7 @@ class Caps(unittest.TestCase):
     def test_caddy_sends_the_my_agents_script_to_pm(self):
         """GPT 24: /panel-agents.js fell through to Element, so the panel had no "My agents"."""
         line = next(l for l in (Path(__file__).parent / "deploy" / "Caddyfile").read_text().splitlines() if "@pm path" in l)
-        for path in ("/panel", "/panel-agents.js", "/console", "/connect/*"):
+        for path in ("/panel", "/panel-agents.js", "/panel-project.js", "/console", "/connect/*"):
             self.assertIn(f" {path}", line)
 
 

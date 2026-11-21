@@ -19,6 +19,8 @@ import github_setup
 import registry
 import room_state
 from loop_progress import ACTIVE
+from pm_projects import RUN_ELSEWHERE, Projects
+from project_rooms import plain
 from setup_accounts import DISPLAY_NAMES
 
 log = logging.getLogger("loop")
@@ -33,6 +35,8 @@ NO_REPO = ("This room has no GitHub repo yet. Say \"@pm this room works on owner
            "or set it in the Hagency console.")
 INSTALL_RECHECK_S = 30        # after an install link: look again this often...
 INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
+BUSY = "Work is still running on the current repo; say \"stop\" and let it finish first."
+KEEP = object()               # write_level: keep the room's "only discusses its repo" as it is
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
@@ -58,15 +62,29 @@ def is_my_chat(room: MatrixRoom, me: str, dm_rooms: dict) -> bool:
                                                            or getattr(room, "name", None) in CHAT_NAMES)
 
 
-class Settings:
+class Settings(Projects):
     async def set_repo(self, room: MatrixRoom, sender: str, repo: str) -> str:
         """One room, one repo: the owner or a maintainer names it; never swapped under running work.
         Says the answer in the room and returns it (the console shows it too)."""
         answer = await self.choose_repo(room, sender, repo)
-        await self.say(room.room_id, answer)
+        await self.offer_conflict_buttons(room.room_id, answer, await self.say(room.room_id, answer))   # pm_projects.py
         return answer
 
-    async def choose_repo(self, room: MatrixRoom, sender: str, name: str) -> str:
+    async def bind_checked(self, rid: str, sender: str, repo: str, separate_from: str | None) -> str:
+        """Under the lock: one project room per repo, a private repo's room never open, then bind."""
+        if self.busy_on_other_repo(rid, repo):    # before anything changes (closing the room included)
+            return BUSY
+        try:
+            other = await self.primary_room_for(repo, exclude=rid)   # pm_projects.py: every room, read now
+        except room_state.StateUnreadable as e:   # never a second primary on a guess (GPT review)
+            log.warning("one-room-per-repo check failed: %s", e)
+            return "I couldn't check the other rooms on this repo just now; please try again in a minute."
+        if other and other != separate_from:
+            return self.conflict_answer(rid, sender, repo, other)
+        refused, note = await self.close_for_private(rid, repo)
+        return refused or (await self.bind(rid, repo, other)) + note
+
+    async def choose_repo(self, room: MatrixRoom, sender: str, name: str, separate_from: str | None = None) -> str:
         rid, repo = room.room_id, github.allowed_repo(name)
         if not await room_state.is_moderator(self.client, room, sender):
             return "Only the room owner or a maintainer can choose this room's repo."
@@ -80,7 +98,7 @@ class Settings:
             return missing
         self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
-            binding = asyncio.ensure_future(self.bind(rid, repo))
+            binding = asyncio.ensure_future(self.bind_checked(rid, sender, repo, separate_from))
             try:
                 return await asyncio.shield(binding)
             except asyncio.CancelledError:        # an install wait cancelled mid-bind: the bind (Matrix state
@@ -131,18 +149,29 @@ class Settings:
         del self.install_watches[rid]
         watch[1].cancel()
 
-    async def bind(self, rid: str, repo: str) -> str:
-        if any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values()):
-            return "Work is still running on the current repo; say \"stop\" and let it finish first."
+    def busy_on_other_repo(self, rid: str, repo: str) -> bool:
+        return any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values())
+
+    async def bind(self, rid: str, repo: str, runs_in: str | None = None) -> str:
+        if self.busy_on_other_repo(rid, repo):
+            return BUSY
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
-        failed = await self.write_level(rid, await self.level(rid) if current == repo else "off", repo)
+        keep = current == repo and runs_in is None
+        failed = await self.write_level(rid, None if keep else "off", repo, runs_in is not None)   # None: as it is, read under the lock
         if failed:
             return failed
+        if runs_in:                               # which room runs it: mine to know, not this room's state
+            self.discussions()[rid] = runs_in
+        elif rid in self.discussions():           # (no write when there's nothing to forget)
+            self.discussions().pop(rid, None)
         if current != repo:                       # a plan made for the old repo is never filed in the new one
             self.pending.pop(rid, None)
             self.plans.pop(rid, None)
             self.last_plans.pop(rid, None)
         self.room_repos[rid] = repo
+        self.drop_conflict_offers(rid)            # pm_projects.py: an older 🙋/➕ question is settled
+        if runs_in:
+            return f"This room now discusses **{repo}**; its build loop runs in the room that already works on it."
         return (f"This room now works on **{repo}**. Check that it is ready (the agents' write access, the merge "
                 "rule and the agent-ok label) with Check readiness under Project repo in the Hagency console.")
 
@@ -155,7 +184,7 @@ class Settings:
             return
         code = console.new_link(sender, room.room_id)               # the session it gives is for this room only
         url = f"{console.public_url()}/console?room={urllib.parse.quote(room.room_id)}#login={code}"
-        await self.say(dm, f"Your Hagency console for **{room.display_name}** (works once, for 10 minutes): {url}")
+        await self.say(dm, f"Your Hagency console for **{plain(room.display_name)}** (works once, for 10 minutes): {url}")
         await self.say(room.room_id, f"Sent you a private console link, {sender.split(':')[0].lstrip('@')}.")
 
     async def private_room(self, user: str) -> str | None:
@@ -178,16 +207,23 @@ class Settings:
         change cancels a confirmation still waiting (it was asked for under the old mode)."""
         if self.pending.get(room_id, {}).get("kind", "autonomous") in ("autonomous", "mode"):
             self.pending.pop(room_id, None)
-        if level == "off" and not await room_state.bound(self.client, room_id):
-            return None                       # stopping never binds a room to the repo (anyone may stop)
-        return await self.write_level(room_id, level)
+        return await self.write_level(room_id, level, unbound_ok=level == "off")   # stopping never binds a room (anyone may stop)
 
-    async def write_level(self, room_id: str, level: str, repo: str | None = None) -> str | None:
-        """Write the room's level (and repo): callers have checked that a moderator asked."""
-        repo = repo or await room_state.repo_of(self.client, room_id)
-        if repo is None:
-            return NO_REPO
-        resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo))
+    async def write_level(self, room_id: str, level: str | None, repo: str | None = None, discussion=KEEP,
+                          unbound_ok: bool = False) -> str | None:
+        """Write the room's level (and repo): callers have checked that a moderator asked. A room that only
+        discusses a repo another room runs never leaves "off". Every binding write reads and writes under
+        one short lock (not the poll's), so a "stop" can't write back a repo a rebind just replaced."""
+        async with self.__dict__.setdefault("_binding_lock", asyncio.Lock()):
+            bound_repo, bound_discussion = await room_state.binding_of(self.client, room_id)   # one read
+            repo = repo or bound_repo
+            if repo is None:
+                return None if unbound_ok else NO_REPO
+            level = level or await self.level(room_id)   # "keep the level": the one in force now, not before the lock
+            only_discusses = bound_discussion if discussion is KEEP else discussion
+            if only_discusses and level != "off":
+                return RUN_ELSEWHERE
+            resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo, only_discusses))
         if not hasattr(resp, "event_id"):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":    # a room someone made: I joined at power 0
                 return NEED_POWER

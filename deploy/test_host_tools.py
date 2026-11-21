@@ -35,7 +35,7 @@ class HostFiles(unittest.TestCase):
         old = os.umask(0o077)
         try:
             hostfiles.public_configs({"MATRIX_DOMAIN": "m.example.org", "SERVER_NAME": "m.example.org",
-                                      "ADMIN_DOMAIN": "admin.example.org"}, self.dir)
+                                      "ADMIN_DOMAIN": "admin.example.org", "ROOMS_DOMAIN": "r.example.org"}, self.dir)
         finally:
             os.umask(old)
         for name in ("element-config.json", "synapse-admin-config.json"):

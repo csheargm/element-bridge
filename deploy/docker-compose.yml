@@ -17,6 +17,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./flags:/flags:ro               # guard.py's media-paused switch
+      - ./element-home:/srv/element-home:ro   # Element's home page, logo, background (element_home.py)
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [synapse, element, pm, synapse-admin]

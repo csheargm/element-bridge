@@ -74,12 +74,15 @@ class MoreAgents:
         return True
 
     def in_private(self, room: MatrixRoom, person: str) -> bool:
-        return room.room_id in ((self.welcomes().get(person) or {}).get("dm"), getattr(self, "dm_rooms", {}).get(person))
+        # My own chat with them (only I can invite anyone there: pm_settings.private_room), or another
+        # private chat of theirs with me with nobody else in it (pm_address.py)
+        mine = room.room_id in ((self.welcomes().get(person) or {}).get("dm"), getattr(self, "dm_rooms", {}).get(person))
+        return mine or self.is_one_to_one(room, person)
 
     async def on_add_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message asked for another agent, or answered my "what should I call it?"."""
         private = self.in_private(room, event.sender)
-        text = without_quote(event.body) if private else self.addressed_text(event)
+        text = without_quote(event.body) if private else self.addressed_text(event, room)
         if text is None:
             return False
         naming = self.__dict__.setdefault("_naming", {})

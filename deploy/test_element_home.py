@@ -1,0 +1,160 @@
+"""Unit tests: Element's config and Hagency's home page (element_home.py, hostfiles.py public),
+and how Caddy serves them. Run from deploy/: python3 -m unittest test_element_home"""
+import json
+import os
+import tempfile
+import unittest
+from html.parser import HTMLParser
+from pathlib import Path
+
+import element_home
+import health
+import hostfiles
+
+HERE = Path(__file__).parent
+VALUES = {"ROOMS_DOMAIN": "rooms.example.org", "MATRIX_DOMAIN": "matrix.example.org",
+          "SERVER_NAME": "matrix.example.org", "ADMIN_DOMAIN": "admin.example.org"}
+# What Element Web v1.12.35's sanitiser keeps in an embedded page (shared-utils sanitizeHtmlParams.ts:
+# MATRIX_FORMATTING_TAGS and MATRIX_ALLOWED_ATTRIBUTES); anything else is dropped before it renders.
+ELEMENT_TAGS = {"font", "del", "s", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "p", "a", "ul", "ol", "sup",
+                "sub", "nl", "li", "b", "i", "u", "strong", "em", "strike", "code", "hr", "br", "div", "table",
+                "thead", "caption", "tbody", "tr", "th", "td", "pre", "span", "img", "details", "summary"}
+ELEMENT_ATTRS = {"font": {"color", "style"}, "span": {"style"}, "a": {"href", "name", "target", "rel"},
+                 "img": {"src", "alt", "title", "style"}, "ol": {"start"}}
+
+
+class Page(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.links, self.dropped, self.imgs = [], [], [], []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append(tag)
+        for name, value in attrs:
+            if name not in ELEMENT_ATTRS.get(tag, set()):
+                self.dropped.append((tag, name))
+            if (tag, name) == ("a", "href"):
+                self.links.append(value)
+            if (tag, name) == ("img", "src"):
+                self.imgs.append(value)
+
+
+def parse(text: str) -> Page:
+    page = Page()
+    page.feed(text)
+    return page
+
+
+class ElementConfig(unittest.TestCase):
+    def test_points_at_this_server_and_shows_our_home_page_and_branding(self):
+        config = element_home.element_config(VALUES)
+        self.assertEqual(config["default_server_config"]["m.homeserver"],
+                         {"base_url": "https://matrix.example.org", "server_name": "matrix.example.org"})
+        self.assertEqual(config["brand"], "Hagency Rooms")
+        self.assertTrue(config["disable_guests"])
+        self.assertEqual(config["embedded_pages"], {"home_url": "https://rooms.example.org/hagency/home.html"})
+        self.assertEqual(config["branding"], {"auth_header_logo_url": "https://rooms.example.org/hagency/logo.svg",
+                                              "welcome_background_url": "https://rooms.example.org/hagency/background.svg"})
+        self.assertEqual(json.loads(element_home.config_text(VALUES)), config)
+
+    def test_every_url_element_loads_is_on_this_server(self):
+        """No outside assets: the page, the logo and the background are all ours, under /hagency/."""
+        config = element_home.element_config(VALUES)
+        urls = [config["embedded_pages"]["home_url"], *config["branding"].values()]
+        for url in urls:
+            self.assertTrue(url.startswith(f"https://{VALUES['ROOMS_DOMAIN']}{element_home.PREFIX}/"), url)
+            self.assertIn(url.rsplit("/", 1)[1], element_home.files(VALUES))      # each one is a file we write
+
+
+class HomePage(unittest.TestCase):
+    def setUp(self):
+        self.text = element_home.home_page(VALUES["SERVER_NAME"])
+        self.page = parse(self.text)
+
+    def test_three_steps_in_order_each_one_click(self):
+        steps = [self.text.index(s) for s in ("① Get your agent", "② Start or join a project", "Create a project room",
+                                              "Find a project to join", "③ Invite people")]
+        self.assertEqual(steps, sorted(steps))
+        self.assertIn("What is this?", self.text)
+        self.assertEqual(self.page.links, ["#/user/@pm:matrix.example.org?action=chat", "#/new", "#/directory"])
+
+    def test_links_open_inside_element(self):
+        """Element keeps #/ links as they are (same tab, its router): #/user/<id>?action=chat opens or
+        starts the chat with that user (MatrixChat.viewUser → chatCreateOrReuse), #/new the new-room dialog."""
+        for link in self.page.links:
+            self.assertTrue(link.startswith("#/"), link)
+        self.assertNotIn(element_home.PM_PLACEHOLDER, self.text)
+
+    def test_survives_elements_sanitiser(self):
+        """Element inlines the page through its sanitiser (no iframe): no tag or attribute it would drop."""
+        self.assertEqual(set(self.page.tags) - ELEMENT_TAGS, set())
+        self.assertEqual(self.page.dropped, [])
+        body = self.text.split("-->", 1)[1]                                # the comment is for people (stripped)
+        self.assertNotIn("<style", body)
+        self.assertNotIn("<script", body)
+        self.assertNotIn("_t(", self.text)                                  # Element would treat it as a translation
+
+    def test_follows_elements_theme_and_loads_nothing_from_outside(self):
+        self.assertIn("var(--cpd-color-bg-action-primary-rest", self.text)
+        self.assertIn("var(--cpd-color-text-on-solid-primary", self.text)
+        self.assertEqual(self.page.imgs, [])                                # the owner saw an <img> broken: none
+        self.assertNotIn("http", self.text.split("-->", 1)[1])
+
+    def test_the_server_name_is_escaped(self):
+        self.assertIn("@pm:a&amp;b", element_home.home_page("a&b"))
+
+    def test_a_template_without_the_placeholder_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "home.html").write_text("<p>no link</p>")
+            old, element_home.SOURCE = element_home.SOURCE, Path(d)
+            try:
+                with self.assertRaises(SystemExit):
+                    element_home.home_page("x.org")
+            finally:
+                element_home.SOURCE = old
+
+
+class Written(unittest.TestCase):
+    def test_public_configs_write_the_page_readable_whatever_the_umask(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = os.umask(0o077)                                            # bootstrap.sh runs with umask 077
+            try:
+                hostfiles.public_configs(VALUES, Path(d))
+                hostfiles.public_configs(VALUES, Path(d))                    # again: same result
+            finally:
+                os.umask(old)
+            site = Path(d) / element_home.OUT
+            self.assertEqual(site.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(sorted(p.name for p in site.iterdir()), ["background.svg", "home.html", "logo.svg"])
+            for f in site.iterdir():
+                self.assertEqual(f.stat().st_mode & 0o777, 0o644, f.name)
+            self.assertIn("#/user/@pm:matrix.example.org", (site / "home.html").read_text())
+            config = json.loads((Path(d) / "element-config.json").read_text())
+            self.assertIn("embedded_pages", config)
+
+    def test_a_planted_link_instead_of_the_folder_is_refused(self):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as elsewhere:
+            (Path(d) / element_home.OUT).symlink_to(elsewhere)
+            with self.assertRaises(SystemExit):
+                hostfiles.public_configs(VALUES, Path(d))
+            self.assertEqual(list(Path(elsewhere).iterdir()), [])
+
+
+class Served(unittest.TestCase):
+    def test_caddy_serves_the_folder_at_hagency_before_element(self):
+        rooms = (HERE / "Caddyfile").read_text().split("{$ROOMS_DOMAIN} {")[1].split("\n}")[0]
+        route = rooms.split("@hagency path ")[1].split("\n")[0].split()
+        self.assertEqual(sorted(route), sorted(f"{element_home.PREFIX}/{n}" for n in ["home.html", *element_home.STATIC]))
+        self.assertIn("handle @hagency {\n\t\turi strip_prefix /hagency\n\t\troot * /srv/element-home", rooms)
+        self.assertNotIn("/hagency/*", rooms)                               # never the whole folder
+        self.assertLess(rooms.index("handle @hagency"), rooms.index("reverse_proxy element:80"))
+        self.assertIn("./element-home:/srv/element-home:ro", (HERE / "docker-compose.yml").read_text())
+        self.assertIn("element-home/", (HERE / ".gitignore").read_text())   # generated, never committed
+
+    def test_deploy_checks_the_page_from_outside(self):
+        names = [n for n, _ in health.checks("https://r", "https://m", "https://r", "m", "m", public=True)]
+        self.assertIn("Element's home page links to @pm", names)
+
+
+if __name__ == "__main__":
+    unittest.main()

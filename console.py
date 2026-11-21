@@ -26,8 +26,10 @@ import customize
 import github
 import github_setup
 import ownership
+import project_rooms
 import registry
 import room_state
+from bridge_config import ELEMENT_ORIGIN
 from setup_accounts import HS, SERVER_NAME
 
 SESSION_S = 12 * 3600
@@ -139,6 +141,7 @@ async def view(loop, room_id: str, user: str) -> dict:
     return {"user": local, "agents": mine, "can_add": bool(mine) and len(registry.agents_of(user)) < registry.per_person(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
+            "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
             "follow": registry.follow(user) if agent else None,
             "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
             "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
@@ -148,6 +151,18 @@ async def view(loop, room_id: str, user: str) -> dict:
                         "id": waiting.get("event_id"), "items": [i["title"] for i in waiting.get("items", [])]}
                        if waiting else None,
             "html": panel_html(loop, room_id) if panel_html else ""}
+
+
+async def runs_in(loop, room_id: str, user: str) -> dict | None:
+    """Where this room's repo is run from, when this room only discusses it (pm_projects.py): that
+    room's name and link only for its own members (others may not be allowed to know it)."""
+    if not await room_state.discussion_of(loop.client, room_id):
+        return None
+    other = loop.discussions().get(room_id)
+    there = loop.client.rooms.get(other) if other else None
+    if there is None or user not in there.users or user in there.invited_users:
+        return {"name": "another room", "link": ""}
+    return {"name": loop.room_name(other), "link": f"{ELEMENT_ORIGIN}/#/room/{urllib.parse.quote(other)}"}
 
 
 async def act(loop, room_id: str, user: str, action: str, value: str, agent: str = "") -> str:
@@ -175,6 +190,10 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
         return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
     if action == "check":
         return await check_repo(loop, room, user)
+    if action == "visibility":            # pm_projects.py: who can find and join this room
+        answer = await loop.set_visibility(room, user, value)
+        await loop.say(room_id, answer)
+        return answer
     if action == "goback":                # customize.py: official code, so it works when theirs is broken
         local, _, server = user.lstrip("@").partition(":")
         if server != loop.user_id.partition(":")[2]:   # a person from another server never maps to ours

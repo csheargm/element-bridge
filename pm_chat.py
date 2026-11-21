@@ -20,6 +20,7 @@ import intents
 import logging
 
 import pm_brain
+from pm_address import Addressing, without_quote  # noqa: F401 - without_quote: other modules import it from here
 from saved_dict import SavedDict
 import room_state
 
@@ -40,7 +41,9 @@ HELP = ("Talk to me in plain words, for example:\n"
         "- **@pm send me my console link**: settings in a page (also the Hagency panel in this room)\n"
         "- **@pm let my agent search the web here**: your own agent, this room only (\"stop letting…\" undoes it)\n"
         "- **@pm retry #9**: a paused issue goes back in the queue (owner or maintainer)\n"
-        "- **@pm this room works on owner/name**: the GitHub repo for this room (one repo per room)\n"
+        "- **@pm this room works on owner/name**: the GitHub repo for this room (one room per repo)\n"
+        "- **@pm make me a project room**, **@pm find a project**, **@pm ask to join owner/name**\n"
+        "- **@pm make this room listed** (or private, or open): who can find and join it (owner or maintainer)\n"
         "The pinned **Project status** and the **Hagency** panel show progress live.")
 
 
@@ -50,28 +53,9 @@ def replied_to(event: RoomMessageText) -> str | None:
     return reply.get("event_id") if isinstance(reply, dict) else None
 
 
-def without_quote(body: str) -> str:
-    """A reply's body starts with the quoted message ("> <@someone> text", then a blank line): read
-    only what the person wrote, so "ok" in a reply to any message is just "ok"."""
-    lines = body.strip().splitlines()
-    while lines and lines[0].startswith(">"):
-        lines.pop(0)
-    return "\n".join(lines).strip()
-
-
-class Chat:
+class Chat(Addressing):
     generation: dict                     # room → bumped by "stop" (cancels in-flight decisions)
     pending: dict           # room → the autonomous switch waiting for a ✅
-
-    def addressed_text(self, event: RoomMessageText) -> str | None:
-        """The message without its "@pm" / "Product Manager" address, or None if not for me."""
-        mentions = event.source.get("content", {}).get("m.mentions", {})
-        ids = mentions.get("user_ids") if isinstance(mentions, dict) else None
-        mentioned = isinstance(ids, list) and self.user_id in ids
-        m = re.match(r"^\s*@?(pm|product manager)\b[:,]?\s*(.*)$", without_quote(event.body), re.I | re.S)
-        if m:
-            return m.group(2)
-        return without_quote(event.body) if mentioned else None
 
     async def on_human(self, room: MatrixRoom, event: RoomMessageText) -> None:
         body, sender = without_quote(event.body), event.sender
@@ -79,7 +63,7 @@ class Chat:
         if body.startswith("!") and not voice:
             await self.command(room, sender, body.split())
             return
-        text = self.addressed_text(event)
+        text = self.addressed_text(event, room)
         reply_to = replied_to(event)
         waiting = self.pending.get(room.room_id, {}).get("event_id")
         said = text if text is not None else (body if reply_to and reply_to == waiting else None)

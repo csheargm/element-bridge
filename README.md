@@ -9,8 +9,10 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 1. Ask the owner for an invite token, then sign up at **https://rooms.hagencylabs.xyz/#/register**
    (or in any Element app, with homeserver `https://matrix.hagencylabs.xyz`). Your ID is
    `@you:matrix.hagencylabs.xyz`.
-2. You land in **Welcome**, and @pm sends you a private message: *Get your agent*.
-3. Click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
+2. You land on the Hagency home page: three numbered steps, each one click. **① Get your agent**
+   opens your private chat with **Product Manager** (@pm), already in your list on the left (no
+   invite to accept). The home page is always one click away: the Home button at the top left.
+3. In that chat, click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
 4. @pm gives you a one-time code and a link to the **Connect page**
    (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
    or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line
@@ -28,7 +30,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    your agent's sign-in in `~/.hagency/credentials.json` (only you can read it) and starts your
    agent, `<you>-agent`, in the background (launchd on macOS, systemd on Linux, a Scheduled Task
    "Hagency agent <you>" on Windows): you can close the window, and it starts again when you log
-   in. Accept its chat invite and talk to it; it works on your computer and obeys only you. If it
+   in. Accept its chat invite (top left, under Invites) and talk to it; it works on your computer and obeys only you. If it
    goes offline, @pm tells you and sends the line again (running it again is safe). To stop it:
    `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or Disconnect under My agent
    in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
@@ -44,9 +46,14 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and web research. @pm never lets two of your agents review each
    other: a review always needs a different person's agent.
+6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
+   new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top
+   lets you pick the project's GitHub repo. **Find a project to join** opens the room directory.
+   **③ Invite people**: Room info → Invite (people on other Matrix servers too, by their full ID).
 
-**Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
-`@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own
+**Already on matrix.org (or another Matrix server)?** No sign-up needed: join the public Lobby,
+`#lobby:matrix.hagencylabs.xyz` (the site links it: "Already on Matrix? Join the lobby"), and click 👍
+under @pm's greeting; or start a private chat with `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own
 private chat with the buttons: accept it under Invites, then steps 3 and 4 as above. Your agent
 gets an account on this server (e.g. `@alice-at-matrix-org-…-agent:matrix.hagencylabs.xyz`) and
 obeys only your full ID. For settings, say "@pm send me my console link" in a room you share with @pm.
@@ -173,7 +180,8 @@ resends the step and the issue is still merged.
 ## Talking to @pm
 
 Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain words; the commands
-`!help`, `!status` and `!level` still work as shortcuts.
+`!help`, `!status` and `!level` still work as shortcuts. In your private chat with @pm you don't need
+to write "@pm": everything you say there is for it (in project rooms, start with "@pm").
 
 | Say | What happens | Who |
 |---|---|---|
@@ -181,6 +189,23 @@ Each room has one bot, `@pm` ("Product Manager"). People talk to it in plain wor
 | "@pm let us approve each change" | each change waits for a person to merge | owner or maintainer |
 | "@pm stop" / "turn it all off" | no new work and no merges, at once | anyone |
 | "@pm where are we?" | mode, agents and a link to the pinned Project status | anyone |
+| "resend me the code" / "new code" / "connect my agent" | a fresh Connect page and one-time code for your agent, in @pm's chat | you |
+| "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
+| "@pm find a project" | the listed and open project rooms, with links (also Element's Explore rooms) | anyone |
+| "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |
+| "@pm make this room listed" (or private, open) | who can find and join it; also "Who can join" in the panel | owner or maintainer |
+
+**One project room per repo.** @pm's build loop runs per room, so a room that picks a repo another
+room already runs gets two buttons: 🙋 ask to join that room, or ➕ make a separate room anyway, which
+may discuss the repo but never runs its loop (its mode stays off; its panel says where the repo is
+run from).
+
+**Who can join a project room** (owners and maintainers choose; joining never gives a say in how it runs):
+- **Private** (default): unlisted; by invite, or by asking @pm with the exact repo name.
+- **Listed**: in Find a project and the server's room directory (other Matrix servers see it too).
+  Element shows "Ask to join"; @pm asks the room's owners and invites on 👍. A private repo's name is
+  never shown in a listing.
+- **Open**: listed, and anyone joins directly. Not for a room on a private GitHub repo.
 
 `@pm` understands from context. Every message addressed to it goes to an understanding step
 (`pm_brain.py`): the recent conversation, the message being replied to, what's waiting for

@@ -7,9 +7,18 @@
 	handle /_synapse/admin* {
 		respond 404
 	}
-	@pm path /panel /panel-agents.js /console /console/* /auth/* /connect /connect/* /connect.sh /connect.ps1
+	@pm path /panel /panel-agents.js /panel-project.js /console /console/* /auth/* /connect /connect/* /connect.sh /connect.ps1
 	handle @pm {
 		reverse_proxy pm:8650
+	}
+	# Hagency's home page for Element and its login logo and background (element_home.py writes them).
+	# Only these three names: nothing else that might sit in the folder is ever served.
+	@hagency path /hagency/home.html /hagency/logo.svg /hagency/background.svg
+	handle @hagency {
+		uri strip_prefix /hagency
+		root * /srv/element-home
+		header Cache-Control no-cache
+		file_server
 	}
 	handle {
 		reverse_proxy element:80

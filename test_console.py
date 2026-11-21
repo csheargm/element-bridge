@@ -128,10 +128,14 @@ class Actions(unittest.TestCase):
                                     agent_online=lambda agent: True if agent == "alice-at-matrix-org-a5829e99c7-agent" else None,
                                     user_id="@pm:" + BETTY.partition(":")[2])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
-                         ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello"))):
+                         ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello")),
+                         ("discussion_of", lambda c, rid: asyncio.sleep(0, False))):
             p2 = mock.patch.object(room_state, name, fn)
             p2.start()
             self.addCleanup(p2.stop)
+        v = mock.patch("project_rooms.visibility", lambda c, rid: asyncio.sleep(0, "private"))   # pm_projects.py
+        v.start()
+        self.addCleanup(v.stop)
 
     def act(self, user, action, value):
         return asyncio.run(console.act(self.loop, "!r", user, action, value))

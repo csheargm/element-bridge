@@ -53,14 +53,20 @@ def copy_secret(homeserver_yaml: Path, folder: Path, uid: int) -> None:
 
 
 def public_configs(values: dict, here: Path) -> None:
-    """Element points at this homeserver; Synapse Admin may only talk to the admin host. Both are
-    public by design (0644: the containers read them as their own users)."""
-    element = {"default_server_config": {"m.homeserver": {"base_url": f"https://{values['MATRIX_DOMAIN']}",
-                                                          "server_name": values["SERVER_NAME"]}},
-               "disable_custom_urls": False, "disable_guests": True, "brand": "Hagency Rooms"}
+    """Element points at this homeserver and shows Hagency's home page (element_home.py); Synapse
+    Admin may only talk to the admin host. All public by design (0644, the folder 0755: the
+    containers read them as their own users)."""
+    import element_home                       # here, not at the top: it imports configure_synapse, which imports us
     admin = {"restrictBaseUrl": f"https://{values['ADMIN_DOMAIN']}"}
-    replace(here / "element-config.json", json.dumps(element, indent=2), 0o644)
+    replace(here / "element-config.json", element_home.config_text(values), 0o644)
     replace(here / "synapse-admin-config.json", json.dumps(admin, indent=2), 0o644)
+    site = here / element_home.OUT
+    site.mkdir(mode=0o755, exist_ok=True)
+    if site.is_symlink() or not site.is_dir():
+        raise SystemExit(f"✗ {site} must be a real folder")
+    os.chmod(site, 0o755)
+    for name, text in element_home.files(values).items():
+        replace(site / name, text, 0o644)
 
 
 if __name__ == "__main__":

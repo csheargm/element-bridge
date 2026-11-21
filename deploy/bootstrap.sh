@@ -65,16 +65,19 @@ chmod 700 "$PM_DIR" "$PM_DIR/data"
 mkdir -p secrets
 chmod 700 secrets
 
-# 5. Element points at our homeserver; Synapse Admin may only use the admin host.
+# 5. Element points at our homeserver and shows Hagency's home page (element_home.py, served by Caddy
+#    at /hagency/); Synapse Admin may only use the admin host.
 python3 hostfiles.py public
 
 # 6. Start or update (@pm starts on the new code), then load the current Caddyfile.
 mkdir -p flags
 chmod 755 flags
 dc stop pm >/dev/null 2>&1 || true                       # its files changed under it (deploy.sh): a clean start
+# Synapse reads its config (and modules) only at start: restart it BEFORE @pm starts, so the chats
+# @pm opens on start already get the new modules (hagency_auto_accept: they open joined).
+if [ "$loaded" != "$current" ]; then dc up -d synapse; dc restart synapse; fi
 dc up -d --remove-orphans
 dc up -d --no-deps --force-recreate element synapse-admin >/dev/null 2>&1   # their configs are new files
-if [ "$loaded" != "$current" ]; then dc restart synapse; fi  # Synapse reads its config only at start
 echo "$current" > .synapse-loaded
 # A single-file bind mount keeps the OLD file after git replaces it (new inode), so a reload alone
 # would load the old routes (seen live: /connect/start 404 after a deploy). Recreate Caddy when the

@@ -738,3 +738,102 @@ Rejected or deferred:
 - An owner's project-level Codex config disabling web search is overridden by our `-c` default;
   inherited GATEWAY_ALLOW_ALL_USERS in the supervisor's own environment (not set by us); locked
   Claude turns load user hooks; an old shared session from an --allow-members run (as before).
+
+Onboarding: Element home page and @pm's chat opening joined (GPT, feat/onboarding), adopted with tests:
+- The auto-join trusted `@<person>-agent` as "their own agent", but sign-up doesn't reserve -agent
+  names: whoever registered "bob-agent" first could pull bob into rooms. Only @pm's direct invites
+  are accepted now; the agent's chat stays an invite (README, test_welcome_e2e).
+- Retries could join on a stale invite, and m.direct was written before the join: each try first
+  checks that this very invite is still the person's membership, and m.direct is written only
+  after a successful join (re-read just before writing).
+- bootstrap restarted Synapse after @pm had started, so chats @pm opened in between missed the new
+  module: Synapse restarts (when its config or modules changed) before @pm starts.
+- Caddy served the whole generated folder: only home.html, logo.svg and background.svg now.
+Rejected or deferred:
+- A click on "Get your agent" before @pm's chat exists makes Element start a new chat with @pm
+  (no offer in it): rare (the greeting comes seconds after sign-up); PHASE 2 makes @pm answer a
+  person's own new chat with the offer. The Welcome pointer still says "accept it under Invites"
+  (pm_welcome.py, another agent's file now): PHASE 2.
+- Step ③ "Invite people" is guidance, not a button (no room exists yet at that point).
+- m.direct can still race a client's own write (the built-in module has the same limit).
+- Element's new config can reach a browser a moment before Caddy's new route (one deploy, once).
+- (re-check) Adopted: a test where the invite is withdrawn between two join tries. Deferred: the
+  check-then-join gap inside Synapse (a replacement invite in that instant is joined; only @pm can
+  invite in its chats, so it would be @pm's own); Caddy's path matcher is case-insensitive (the
+  folder only ever holds the three files hostfiles.py writes); the e2e's invite helper is the
+  existing one, restored unchanged for the agent's chat.
+
+Onboarding phase 2: lobby, project rooms, one room per repo, who can join (GPT, feat/onboarding), adopted with tests:
+- One room per repo raced: the primary lookup ran before the lock and only saw rooms the poll had
+  cached. The lookup, the private-repo check and the bind are now one step under the binding lock,
+  and the lookup reads every room I'm in (so right after a start too). write_level reads the repo
+  and runs_in in one read, so a stop can't drop runs_in.
+- A private repo's room could stay open: before binding, the room's real join rule (not my record)
+  is checked and the room made listed; if that fails, the repo isn't set. Visibility changes take
+  the same lock.
+- Join decisions could outlive the moderator and the request: the clicker must be a joined
+  moderator now (asked of the server), a knock must still be that knock, someone already in or
+  invited isn't acted on, and a failed invite or kick leaves the request open.
+- Leaks: the conflict answer and a discussion room's messages no longer name the other room; the
+  panel shows its name and link only to that room's own members. "Ask to join owner/name" answers
+  first, then looks in the background (no timing difference). Listed rooms say their name and
+  topic are public.
+- 🙋/➕ buttons are keyed by their own message, expire after a day and are dropped once the room
+  binds; ➕ that meets a new conflict gets new buttons.
+- Room names are shown as text (markdown escaped, one line) in every message.
+- Cooldowns are kept apart from requests (a settled request still counts), expired requests are
+  pruned, all requests together are capped per hour, "find a project" reads at most 300 rooms.
+- A Lobby click is used up only once the offer was sent.
+- New rooms are created as room version 12 explicitly (the power override relies on it).
+Rejected or deferred:
+- A room set to public by hand in Element, or a repo that turns private later, isn't reconciled
+  until the next bind; people already in an open room stay when it closes (that's Matrix).
+- A stop racing a rebind outside the lock: one read narrows it; the loop also treats a runs_in room
+  as off whatever its level says (room_state.level_of).
+- A federated knock round trip and directory publication need a live stack (not run here).
+- (re-check) Adopted, with tests: an unreadable room never counts as "no repo" or "no primary"
+  (room_state.StateUnreadable; set_visibility and the one-room-per-repo check refuse instead); a
+  join click reads the server's state once for the clicker's membership and power and the
+  requester's membership and the knock's own event id (a withdrawn-and-renewed knock, a demoted
+  moderator, or an unreadable room never decide); the 🙋/➕ question travels with its own reply
+  (no shared slot) and isn't attached once the room bound; running work refuses before the room is
+  closed; "ask to join" lookups are a few per person an hour and catch their own errors; the Lobby
+  button stays usable when my offer couldn't be sent (offer_again says so); "#" is no longer
+  escaped (github.linkify links issue numbers) and the console-link message escapes the room name.
+  Deferred: a stop racing a rebind outside the lock (narrowed to one read; level_of keeps a
+  runs_in room off regardless).
+
+Seen live (owner): in @pm's own chat, "resend me the code" and "send me my console link" without
+"@pm" got no answer. Every message in a one-to-one chat with @pm (not a project room with a repo)
+is now for @pm; "resend me the code" / "new code" / "connect my agent" sends the same Connect
+message and fresh code 🔌 sends (a second click on 🔌 only removes the reaction), a few an hour.
+Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and waits for a new code.
+- (whole branch, GPT) Adopted, with tests: "everything is for @pm" now holds only in my private
+  chats (ones I made, or a direct chat a person opened with me, recorded when I join it) with
+  exactly that person in it; a fresh project room with two people never counts (plain "stop" there
+  stays theirs). A discussion room's state holds only a "discussion" flag; which room runs its repo
+  is kept by @pm (data/discussions.json), so its members can't read the other room's id. Every
+  binding write reads and writes under one short lock (a stop can no longer write back a repo a
+  rebind replaced; the poll's lock isn't used, so "stop" never waits behind GitHub). A private
+  repo's room gets history readable by members only (world_readable → shared) before binding and on
+  every visibility change. Visibility changes re-read the requester's membership and role under
+  the lock; closing sets the join rule first, opening last. A renewed knock is a new request.
+  "Find a project" runs in the background, a few per person an hour. pm_chat.py's addressing moved
+  to pm_address.py (R4: pm_chat back under 300).
+  Deferred: a decline kick can't be conditioned on the knock (Matrix has no compare-and-set; the
+  knock's event id is re-read right before); members already in an open room stay when it closes;
+  a repo turning private later and native join-rule edits aren't reconciled until the next bind or
+  visibility change; the hourly code limit covers "resend" (🔌 and "bring my own" use the
+  provisioning path's own limits); the pointer says the chat is open even if Synapse's auto-join
+  gave up (rare; the invite is still there).
+- (re-check of the whole-branch fixes, GPT) Adopted, with tests: the level a same-repo rebind keeps
+  is read under the binding lock, and "stop" on an unbound room is decided there too (a rebind can't
+  bring back a mode a stop just turned off); "my private chat" is decided by my own records (my
+  chats, Welcome's offer, chats a person opened with me, each for that one person), never a room's
+  name; a stale click settles only its own knock, never the renewed one; an opening that fails at
+  the join rule takes the listing back down and records nothing.
+  Rejected: migrating rooms that stored "runs_in" in state: that format never left this branch
+  (nothing was deployed with it).
+- (last re-check) Adopted: a network error while opening is handled like a refusal, and a listing
+  that couldn't be taken back down is said ("set it to private again"). Not adopted: follow-me's
+  room-name check for my chats (pre-existing, not part of this branch's addressing).

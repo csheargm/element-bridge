@@ -97,7 +97,7 @@ class Joining(unittest.TestCase):
         self.assertIn("already have an agent", self.said[0][1])
 
     def test_asking_in_a_shared_room_works_for_them_too(self):
-        self.lp.addressed_text = lambda event: event.body
+        self.lp.addressed_text = lambda event, room=None: event.body
         room = SimpleNamespace(room_id="!project", canonical_alias=None)
         event = SimpleNamespace(sender=ALICE, body="I want an agent", source={"content": {"body": "x"}})
         self.assertTrue(asyncio.run(self.lp.on_welcome_text(room, event)))

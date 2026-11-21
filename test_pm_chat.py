@@ -65,7 +65,8 @@ class Talk(unittest.TestCase):
     def setUp(self):
         for target, name, value in ((pm_brain, "BRAIN", "off"),
                                     (room_state, "bound", mock.AsyncMock(return_value=True)),
-                                    (room_state, "repo_of", mock.AsyncMock(return_value="your-name/hagency-hello"))):   # a project room
+                                    (room_state, "repo_of", mock.AsyncMock(return_value="your-name/hagency-hello")),
+                                    (room_state, "binding_of", mock.AsyncMock(return_value=("your-name/hagency-hello", None)))):   # a project room
             p = mock.patch.object(target, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -111,7 +112,7 @@ class Talk(unittest.TestCase):
 
     def test_stopping_an_unbound_room_doesnt_bind_it(self):
         """GPT review 9: a contributor's "off" wrote the repo binding."""
-        with mock.patch.object(room_state, "bound", mock.AsyncMock(return_value=False)):
+        with mock.patch.object(room_state, "binding_of", mock.AsyncMock(return_value=(None, False))):
             self.tell(BETTY, "@pm stop")
         self.assertEqual(self.levels, [])
 
