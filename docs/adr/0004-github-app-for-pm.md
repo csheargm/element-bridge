@@ -24,6 +24,7 @@ login. The public VM has none, and a personal token there would read every repo 
 ## Consequences
 - The App can't write, so agents keep their own GitHub identities for pushes, PRs and reviews.
 - `HAGENCY_REPOS` still limits which repos a room may choose. The App only decides what @pm *can*
-  read among them.
+  read among them. (Changed in batch 12–14, owner decision: `HAGENCY_REPOS` is now optional. Empty
+  means any repo that has the App and that the asker's connected account can write to.)
 - Deferred: the "write access to bind" check still uses the person's agent identity, which isn't
   on the server. It needs a verified Matrix user → GitHub login link: done in ADR 0007 (Connect GitHub).

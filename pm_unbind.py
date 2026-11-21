@@ -35,8 +35,8 @@ UNREPO_RE = re.compile(r"^\W*(please\W+)?(this room has no (github )?repo(sitory
 ASK = ("Remove this room's GitHub repo, **{repo}**? Mode goes to off and the agents' copy of it goes. Nothing on "
        "GitHub changes, and you can pick a repo again any time. Click ✅ below to remove it.")
 DONE = "This room has no GitHub repo now. Pick one any time in the Hagency panel."
-# The same words whether or not a repo choice was waiting for the GitHub App: a quiet wait must never
-# confirm that a repo exists (pm_settings.watch_install; GPT re-check, batch 12-14).
+# The same words whether or not a repo choice was waiting for the GitHub App (an install wait ends
+# quietly; GPT re-check, batch 12-14: the wait's repo is never named here).
 NO_REPO_HERE = "This room has no GitHub repo to remove, and no earlier choice will set one up now."
 PAST_KEPT = (" ⚠️ I couldn't mark this room as having held a private repo, so keep it private or listed (never "
              "open): its earlier messages stay readable to anyone who joins.")

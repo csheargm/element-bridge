@@ -82,7 +82,7 @@ services:
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-hagency-rooms}
       GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}   # Connect GitHub (device flow); public, not the secret
       GITHUB_APP_PRIVATE_KEY_PATH: /run/hagency-github/github-app.pem
-      HAGENCY_REPOS: ${HAGENCY_REPOS:-}   # the repos rooms may choose
+      HAGENCY_REPOS: ${HAGENCY_REPOS:-}   # optional: only these repos (empty: any with the App and write access)
     volumes:
       - ../../pm:/app                   # ~/hagency/pm: this commit's files (deploy.sh) and @pm's state
       - ./pm-secret:/run/hagency:ro     # root-owned on the host: @pm can read the secret, never replace it

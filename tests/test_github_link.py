@@ -14,6 +14,7 @@ import github_app
 import github_link
 import pm_github
 import pm_settings
+import repo_refusals
 import project_rooms
 import room_state
 from loop import Loop
@@ -255,18 +256,31 @@ class ConnectThenBind(BindCase):
         self.fake.installations[OTHER.lower()] = 8
         self.assertIn("now works on **octo/other**", asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)))
 
-    def test_no_write_access_is_refused_with_the_same_words(self):
+    def test_no_write_access_names_their_account_for_a_public_repo(self):
         github_link.save_link(ANNA, "anna-gh", ANNA_ID)
         self.fake.installations[OTHER.lower()] = 8
         self.fake.permissions[(OTHER, "anna-gh")] = "read"
-        self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.refusal(OTHER))
+        self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)),
+                         "Your GitHub account @anna-gh can't write to octo/other, so this room can't use it.")
+        self.assertEqual(self.written, [])
+
+    def test_no_write_access_to_a_private_repo_confirms_nothing(self):
+        """"The App is on it but you can't write" would tell anyone that a private repo of that name exists."""
+        github_link.save_link(ANNA, "anna-gh", ANNA_ID)
+        self.fake.installations[OTHER.lower()] = 8
+        self.fake.private.add(OTHER.lower())
+        self.fake.permissions[(OTHER, "anna-gh")] = "read"
+        answer = asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER))
+        self.assertEqual(answer, repo_refusals.SHARED.format(login="anna-gh", repo=OTHER))
+        self.assertNotIn("Install", answer)
         self.assertEqual(self.written, [])
 
     def test_app_not_installed_yet_waits_then_checks_access_and_binds(self):
         github_link.save_link(ANNA, "anna-gh", ANNA_ID)
 
         async def flow():
-            self.assertEqual(await self.lp.set_repo(self.room, ANNA, OTHER), pm_settings.refusal(OTHER))
+            self.assertEqual(await self.lp.set_repo(self.room, ANNA, OTHER), repo_refusals.install(OTHER))
+            self.assertIn("/installations/new", repo_refusals.install(OTHER))           # the one-click link
             _, task = self.lp.install_watches["!r"]
             self.fake.installations[OTHER.lower()] = 8                               # the owner clicks Install
             await asyncio.wait_for(task, 5)

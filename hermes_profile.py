@@ -139,7 +139,7 @@ def repo_env() -> dict:
     the YAML)."""
     shared_ok = {"HAGENCY_CUSTOM_SHARED_OK": "1"} if os.environ.get("HAGENCY_CUSTOM_SHARED_OK") == "1" else {}
     return {"LOOP_REPO": github.REPO,           # (and the operator's "Use it myself" opt-in, customize.py)
-            "HAGENCY_REPOS": " ".join(r for r in sorted(github.ALLOWED_REPOS) if github.REPO_RE.match(r)),
+            "HAGENCY_REPOS": " ".join(r for r in sorted(github.OPERATOR_REPOS) if github.REPO_RE.match(r)),   # none: any
             **shared_ok}
 
 

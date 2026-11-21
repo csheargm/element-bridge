@@ -19,16 +19,39 @@ REPO = os.environ.get("LOOP_REPO", "your-name/hagency-demo-sandbox")
 LABEL = "agent-ok"
 REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")   # owner/name
 LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")                        # a GitHub username
-# The repos this server may work on: rooms choose among these. Anyone here can create a room, and
-# @pm reads with the host's own `gh` login, so a free choice would make a room a window into any
-# repo that login can see (private ones too). The operator lists them: HAGENCY_REPOS="a/b c/d".
-ALLOWED_REPOS = frozenset({REPO, *os.environ.get("HAGENCY_REPOS", "").replace(",", " ").split()})
+# Which repos rooms may choose (owner decision, batch 12–14). With the GitHub App (the public server):
+# any repo, since a room still needs the App on it and the asker's own write access there
+# (pm_settings.choose_repo). The operator may restrict the choice with HAGENCY_REPOS="a/b c/d".
+# Without the App, @pm reads with the host's own `gh` login, so a free choice would make a room a
+# window into any repo that login can see: then only the listed repos (and LOOP_REPO).
+OPERATOR_REPOS = frozenset(os.environ.get("HAGENCY_REPOS", "").replace(",", " ").split())
+ALLOWED_REPOS = frozenset({REPO, *OPERATOR_REPOS})
+
+
+def any_repo() -> bool:
+    """No operator list, and the App reads GitHub: any repo may be chosen."""
+    import github_app                         # here: it imports this module
+    return not OPERATOR_REPOS and github_app.configured()
 
 
 def allowed_repo(name) -> str | None:
-    """The operator's spelling of `name` if this server may work on it (GitHub names ignore case)."""
+    """`name` if this server may work on it: the operator's spelling when listed (GitHub names ignore
+    case), else as given when any repo may be chosen (any_repo)."""
     if not isinstance(name, str) or not REPO_RE.match(name):
         return None
+    return _listed(name) or (name if any_repo() else None)
+
+
+def bound_repo(name) -> str | None:
+    """`name` as a room's binding names it (room_state.repo_in: only @pm's own state is read): the
+    operator's spelling when listed; unlisted only while there is no operator list, so a list set later
+    unbinds other repos, and an agent's process (no App settings of its own) reads what @pm chose."""
+    if not isinstance(name, str) or not REPO_RE.match(name):
+        return None
+    return _listed(name) or (None if OPERATOR_REPOS else name)
+
+
+def _listed(name: str) -> str | None:
     return next((r for r in sorted(ALLOWED_REPOS) if REPO_RE.match(r) and r.lower() == name.lower()), None)
 GH_BIN = os.environ.get("GH_BIN", "gh")          # tests point this at tests/fake_gh.py
 IDENTITY_ROOT = Path(os.environ.get("GH_IDENTITY_ROOT", ROOT / ".gh"))

@@ -18,6 +18,7 @@ import github_app
 import github_link
 import github_setup
 import registry
+import repo_refusals
 import room_state
 from loop_progress import ACTIVE
 from pm_projects import RUN_ELSEWHERE, Projects
@@ -45,16 +46,6 @@ NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderator
 
 NOT_CONNECTED = ("First connect your GitHub account, so I know it's yours: click **Connect GitHub** in the Hagency "
                  "panel, or say \"connect my github\" in our private chat. Then ask again.")
-
-
-def refusal(name: str) -> str:
-    if not github_app.configured():
-        return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
-                "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
-    return (f"I can't use {name} for this room. This server must list it (its operator sets HAGENCY_REPOS), the "
-            f"Hagency Rooms GitHub App must be on it (read-only; the repo's owner clicks Install: "
-            f"{github_app.install_url()}), and your connected GitHub account must be able to write there. If the "
-            "App is being installed now, I'll finish setting up this room once it's there.")
 
 
 async def may_write(user: str, repo: str) -> bool:
@@ -119,7 +110,7 @@ class Settings(Projects):
             log.warning("requester check before binding %s failed: %s", rid, e)
             return "I couldn't check this room just now; please try again in a minute."
         if github_app.configured() and github_link.link_of(sender) != proof:
-            return refusal(repo)
+            return repo_refusals.LINK_CHANGED
         return None
 
     async def choose_repo(self, room: MatrixRoom, sender: str, name: str, separate_from: str | None = None) -> str:
@@ -130,14 +121,16 @@ class Settings(Projects):
             return "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\"."
         if github_app.configured() and github_link.link_of(sender) is None:
             return NOT_CONNECTED                  # before the repo is looked at: says nothing about it
+        if repo is None:                          # only when the operator lists repos (github.allowed_repo)
+            return repo_refusals.not_listed(name)
         proof = dict(github_link.link_of(sender) or {}) or None   # what the write check reads (ADR 0007)
         try:
-            allowed = repo is not None and await may_write(sender, repo)
+            allowed = await may_write(sender, repo)
         except github_app.NotInstalled:           # access is read as the App: not until it's there
-            self.watch_install(room, sender, repo, quiet=True)
-            allowed = False
-        if not allowed:                           # one answer for each: never confirms a name
-            return refusal(name)
+            self.watch_install(room, sender, repo)
+            return repo_refusals.install(repo)    # the one missing step (repo_refusals.py: confirms nothing)
+        if not allowed:
+            return await repo_refusals.cant_write(sender, repo)
         missing = await self.app_missing(room, sender, repo)
         if missing:
             return missing
@@ -158,20 +151,16 @@ class Settings(Projects):
         except github.GitHubError as e:          # its text never carries the key or a token
             return f"I can't check {repo} on GitHub right now ({str(e)[:160]}); please try again in a minute."
         self.watch_install(room, sender, repo)
-        minutes = INSTALL_RECHECK_S * INSTALL_RECHECKS // 60
-        return (f"One step first: install the Hagency Rooms GitHub App on {repo} (read-only; the repo's owner or "
-                f"an org admin clicks Install): {github_app.install_url()}\nI'll look again every "
-                f"{INSTALL_RECHECK_S} seconds for {minutes} minutes and finish setting up this room once it's there.")
+        return repo_refusals.install(repo)
 
-    def watch_install(self, room: MatrixRoom, sender: str, repo: str, quiet: bool = False) -> None:
-        """quiet: their access isn't known yet (it's read as the App), so the wait says nothing unless
-        it can bind: a reply only for listed repos would confirm the name (GPT review, Connect GitHub)."""
+    def watch_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
+        """Look for the App on `repo` for a while, then choose it again for them (await_install)."""
         watch = self.install_watches.get(room.room_id)
         if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
             self.stop_install_watch(room.room_id)
-            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo, quiet)))
+            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
 
-    async def await_install(self, room: MatrixRoom, sender: str, repo: str, quiet: bool = False) -> None:
+    async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
         """After an install link: once the App is on `repo`, ask again for the person (every check
         re-runs: moderator, allowed repo, write access). The wait stays registered until it ends, so
         a newer choice in the room cancels it even during that last bind (GPT review, GitHub App)."""
@@ -184,23 +173,13 @@ class Settings(Projects):
                 except github.GitHubError as e:  # GitHub unreachable for a moment: the next look may work
                     log.warning("install re-check for %s: %s", repo, str(e)[:160])
             else:
-                if quiet:
-                    return
                 await self.say(room.room_id, f"I still don't see the Hagency Rooms app on {repo}. Once it's "
                                              f"installed, say \"@pm this room works on {repo}\" again.")
                 return
-            if quiet and not await self.may_bind_quietly(sender, repo):
-                return
-            await self.set_repo(room, sender, repo)
+            await self.set_repo(room, sender, repo)   # every check again; says the answer either way
         finally:
             if self.install_watches.get(room.room_id, ("", None))[1] is asyncio.current_task():
                 del self.install_watches[room.room_id]     # (a newer wait may have replaced this one)
-
-    async def may_bind_quietly(self, sender: str, repo: str) -> bool:
-        try:
-            return await may_write(sender, repo)
-        except github_app.NotInstalled:   # gone again already: stay quiet, they can ask again
-            return False
 
     def stop_install_watch(self, rid: str) -> None:
         watch = self.install_watches.get(rid)

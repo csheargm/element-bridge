@@ -14,6 +14,7 @@ import github_link
 import panel
 import pm_github
 import pm_settings
+import repo_refusals
 import room_state
 from tests.test_github_app import OTHER, REPO
 from tests.test_github_app_flows import PM
@@ -175,9 +176,9 @@ class ReviewFixes(LinkCase):
         self.assertEqual(asyncio.run(github_app.permission(REPO, "anna-gh", ANNA_ID)), "write")
 
 
-class QuietInstallWait(BindCase):
-    """Access isn't known until the App is on the repo: the wait says nothing unless it can bind,
-    so a reply never tells a person without access that a repo is listed here."""
+class InstallWait(BindCase):
+    """The App isn't on the repo: @pm says so with the install link and waits; once it is there,
+    every check runs again and @pm says the answer (owner decision, batch 12–14: name the one step)."""
 
     def setUp(self):
         super().setUp()
@@ -186,17 +187,18 @@ class QuietInstallWait(BindCase):
 
     def wait(self):
         async def flow():
-            self.assertEqual(await self.lp.set_repo(self.room, ANNA, OTHER), pm_settings.refusal(OTHER))
+            self.assertEqual(await self.lp.set_repo(self.room, ANNA, OTHER), repo_refusals.install(OTHER))
             return self.lp.install_watches["!r"][1]
         return flow
 
-    def test_installed_but_no_access_says_nothing_more(self):
+    def test_installed_but_no_access_then_says_why(self):
         async def flow():
             task = await self.wait()()
             self.fake.installations[OTHER.lower()] = 8
             await asyncio.wait_for(task, 5)
         asyncio.run(flow())
-        self.assertEqual(self.said, [pm_settings.refusal(OTHER)])
+        self.assertEqual(self.said, [repo_refusals.install(OTHER),
+                                     "Your GitHub account @anna-gh can't write to octo/other, so this room can't use it."])
         self.assertEqual(self.written, [])
 
     def test_a_disconnect_while_binding_refuses(self):
@@ -209,15 +211,17 @@ class QuietInstallWait(BindCase):
             github_link.unlink(ANNA)                                                # Disconnect GitHub
             return await real(*a, **k)
         with mock.patch.object(self.lp, "primary_room_for", meanwhile, create=True):
-            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.refusal(OTHER))
+            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), repo_refusals.LINK_CHANGED)
         self.assertEqual(self.written, [])
 
-    def test_never_installed_says_nothing_more(self):
+    def test_never_installed_says_so_at_the_end(self):
         async def flow():
             await asyncio.wait_for(await self.wait()(), 5)
         with mock.patch.object(pm_settings, "INSTALL_RECHECKS", 2):
             asyncio.run(flow())
-        self.assertEqual(self.said, [pm_settings.refusal(OTHER)])
+        self.assertEqual(self.said[0], repo_refusals.install(OTHER))
+        self.assertIn("I still don't see the Hagency Rooms app on octo/other", self.said[-1])
+        self.assertEqual(self.written, [])
 
 
 class BindRaceCase(BindCase):
@@ -249,7 +253,7 @@ class BindRace(BindRaceCase):
 
     def test_disconnect_during_the_privacy_check_binds_nothing(self):
         with self.during_privacy_check(lambda: github_link.unlink(ANNA)):
-            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), pm_settings.refusal(OTHER))
+            self.assertEqual(asyncio.run(self.lp.set_repo(self.room, ANNA, OTHER)), repo_refusals.LINK_CHANGED)
         self.assertEqual(self.written, [])
 
     def test_demoted_during_the_privacy_check_binds_nothing(self):

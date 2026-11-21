@@ -270,11 +270,15 @@ room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A p
 repos is a **Matrix Space** with one room per repo. Create the Space in Element (＋ → Create a
 space) and add the rooms to it. Each room keeps its own board, mode and agents.
 
-**Which repos.** Rooms choose from the repos this server allows: `LOOP_REPO` plus any in
-`HAGENCY_REPOS="owner/a owner/b"`. Set both in `local.env` (copy `local.env.example`; git-ignored),
-which `start.sh` loads; the code's own default is only a placeholder. Anyone here can
-create a room, and @pm reads with the host's own `gh` login. A free choice would let any room
-see any repo that login can read, private ones included. The demo room starts on `LOOP_REPO`.
+**Which repos.** On a server with the Hagency Rooms GitHub App (docs/GITHUB_APP.md), a room's owner
+or a maintainer may choose **any repo** that has the App installed and that their connected GitHub
+account can write to. An operator may restrict this with `HAGENCY_REPOS` (empty: any repo). When a
+room can't use a repo, @pm names the one missing step: the App's install link, the account that
+can't write, or the server's list. **Locally, without the App**, rooms choose only from `LOOP_REPO`
+plus any in `HAGENCY_REPOS="owner/a owner/b"`. Set both in `local.env` (copy `local.env.example`;
+git-ignored), which `start.sh` loads; the code's own default is only a placeholder. There @pm reads
+with the host's own `gh` login, so a free choice would let any room see any repo that login can read,
+private ones included. The demo room starts on `LOOP_REPO`.
 
 A step in the loop looks like this:
 

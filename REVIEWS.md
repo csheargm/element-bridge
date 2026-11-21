@@ -1334,3 +1334,24 @@ GPT re-check of these fixes (one blocking, two medium, four low). Adopted, with 
 
 Not adopted: **"pm-connect" or "@pm:server" prefixes** in the private chat. The same ADDRESS_RE
 already reads room messages this way, and Element sends a mention as the display name.
+
+### Owner decision in batch 12–14: any repo the asker can write to
+- **What changed:** `HAGENCY_REPOS` is optional. Empty means any repo that has the Hagency Rooms App
+  and that the asker's connected GitHub account can write to (github.any_repo / allowed_repo). When
+  set, it still restricts.
+- **Without the App** (local dev, the host's own `gh` login), only `LOOP_REPO` and the list count,
+  as before. A free choice there would expose whatever that login can read.
+- **Reading a room's binding** (room_state.repo_in, also in agents' processes, which have no App
+  settings) accepts any owner/name @pm wrote while no list is set. Hermes profiles get only the
+  operator's list.
+- **The refusal names the one missing step** (repo_refusals.py):
+  - the install link when the App isn't on the repo;
+  - "Your GitHub account @login can't write to owner/name";
+  - "This server only allows certain repos" when a list is set.
+- **Kept shared, and why:** for a *private* repo with the App installed but no write access (or when
+  GitHub can't say), the words don't say "can't write". That answer, different from the install
+  step, would confirm to anyone in any room that a private repo of that name exists and has our App.
+  The install step itself confirms nothing: GitHub answers "not installed" alike for a missing repo
+  and a private one without the App.
+- **Install waits** are no longer quiet. The person was told the step, so once the App is there, @pm
+  re-runs every check and says the answer. The quiet-wait code is gone (R1).

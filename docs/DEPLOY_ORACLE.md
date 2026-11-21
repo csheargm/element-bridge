@@ -146,7 +146,8 @@ People from other Matrix servers (e.g. matrix.org) get an agent too, by opening 
 ## Next (separate steps)
 
 - **The house agent** (🏠): run by the server with its own model key and a daily budget.
-- **@pm's GitHub:** the read-only "Hagency Rooms" GitHub App and `HAGENCY_REPOS` (docs/GITHUB_APP.md);
+- **@pm's GitHub:** the read-only "Hagency Rooms" GitHub App, and optionally `HAGENCY_REPOS` to allow
+  only certain repos (empty: any repo with the App and the asker's write access; docs/GITHUB_APP.md);
   the owner registers the App and puts its key in `deploy/secrets/`.
 - **Backups:** a nightly Postgres dump and `synapse/` media, within the free Object Storage.
 - **The apex:** once `hagencylabs.xyz` can serve `/.well-known/matrix/server`, new servers can use
