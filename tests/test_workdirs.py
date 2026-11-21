@@ -15,7 +15,8 @@ ROOM = "!gkon9:bridge.localhost"
 CODEX_ID, CLAUDE_ID = "0123abcd-codex", "4567efab-claude"
 
 
-class Folders(unittest.TestCase):
+class FolderSetup(unittest.TestCase):
+    """A temporary app and work home; no tests of its own, so subclasses don't run each other's twice."""
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.app = self.tmp / "app"
@@ -32,6 +33,8 @@ class Folders(unittest.TestCase):
             (old / workdirs.SESSION_FILE).write_text(json.dumps(state))
         return old
 
+
+class Folders(FolderSetup):
     def test_new_folder_is_outside_the_app(self):
         d = workdirs.room_dir("anna", ROOM, legacy_root=self.app)
         self.assertEqual(d, workdirs.WORK_HOME / "anna" / workdirs.room_key(ROOM))
@@ -95,7 +98,7 @@ class Folders(unittest.TestCase):
         self.assertFalse(new.exists())
 
 
-class MigrationEdges(Folders):
+class MigrationEdges(FolderSetup):
     """GPT review: symlinks, non-cross-disk errors, session subfolders, odd state, relative roots."""
     def test_a_symlinked_old_folder_is_never_adopted(self):
         target = self.tmp / "elsewhere"

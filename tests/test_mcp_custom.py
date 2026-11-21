@@ -5,7 +5,6 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("HAGENCY_AGENT", "anna-hermes-agent")

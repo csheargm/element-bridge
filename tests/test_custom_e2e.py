@@ -12,7 +12,7 @@ from pathlib import Path
 
 import customize
 import registry
-from setup_accounts import HS, SERVER_NAME, load_env, login
+from setup_accounts import SERVER_NAME, load_env, login
 from tests.test_e2e import api, check, send
 
 OWNER = os.environ.get("CUSTOM_OWNER", "betty")

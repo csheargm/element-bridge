@@ -1,5 +1,4 @@
 """Unit tests: onboarding pieces. Run: .venv/bin/python -m unittest tests.test_onboard"""
-import json
 import tempfile
 import unittest
 from pathlib import Path

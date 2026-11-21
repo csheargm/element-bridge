@@ -220,7 +220,8 @@ class RoomPerRepo(Base):
         self.assertEqual(run(self.lp.primary_room_for(REPO.upper())), "!a")
 
 
-class Visibility(Base):
+class VisibilitySetup(Base):
+    """Room !a, anna moderating, a public repo; no tests of its own, so Panel doesn't run Visibility's twice."""
     def setUp(self):
         super().setUp()
         self.room = project("!a", "Alpha")
@@ -230,6 +231,8 @@ class Visibility(Base):
         self.private.start()
         self.addCleanup(self.private.stop)
 
+
+class Visibility(VisibilitySetup):
     def test_each_visibility_sets_its_join_rule_and_directory_entry(self):
         for value, rule, listed in (("listed", "knock", "public"), ("open", "public", "public"), ("private", "invite", "private")):
             answer = run(self.lp.set_visibility(self.room, ANNA, value))
@@ -363,7 +366,7 @@ class MakeAndFind(Base):
             self.assertEqual(self.lp.agent_note(ANNA), note)                               # GPT review: their setting
 
 
-class Panel(Visibility):
+class Panel(VisibilitySetup):
     def test_the_panel_switch_goes_through_the_same_checks_and_says_it_in_the_room(self):
         import console
         self.lp.is_person = lambda room, user: True

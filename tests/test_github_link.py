@@ -188,7 +188,7 @@ class Connect(LinkCase):
         self.assertEqual(self.fake.requests, [])
 
     def test_the_console_state_carries_the_card(self):
-        self.lp.pending, self.lp.grants_cache = {}, {}
+        self.lp.pending = {}
         self.lp.level, self.lp.agent_online = (lambda rid: asyncio.sleep(0, "off")), (lambda agent: None)
         with mock.patch.object(room_state, "is_moderator", lambda c, r, u: asyncio.sleep(0, True)), \
                 mock.patch.object(room_state, "repo_of", lambda c, rid: asyncio.sleep(0, None)), \
