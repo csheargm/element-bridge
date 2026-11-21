@@ -57,12 +57,14 @@ def unwrap(shim: Path) -> list[str]:
     target = shim.parent.joinpath(*parts)
     if not target.is_file() or not target.resolve().is_relative_to(shim.parent.resolve()):   # links: no escape
         raise FileNotFoundError(f"{shim.name} starts {target}, which isn't there; reinstall the CLI")
+    target = target.resolve()               # the path that was checked, absolute: a relative PATH entry would
+                                            # else be read from the turn's cwd, the checkout (GPT review, batch 5+6)
     if target.suffix.lower() == ".exe":
         return [str(target)]
     if target.suffix.lower() not in SCRIPTS:
         raise FileNotFoundError(f"{shim.name} starts {target.name}, which I can't start without a shell")
     local = shim.parent / "node.exe"        # what the wrapper itself prefers
-    node = str(local) if local.is_file() else shutil.which("node")
+    node = str(local.resolve()) if local.is_file() else shutil.which("node")
     if node is None or Path(node).suffix.lower() != ".exe":   # PATHEXT may find a node.cmd: that needs a shell
         raise FileNotFoundError(f"{shim.name} needs Node.js (node.exe), which isn't on PATH")
     return [node, str(target)]

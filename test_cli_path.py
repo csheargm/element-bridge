@@ -1,6 +1,7 @@
 """Unit tests: starting an agent CLI without a shell on Windows (cli_path.py), with the platform
 mocked. Run: .venv/bin/python -m unittest test_cli_path"""
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,15 +64,29 @@ class Windows(unittest.TestCase):
 
     def test_an_npm_node_wrapper_starts_node_with_its_script(self):
         script = self.npm.dir / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-        self.assertEqual(cli_path.command("codex"), [r"C:\Program Files\nodejs\node.EXE", str(script)])
+        self.assertEqual(cli_path.command("codex"), [r"C:\Program Files\nodejs\node.EXE", str(script.resolve())])
+
+    def test_a_relative_path_entry_still_gives_the_absolute_checked_script(self):
+        """GPT review (batch 5+6): which() through a relative PATH entry gave a relative script, which
+        node then read from the turn's cwd (the checkout): not found, or a checkout file run instead."""
+        script = (self.npm.dir / "node_modules" / "@openai" / "codex" / "bin" / "codex.js").resolve()
+        here = os.getcwd()
+        os.chdir(self.npm.dir.parent)
+        self.addCleanup(os.chdir, here)
+        relative = lambda n: os.path.join(self.npm.dir.name, f"{n}.cmd") if n != "node" else self.npm.which(n)
+        with mock.patch.object(cli_path.shutil, "which", relative):
+            node, found = cli_path.command("codex")
+            exe = cli_path.command("claude")[0]
+        self.assertEqual(found, str(script))
+        self.assertTrue(Path(exe).is_absolute(), exe)
 
     def test_the_wrappers_own_node_wins(self):
         (self.npm.dir / "node.exe").write_text("")
-        self.assertEqual(cli_path.command("codex")[0], str(self.npm.dir / "node.exe"))
+        self.assertEqual(cli_path.command("codex")[0], str((self.npm.dir / "node.exe").resolve()))
 
     def test_an_npm_wrapper_for_a_program_starts_that_program(self):
         exe = self.npm.dir / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-        self.assertEqual(cli_path.command("claude"), [str(exe)])
+        self.assertEqual(cli_path.command("claude"), [str(exe.resolve())])
 
     def test_a_real_program_or_nothing_is_left_as_it_is(self):
         with mock.patch.object(cli_path.shutil, "which", lambda n: r"C:\Users\a\.local\bin\claude.exe"):
