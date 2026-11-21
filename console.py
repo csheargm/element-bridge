@@ -22,6 +22,7 @@ import urllib.request
 
 from aiohttp import web
 
+import agent_kinds
 import console_repo
 import customize
 import github
@@ -120,7 +121,7 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
         if registry.owns(user, a["localpart"]):
             aid = f"@{a['localpart']}:{SERVER_NAME}"
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
-                          "display": a.get("display") or "",                    # pm_rename.py
+                          "display": a.get("display") or "", "runs": agent_kinds.describe(a),   # pm_rename, agent_kinds
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
                           "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
                           "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
@@ -145,7 +146,7 @@ async def view(loop, room_id: str, user: str) -> dict:
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
     mine = my_agents(loop, room, room_id, user)
-    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.KINDS, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
@@ -191,7 +192,10 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
         return "ok" if done is not False else "that isn't one of your agents"
     if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
         dm = await loop.private_room(user)
-        return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"
+        name, picked = agent_kinds.from_panel(value)     # the picker: the AI it runs (agent_kinds.py)
+        if isinstance(picked, str):
+            return picked
+        return await loop.start_add(dm, user, name or None, picked) if dm else "I couldn't open a private chat with you"
     if action == "github":                # pm_github.py: Connect / Disconnect GitHub, for themselves only
         return await loop.github_action(user, value)
     if action in console_repo.ACTIONS:    # the room's repo: choose, remove, check readiness

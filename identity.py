@@ -18,7 +18,8 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9]{1,23}$")   # a person here whose agent is 
 AGENT_SUFFIX = "-agent"
 USER_RE = re.compile(r"^@[^:\s]{1,255}:[A-Za-z0-9.-]{1,255}(:\d{1,5})?$")   # a full Matrix user ID
 PREFIX_LOCAL, PREFIX_SERVER, HASH_CHARS = 20, 30, 10
-LABEL_RE = re.compile(r"^[a-z][a-z0-9]{0,8}$")   # a further agent's label: never as long as the hash
+LABEL_MAX = 9
+LABEL_RE = re.compile(r"^[a-z][a-z0-9]{0,8}$")   # a further agent's label (LABEL_MAX): never as long as the hash
 
 
 def person_id(who: str, home: str) -> str:

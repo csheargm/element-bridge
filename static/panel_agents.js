@@ -45,8 +45,9 @@ function renameRow(a) {
     value="${esc(a.display || "")}"><button data-a="rename" data-v="" data-g="${esc(a.name)}">Rename</button></div></li>`;
 }
 function agentRow(a, version, several) {
-  const shown = a.display ? `<b>${esc(a.display)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`;
-  const title = several ? `<b>${esc(a.label)}</b> <span class="muted">·</span> ${shown}` : shown;
+  const called = a.display || (several ? a.label : "");     // the name its person gave it, then its account
+  const title = (called ? `<b>${esc(called)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`)
+    + (a.runs ? ` <span class="chip">${esc(a.runs)}</span>` : "");   // the AI it runs (agent_kinds.describe)
   const where = a.here ? ' <span class="chip">in this room</span>'
     : a.invited ? ' <span class="chip">invited to this room</span>' : "";
   return `<li><div>${title}${where}${agentHint(a)}</div>
@@ -58,7 +59,22 @@ function agentRow(a, version, several) {
 function agentCards(s) {
   if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
   const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
-    <button data-a="add" data-v="">Add an agent</button></div><div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}.</div></div>` : "";
+    ${kindPicker(s.kinds)}<button data-a="add" data-v="">Add an agent</button></div>
+    <div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}. A remote model's API key is asked
+    for on your computer when it connects, never here.</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
     <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
+}
+// The AI a new agent runs: s.kinds is agent_kinds.KINDS (the one list); "" = the one its computer finds,
+// as before. Ollama: the model is picked on that computer (or named here); remote: base URL and model here.
+function kindPicker(kinds) {
+  const all = [["", "AI: the one on my computer"], ...Object.entries(kinds || {})];
+  return `<select id="newkind">${all.map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join("")}</select>
+    <input id="newmodel" maxlength="100" placeholder="model (Ollama: optional)">
+    <input id="newbase" maxlength="200" placeholder="base URL (remote only), https://…">`;
+}
+function addValue() {                    // panel.html's Add an agent click: what goes to console.act
+  const v = id => (document.getElementById(id) || {value: ""}).value.trim();
+  const name = v("newagent"), kind = v("newkind");
+  return kind ? JSON.stringify({name, agent_kind: kind, model: v("newmodel"), base_url: v("newbase")}) : name;
 }

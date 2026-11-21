@@ -18,6 +18,7 @@ import urllib.parse
 from aiohttp import web
 
 import console
+import agent_kinds
 import identity
 import local_signup
 import pairing
@@ -110,7 +111,7 @@ def _provision(person: str) -> str:
     return agent
 
 
-def provision_more(person: str, label: str) -> str:
+def provision_more(person: str, label: str, picked: dict | None = None) -> str:
     """A further agent of `person`, called `label` (registry.clean_label), as a remote agent; returns
     its localpart. Counted against their cap (and, from another server, the hourly cap) BEFORE its
     account exists. Raises AccountError with a sentence for them. Blocking I/O."""
@@ -123,7 +124,7 @@ def provision_more(person: str, label: str) -> str:
             if registry.local_name(person) is None:
                 remote_people.check_new(registry.from_elsewhere(registry.load()), person, further=True)
             try:
-                found = registry.add_agent(person, label)
+                found = registry.add_agent(person, label, picked=picked)   # agent_kinds.py: the AI it runs
             except ValueError as e:
                 raise AccountError(str(e)) from e
         agent = found["localpart"]
@@ -201,7 +202,8 @@ def credentials_for(person: str, agent: str | None = None, issued: float | None 
         return None
     owner = registry.local_name(person) or person   # a bare name here: what an older connect.py accepts
     return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner,
-            **({"label": label} if label else {})}
+            **({"label": label} if label else {}),
+            **{k: found[k] for k in agent_kinds.FIELDS if found.get(k)}}   # the AI it runs (none: connect.py picks)
 
 
 def routes() -> list:

@@ -146,7 +146,7 @@ function buttons(name, values, current, enabled) {
   return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
     ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
-  if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
+  if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? (typeof addValue === "function" ? addValue() : $("newagent").value.trim())
     : b.dataset.a === "rename" ? $("rename-" + b.dataset.g).value.trim() : b.dataset.v, b.dataset.g); });
 let polling = false;                        // one view request at a time (GPT review: a late 401 of an old session)
 async function refresh() {
@@ -168,7 +168,8 @@ async function show() {
   if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
   const typing = document.activeElement && document.activeElement.id;
   const sameCode = typing === "ghcode" && s.github && s.github.code === $("ghcode").value;   // a code gone: redrawn
-  if (typing && (["repo", "newagent"].includes(typing) || sameCode || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
+  const fields = ["repo", "newagent", "newkind", "newmodel", "newbase"];
+  if (typing && (fields.includes(typing) || sameCode || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
