@@ -132,8 +132,10 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
 
 
 def can_add(user: str, mine: list) -> bool:
-    """"Add an agent" shows: they have one, or removed their last (a new name then), and room for more."""
-    return (bool(mine) or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
+    """"Add an agent" shows: one of theirs has connected (as ➕ in @pm's chat: pm_agents.send_code), or they
+    removed their last (a new name then), and there's room for more."""
+    working = any(a["connected"] or not a["remote"] for a in mine)
+    return (working or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
 
 
 async def view(loop, room_id: str, user: str) -> dict:

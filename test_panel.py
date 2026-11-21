@@ -43,6 +43,8 @@ class Render(unittest.TestCase):
         page = panel.render(self.loop, "!r")
         self.assertIn("anna's agent <span class=chip>invited — not connected yet</span>", page)
         self.assertEqual(page.count("not connected yet"), 1)              # betty-agent has joined
+        self.loop.agent_online = lambda agent: agent == "anna-agent"       # GPT review: online, its join pending
+        self.assertIn("anna's agent <span class=chip>invited — joining</span>", panel.render(self.loop, "!r"))
 
     def test_owner_names_are_shown_as_written(self):
         """Seen live: the owner "cx" showed as "Cx". A display name is used as set, escaped."""

@@ -63,7 +63,7 @@ class MyAgents(unittest.TestCase):
         card = self.card([NEVER])
         self.assertIn("newbie1-agent", card)
         self.assertNotIn("main", card)                                 # a label only matters with several
-        self.assertIn("Not connected yet: open your chat with Product Manager and follow the 🔌 steps.", card)
+        self.assertIn("Not connected yet: open your chat with Product Manager and follow the 🔌 steps", card)
         self.assertNotIn("Run the connect line again", card)
         self.assertNotIn("Code it runs", card)                         # nothing customized: nothing to say
         self.assertNotIn("official version", card)
@@ -80,6 +80,8 @@ class MyAgents(unittest.TestCase):
         self.assertIn("main · newbie1-agent", card)
         self.assertIn("codex · newbie1-codex-agent", card)
         self.assertIn("Code it runs: your own version (abc1234)", card)
+        self.assertIn('type "resend me the code" there for a fresh one', card)              # its first agent
+        self.assertIn('for a fresh code, type "add another agent called codex" there', card)   # GPT review
         self.assertIn("Go back to official", card)
 
 

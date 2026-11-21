@@ -963,3 +963,34 @@ Rejected, with reasons:
   Matrix or get a console session, so it can't start one; one in flight is cancelled by the prune.
 - **send_code issuing a code after a NotForgotten removal.** The account is closed, so the sign-in it
   would give can't log in; the record goes on the retry.
+
+## GPT review of fix/home-wording (new-user screen test fixes, R15)
+
+Codex CLI on `origin/master..HEAD` (the room-directory rule, the house-agent offer, ➕ only after a
+connection, "invited" vs "came along", Who can join, My agents, the GitHub code once, Element's
+widget pre-approval, and Element's E2EE well-known default). One blocking point, five should-fix.
+Adopted, verified in the code, with tests:
+- **Blocking. `io.element.e2ee` default false is homeserver-wide.** It would also start person-to-person
+  DMs unencrypted, not just hide Element's notice in @pm's chat. Dropped: no Element setting hides the
+  notice for one room only (NewRoomIntro shows it when privateShouldBeEncrypted() and the room is
+  private and unencrypted; @pm's chat must stay both). The notice stays; reported to the owner.
+- **GitHub code: a second ask while the first send is in flight posted the code twice.** The check
+  and the send run under one lock per sign-in. test_github_code_once (also: a failed first send
+  gets the code next time).
+- **The panel's "Add an agent" showed before any agent connected, unlike the chat's ➕.** can_add
+  now needs a connected (or server-run) agent, or a removed last one. test_console
+  (test_add_an_agent_waits_until_the_first_one_connected); README says when each appears.
+- **An online agent whose join is pending read "invited — not connected yet".** It reads "invited —
+  joining". test_panel (test_an_agent_only_invited_is_marked_so).
+- **A never-connected named agent was sent to 🔌, which only sets up the first one.** Its hint says to
+  type "add another agent called <label>" (start_add resends that agent's code); the first agent's
+  says "resend me the code" (a code lasts 30 minutes). test_panel_cards.MyAgents.
+Rejected, with reasons:
+- **"came along" before the agent's join is confirmed.** The task kept that text for a connected
+  agent: an online bridge joins on invite within seconds; presence is at most CHECK_S (60 s) old.
+- **Post ➕ when the first connection is observed.** A new message nobody asked for; "add another
+  agent" works any time, and the next Connect message and the panel offer it.
+- **Pre-approval also applies where another room's moderator adds the same panel URL.** That is the
+  intent: it is our panel either way, it gets no capabilities, and the console checks room
+  membership on every request. A browser check of the deployed Element is left for the deploy (no
+  VM access in this session).

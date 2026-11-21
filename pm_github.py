@@ -84,11 +84,12 @@ class GitHubLink:
         text = CODE.format(url=flow["url"], code=flow["user_code"], minutes=minutes)
         if not (fresh or resend):
             return text, True, None
-        posted = flow.get("told")             # the chat this code is already in (tell_github)
-        if not fresh and posted and posted == await self.private_room(person):   # never the same code twice there
-            still = STILL.format(minutes=minutes, s="" if minutes == 1 else "s", url=flow["url"])
-            return text, True, await self.tell_github(person, still, flow)
-        return text, True, await self.tell_github(person, text, flow)
+        async with flow.setdefault("sending", asyncio.Lock()):   # GPT review: a second ask while the first is sending
+            posted = flow.get("told")         # the chat this code is already in (tell_github)
+            if not fresh and posted and posted == await self.private_room(person):   # never the same code twice there
+                still = STILL.format(minutes=minutes, s="" if minutes == 1 else "s", url=flow["url"])
+                return text, True, await self.tell_github(person, still, flow)
+            return text, True, await self.tell_github(person, text, flow)
 
     async def new_github_flow(self, person: str) -> dict | str:
         """A new device code for `person` and its background wait; or why not (a str to tell them)."""

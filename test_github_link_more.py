@@ -9,7 +9,6 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-import console
 import github_app
 import github_link
 import panel
@@ -126,20 +125,6 @@ class ReviewFixes(LinkCase):
             await github_link.FLOWS[ANNA]["task"]
         asyncio.run(flow())
         self.assertEqual(sum("ABCD-1000" in body for _, body in self.said), 1)
-
-    def test_panel_click_then_asking_in_chat_posts_the_code_once(self):
-        """Screen test: Connect GitHub in the panel, then "connect my github" in @pm's chat while that
-        sign-in was pending: the same code message twice. The second time: the code above still works."""
-        self.fake.approve("anna-gh", ANNA_ID, answers=["authorization_pending"] * 3)
-
-        async def flow():
-            await console.act(self.lp, "!r", ANNA, "github", "connect")
-            self.assertTrue(await self.lp.on_github_text(self.dm, message(ANNA, "connect my github")))
-            await github_link.FLOWS[ANNA]["task"]
-        asyncio.run(flow())
-        dm = self.in_room("!dm")
-        self.assertEqual(sum("ABCD-1000" in body for body in dm), 1)
-        self.assertRegex(dm[1], r"^The GitHub code I sent above still works for 1[45] more minutes: enter it at https://")
 
     def test_githubs_own_error_text_never_reaches_anyone(self):
         self.fake.approve("anna-gh", ANNA_ID, answers=["ghu_LeakedTokenShape123"])

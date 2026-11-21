@@ -186,6 +186,13 @@ class Actions(unittest.TestCase):
         self.assertEqual((v["user"], v["moderator"], v["agent"], v["follow"]),
                          ("betty", False, "betty-agent", "always"))
 
+    def test_add_an_agent_waits_until_the_first_one_connected(self):
+        """GPT review: the chat offers ➕ only once an agent has connected; the panel must agree."""
+        registry.PATH.write_text(json.dumps({"betty": {"agent": "remote"}}))
+        never = [{"name": "betty-agent", "remote": True, "connected": False}]
+        self.assertFalse(console.can_add("betty", never))
+        self.assertTrue(console.can_add("betty", [{**never[0], "connected": True}]))
+
     def test_someone_from_another_server_sees_their_own_agent_never_a_namesakes(self):
         """GPT review 23: people from other servers sign in with a link and see their own agent."""
         alice, namesake = "@alice:matrix.org", "@betty:elsewhere.example"

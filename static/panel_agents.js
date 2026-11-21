@@ -31,8 +31,10 @@ function confirmed(b) {                // panel.py's click handler: false = this
 // line again" for one that never connected, and "the official version" nobody had changed.
 function agentHint(a) {
   if (!a.remote || a.online === true) return "";
-  return `<div class="hint">${a.connected ? "Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁)."
-    : "Not connected yet: open your chat with Product Manager and follow the 🔌 steps."}</div>`;
+  if (a.connected) return '<div class="hint">Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁).</div>';
+  // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
+  const fresh = a.first ? 'type "resend me the code" there for a fresh one' : `for a fresh code, type "add another agent called ${esc(a.label)}" there`;
+  return `<div class="hint">Not connected yet: open your chat with Product Manager and follow the 🔌 steps (${fresh}).</div>`;
 }
 function agentRow(a, version, several) {
   const title = several ? `<b>${esc(a.label)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`;
