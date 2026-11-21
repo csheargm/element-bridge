@@ -5,9 +5,7 @@ Usage: python bridge.py anna [--agent codex|claude]     (or a full ID: @alice:ma
 """
 import argparse
 import asyncio
-import hashlib
 import logging
-import re
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -19,14 +17,14 @@ from nio import (AsyncClient, InviteMemberEvent, LoginResponse, MatrixRoom, Mego
 import agents
 from bridge_custom import BridgeCustom
 from bridge_voice import BridgeVoice
-import capabilities
 import github
 import identity
 import lifecycle
 import room_context
-from redact import room_safe
+from redact import room_safe, secret_safe
 import room_state
 import tasks
+import workdirs
 
 from bridge_config import HOMESERVER, ROOT, SERVER_NAME, agent_handle, agent_password, read_env  # noqa: F401 (loop.py reads read_env)
 TYPING_REFRESH_S = 20       # re-send typing before the 30s server timeout lapses
@@ -183,11 +181,6 @@ class Bridge(BridgeVoice, BridgeCustom):
             repo = None
         has_files = bool(repo) and await room_context.refresh_project(
             f"{self.owner}-agent", repo, workdir / "projects" / room_context.repo_dir(repo))
-        try:
-            web = "web" in await asyncio.to_thread(capabilities.granted, self.client.access_token,
-                                                   room.room_id, self.user_id)
-        except OSError:
-            web = False                       # can't read the grants: no extra tools
         prompt = (f"You are {self.owner_name}'s personal AI agent ({self.user_id}) in the Matrix chat room "
                   f"\"{room.display_name}\". Reply in chat style, concisely, as plain markdown.\n\n"
                   + room_context.describe(snap)
@@ -196,14 +189,16 @@ class Bridge(BridgeVoice, BridgeCustom):
                   + f"\nMessage addressed to you:\n{line}\n")
         typing = asyncio.create_task(self.keep_typing(room.room_id))
         try:
-            reply = await agents.run_turn(self.backend, workdir, prompt, web=web)
+            # Only the owner's own words get the owner's CLI as they configured it (--allow-members:
+            # a member's question runs locked down). docs/adr/0006-owner-cli-powers.md
+            reply = await agents.run_turn(self.backend, workdir, prompt, owner=event.sender == self.owner_id)
         except agents.AgentError as e:
             log.error("agent failed in %s: %s", room.room_id, e)
             reply = f"⚠️ {self.owner_name}'s agent ({self.backend}) failed: {room_safe(e)}"
         finally:
             typing.cancel()
             await self.client.room_typing(room.room_id, False)
-        await self.send(room.room_id, reply[:MAX_REPLY_CHARS], reply_to=event)
+        await self.send(room.room_id, secret_safe(reply, self.client.access_token)[:MAX_REPLY_CHARS], reply_to=event)
 
     async def keep_typing(self, room_id: str) -> None:
         while True:
@@ -211,9 +206,8 @@ class Bridge(BridgeVoice, BridgeCustom):
             await asyncio.sleep(TYPING_REFRESH_S)
 
     def workdir(self, room_id: str) -> Path:
-        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", room_id)[:40]
-        digest = hashlib.sha256(room_id.encode()).hexdigest()[:12]   # sanitizing alone is lossy
-        return ROOT / "rooms" / self.owner / f"{safe}-{digest}"
+        """~/.hagency/work/<owner>/<room>, outside the app (an old ROOT/rooms/ folder moves there)."""
+        return workdirs.room_dir(self.owner, room_id, legacy_root=ROOT)
 
     async def send(self, room_id: str, body: str, reply_to: RoomMessageText | None = None,
                    extra: dict | None = None, source: str | None = None) -> str:

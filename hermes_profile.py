@@ -1,7 +1,9 @@
 """A Hermes profile for working in Hagency rooms: a separate profile with no personal skills or
-memories, that obeys only its owner and @pm, posts only final replies, has no file, terminal or
-web tools, and reaches repos only through the hagency MCP server (contained edits, own GitHub
-identity). Used by onboard.py and test_hermes_e2e.py.
+memories, that obeys only its owner and @pm and posts only final replies. Its tools are the owner's
+own Hermes set-up (docs/adr/0006-owner-cli-powers.md): the toolsets, approval and terminal settings
+of their default profile (Hermes's own Matrix toolset if they set none), with the terminal working
+in ~/.hagency/work/<owner>/hermes, outside the app. Loop work on repos still goes through the hagency
+MCP server (contained edits, own GitHub identity). Used by onboard.py and test_hermes_e2e.py.
 
 Only the model's API key is copied from the default profile, read from file to file and never
 printed; nothing else personal (other keys, skills, memories) comes along.
@@ -12,12 +14,15 @@ import subprocess
 from pathlib import Path
 
 import github
+import workdirs
 from bridge import ROOT, SERVER_NAME
 
 HERMES_HOME = Path.home() / ".hermes"
 PY = str(ROOT / ".venv" / "bin" / "python")
 PROVIDER_KEYS = {"ollama-cloud": "OLLAMA_API_KEY", "openrouter": "OPENROUTER_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
                  "openai": "OPENAI_API_KEY", "nous": "NOUS_API_KEY", "gemini": "GEMINI_API_KEY"}
+HERMES_MATRIX_TOOLSET = "hermes-matrix"           # Hermes's own default for its Matrix platform
+TOOLSET_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 MATRIX_KEYS = ("MATRIX_HOMESERVER", "MATRIX_USER_ID", "MATRIX_PASSWORD", "MATRIX_DEVICE_ID", "MATRIX_ALLOWED_USERS",
                "MATRIX_ALLOWED_ROOMS", "MATRIX_HOME_ROOM", "MATRIX_E2EE_MODE", "MATRIX_AUTO_THREAD",
                "MATRIX_SESSION_SCOPE", "MATRIX_REQUIRE_MENTION")
@@ -30,7 +35,6 @@ ROOM_RULES = ("\n\nIn Hagency rooms: before answering any question about the pro
               "not your memory, say what to do. Then do exactly what each answer's `next` field says. Edit repo "
               "files only with the hagency read_file/write_files tools. Other people read the room: never post "
               "file paths, folder names, tool calls or raw JSON there; reply with one short line about the outcome. "
-              "Your owner may allow web research per room: then use the hagency web_search and fetch_page tools. "
               "Before doing anything outside the project that isn't a read (posting elsewhere, writing a shared "
               "document, contacting anyone), call the hagency tool ask_owner and go ahead only if it returns "
               "approved. "
@@ -57,6 +61,41 @@ def default_model() -> tuple[dict, str | None]:
     block = re.search(r"^model:\n((?:  .*\n)+)", text, re.M)
     model = dict(re.findall(r"^  (\w+): (.+)$", block.group(1), re.M)) if block else {}
     return model, PROVIDER_KEYS.get(model.get("provider", ""))
+
+
+def _block(text: str, key: str, indent: str = "") -> list[str]:
+    """The lines of `key:` (its own line first), down to the next key at the same indent."""
+    lines, out = text.splitlines(), []
+    for ln in lines:
+        if out and ln.strip() and not ln.startswith(indent + " ") and not ln.startswith(indent + "-"):
+            break
+        if out or re.match(rf"^{indent}{key}:", ln):
+            out.append(ln)
+    return [ln for ln in out if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _names(block: list[str]) -> list[str]:
+    """A YAML list of toolset names (`key: [a, b]` or `- a` lines); only plain names come along."""
+    if not block:
+        return []
+    inline = block[0].partition(":")[2].strip()
+    raw = inline[1:-1].split(",") if inline.startswith("[") and inline.endswith("]") else []
+    raw += [ln.strip().removeprefix("-") for ln in block[1:]]
+    names = [n.strip().strip("'\"") for n in raw]
+    return [n for n in names if TOOLSET_RE.match(n)]
+
+
+def owner_tools(owner: str) -> str:
+    """The owner's own toolsets, approvals and terminal settings (their default profile), as YAML for
+    the room profile; its terminal works in the owner's work folder, never in the app's install."""
+    cfg = HERMES_HOME / "config.yaml"
+    text = cfg.read_text() if cfg.exists() else ""
+    toolsets = _names(_block(text, "toolsets")) or ["hermes-cli"]
+    matrix = _names(_block("\n".join(_block(text, "platform_toolsets")), "matrix", "  ")) or [HERMES_MATRIX_TOOLSET]
+    approvals = _block(text, "approvals")[1:] or ["  mode: manual"]
+    terminal = [ln for ln in _block(text, "terminal")[1:] if not re.match(r"^  cwd:", ln)]
+    return "\n".join([f"toolsets: [{', '.join(toolsets)}]", "platform_toolsets:", f"  matrix: [{', '.join(matrix)}]",
+                      "approvals:", *approvals, "terminal:", *terminal, f"  cwd: '{workdirs.hermes_dir(owner)}'"])
 
 
 def repo_env() -> dict:
@@ -133,6 +172,7 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
               mcp_env: dict | None = None) -> Path:
     """Write the profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md."""
     profile = ensure_profile(name, owner)
+    workdirs.hermes_dir(owner).mkdir(parents=True, exist_ok=True)
     model, key_name = profile_model(profile)
     env = {"HAGENCY_AGENT": agent, **repo_env(), "PATH": os.environ["PATH"], "HOME": os.environ["HOME"],
            **(mcp_env or {})}
@@ -140,11 +180,7 @@ def configure(name: str, *, owner: str, agent: str, password: str, home_room: st
     model_lines = "\n".join(f"  {k}: {v}" for k, v in model.items())
     (profile / "config.yaml").write_text(f"""model:
 {model_lines}
-toolsets: [hermes-cli]
-platform_toolsets:
-  matrix: [todo, memory, skills]      # no file/terminal/web: repo edits go through hagency's contained tools
-approvals:
-  mode: manual
+{owner_tools(owner)}
 display:                              # a shared room sees final replies only: no tool calls, paths or drafts
   tool_progress: "off"
   interim_assistant_messages: false

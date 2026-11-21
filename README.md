@@ -95,10 +95,10 @@ for http://localhost:8649/#/register.
    `@betty-agent` — each agent runs its owner's CLI, keeps its own per-room session, and stays
    quiet when it isn't mentioned.
 
-   **By default an agent only obeys its owner** (betty mentioning `@anna-agent` is ignored),
-   because the CLI runs with the owner's read access to their disk (Codex read-only can still
-   read `~/.ssh`, this `.env`, …). To let every joined room member use the agents:
-   `ALLOW_MEMBERS=1 ./start.sh`.
+   **An agent only obeys its owner** (betty mentioning `@anna-agent` is ignored), because for
+   its owner it runs their CLI exactly as they configured it, with their tools and access
+   (docs/adr/0006-owner-cli-powers.md). With `ALLOW_MEMBERS=1 ./start.sh` other joined members
+   can ask it too, but their questions run locked down (read-only, no web, no MCP).
 
 **Invite the agent somewhere else:** create a room, *turn encryption off* in the create dialog,
 and invite `@anna-agent:bridge.localhost` — it joins automatically. A DM with the agent works
@@ -111,12 +111,23 @@ without a mention. In an encrypted room the agent says it can't read it (no E2EE
   arrive in a 2-person DM, sent by its **owner** (or, with `--allow-members`, any joined room
   member) that is not itself an agent (loop guard). Pending invites at startup get the same
   local-server check as live ones; at most 3 CLI turns run at once per bridge. Earlier un-addressed room chatter (last 20 lines) is passed as context.
-- `agents.py` runs the CLI with the prompt on **stdin**, no shell, in `rooms/<owner>/<room>/`,
-  and resumes that room's saved session (`codex exec resume <id>` / `claude --resume <id>`).
-  Codex runs `sandbox_mode=read-only`, `approval_policy=never`; Claude runs `-p` in `default`
-  permission mode with `--tools Read,Grep,Glob --strict-mcp-config` (no shell/edit tools, no MCP,
-  even if the user's settings pre-approve them). Chat can't widen either. Saved session ids are
-  validated before they reach the CLI's argv.
+- `agents.py` runs the CLI with the prompt on **stdin**, no shell, in
+  `~/.hagency/work/<owner>/<room>/` (outside the app; `workdirs.py` moves an old
+  `rooms/<owner>/<room>/` folder there with its sessions), and resumes that room's saved session
+  (`codex exec resume <id>` / `claude --resume <id>`).
+  - **The owner's own message:** the CLI runs as the owner set it up on that machine, with no
+    extra flags from us: Codex uses `~/.codex/config.toml` (sandbox, approvals, web search, MCP
+    servers); Claude Code runs `claude -p` with all its settings sources and the owner's
+    permission rules. Anything their rules leave to an interactive approval is denied (nobody can
+    approve from a chat room) and the reply names it, e.g. "didn't allow: WebFetch". To allow
+    web for Claude Code, add `"permissions": {"allow": ["WebSearch", "WebFetch"]}` to
+    `~/.claude/settings.json`; for more than read-only Codex, set `sandbox_mode` in its config.
+  - **Everything else** (a member's question under `--allow-members`, loop builds/reviews/plans,
+    @pm's brain, code changes): Codex `sandbox_mode=read-only` (`workspace-write` for builds),
+    `approval_policy=never`, connectors/plugins/MCP/web off; Claude `--tools Read,Grep,Glob`
+    (`+Edit,Write` for builds) `--strict-mcp-config --setting-sources user`.
+  - Replies are scrubbed of anything shaped like a credential (`redact.secret_safe`). Saved
+    session ids are validated before they reach the CLI's argv.
 - Typing indicator is refreshed every 20 s while the CLI runs; the reply is posted as a Matrix
   reply with markdown rendered to HTML.
 

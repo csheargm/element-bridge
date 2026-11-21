@@ -8,6 +8,7 @@ from unittest import mock
 import hermes_profile
 import registry
 import supervise
+import workdirs
 
 
 class Supervisor(unittest.TestCase):
@@ -39,9 +40,10 @@ class HermesProfile(unittest.TestCase):
         (home / "config.yaml").write_text("model:\n  default: gpt-oss:120b\n  provider: ollama-cloud\n"
                                           "  base_url: https://ollama.com/v1\nproviders: {}\n")
         (home / ".env").write_text("OLLAMA_API_KEY=model-key\nGITHUB_TOKEN=personal\nTELEGRAM_BOT_TOKEN=personal\n")
-        p = mock.patch.object(hermes_profile, "HERMES_HOME", home)
-        p.start()
-        self.addCleanup(p.stop)
+        for p in (mock.patch.object(hermes_profile, "HERMES_HOME", home),
+                  mock.patch.object(workdirs, "WORK_HOME", Path(tempfile.mkdtemp()))):
+            p.start()
+            self.addCleanup(p.stop)
         self.profile = hermes_profile.configure("annaroom", owner="anna", agent="anna-agent", password="pw",
                                                 home_room="!dm:x")
 
@@ -56,9 +58,11 @@ class HermesProfile(unittest.TestCase):
         self.assertIn("MATRIX_ALLOWED_USERS=@anna:bridge.localhost,@pm:bridge.localhost", env)
         self.assertNotIn("MATRIX_ALLOWED_ROOMS", env)                        # the owner can DM it anywhere
 
-    def test_no_file_terminal_or_web_tools_and_a_quiet_room(self):
+    def test_hermes_own_tools_and_a_quiet_room(self):
+        """ADR 0006: the owner's Hermes gets its normal Matrix toolset (no todo/memory/skills-only list)."""
         cfg = (self.profile / "config.yaml").read_text()
-        self.assertIn("matrix: [todo, memory, skills]", cfg)
+        self.assertIn("matrix: [hermes-matrix]", cfg)
+        self.assertNotIn("matrix: [todo, memory, skills]", cfg)
         self.assertIn('tool_progress: "off"', cfg)
         self.assertIn('memory_notifications: "off"', cfg)
         self.assertIn("gateway_restart_notification: false", cfg)   # seen live: "Gateway shutting down" ×5 per update
