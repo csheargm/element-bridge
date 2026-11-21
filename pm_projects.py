@@ -1,7 +1,7 @@
 """Project rooms, in plain words to @pm (each also has a click path: the home page, the Hagency panel):
   - "make me a project room [called X]": I create it, the person is its owner, I moderate it; they
     accept its invite and pick the repo in the panel (their agent follows them in, per their setting);
-  - "find a project": the listed and open rooms (project_rooms.py), with links; also Element's room directory;
+  - "find a project": the listed and open rooms, one message each, with 🙋 to ask to join (pm_find.py);
   - "make this room private / listed / open" (owner or maintainer): who can find and join it;
   - "ask to join owner/name": pm_joining.py.
 ONE PROJECT ROOM PER REPO: @pm's loop runs per room, so two rooms on one repo would hand the same
@@ -23,22 +23,19 @@ import project_rooms
 import registry
 import room_address
 import room_state
-from bridge import ROOT, SERVER_NAME
-from pm_joining import ASKED, Joining
+from bridge import ROOT
+from pm_find import FIND_RE, Finding
+from pm_joining import ASK, ASKED, Joining
 from project_rooms import plain
 from saved_dict import SavedDict
 
 log = logging.getLogger("loop")
-ASK, SEPARATE = "🙋", "➕"
+SEPARATE = "➕"
 ROOMS_PER_HOUR = 3
-MAX_LISTED = 20
-MAX_SCANNED = 300              # "find a project" reads at most this many rooms
 LOOKUPS_PER_HOUR = 5           # "ask to join owner/name" per person
-FINDS_PER_HOUR = 3             # "find a project" per person (each reads many rooms)
 OFFER_S = 86400                # a 🙋/➕ question is answerable for a day
 MAKE_RE = re.compile(r"^\W*(please\s+)?(make|create|start|set up|open)\s+(me\s+)?(a\s+)?(new\s+)?project(\s+room)?"
                      r"(\s+(called|named)\s+(?P<name>[^\n]{1,60}?))?[\s.!]*$", re.I)
-FIND_RE = re.compile(r"^\W*(please\s+)?(find|list|show|browse)\s+(me\s+)?(a\s+|the\s+|some\s+)?projects?(\s+to join)?\W*$", re.I)
 ASK_RE = re.compile(r"\bask to join\s+(?:https?://github\.com/)?(?P<repo>[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100})", re.I)
 VIS_RE = re.compile(r"\b(?:make|set)\s+(?:this|the)\s+(?:room|project)\s+(?:to\s+)?(?P<vis>private|listed|open|public)\b"
                     r"|\b(?P<un>un)?list this (?:room|project)\b", re.I)
@@ -57,7 +54,7 @@ class Answer(str):
         return made
 
 
-class Projects(Joining):
+class Projects(Finding, Joining):
     async def on_project_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was one of the project commands (answered here)."""
         text = self.addressed_text(event, room)       # my private chat with them: no need to say "@pm"
@@ -122,30 +119,6 @@ class Projects(Joining):
         if any(a["agent"] != registry.REMOTE or self.ever_connected(a["localpart"]) for a in mine):
             return " Your agent comes along when you join."
         return " Your agent joins once it's connected on your computer." if mine else ""
-
-    async def answer_find(self, room_id: str, person: str) -> None:
-        recent = [t for t in self.__dict__.setdefault("_finds", {}).get(person, []) if time.time() - t < 3600]
-        if len(recent) >= FINDS_PER_HOUR:
-            await self.say(room_id, "I just listed them; they're also under Explore rooms in Element.")
-            return
-        self._finds[person] = [*recent, time.time()]
-        try:
-            await self.say(room_id, await self.find_projects())
-        except (RuntimeError, OSError) as e:  # SendError, network: they can ask again
-            log.error("couldn't list projects for %s: %s", person, e)
-
-    async def find_projects(self) -> str:
-        lines = []
-        for rid, room in list(self.client.rooms.items())[:MAX_SCANNED]:
-            if len(lines) >= MAX_LISTED or await project_rooms.visibility(self.client, rid) == project_rooms.PRIVATE:
-                continue
-            repo = await room_state.repo_of(self.client, rid)
-            lines.append(project_rooms.listing_line(room.display_name, rid, SERVER_NAME, repo,
-                                                    await project_rooms.repo_is_private(repo)))
-        if not lines:
-            return "No projects are listed yet. Make your own: \"@pm make me a project room\"."
-        return ("Projects you can join (open one, then Join or Ask to join):\n" + "\n".join(lines)
-                + "\n\nThey're also under Explore rooms in Element.")
 
     async def set_visibility(self, room: MatrixRoom, sender: str, value: str) -> str:
         if getattr(room, "canonical_alias", None) in project_rooms.FRONT_DOORS or self.is_private_chat(room):
@@ -244,4 +217,5 @@ class Projects(Joining):
         await self.offer_conflict_buttons(room.room_id, answer, await self.say(room.room_id, answer))   # a new conflict: new buttons
 
     async def on_project_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
-        return await self.on_join_reaction(room, event) or await self.on_conflict_reaction(room, event)
+        return (await self.on_join_reaction(room, event) or await self.on_conflict_reaction(room, event)
+                or await self.on_find_reaction(room, event))

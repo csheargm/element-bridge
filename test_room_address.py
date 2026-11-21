@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import room_address
-from test_projects import ANNA, PM, REPO, S, Base, project
+from test_projects import ANNA, PM, S, Base, project
 
 
 def run(coro):

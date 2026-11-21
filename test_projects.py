@@ -358,21 +358,6 @@ class MakeAndFind(Base):
         self.assertNotIn("comes along", made[1])
         self.assertIn("Your agent comes along when you join.", made[2])                    # connected once
 
-    def test_find_lists_only_listed_and_open_rooms_and_never_a_private_repos_name(self):
-        rooms = {"!pub": project("!pub", "Pub"), "!sec": project("!sec", "Sec"), "!hid": project("!hid", "Hidden")}
-        self.lp.client.rooms = rooms
-        self.bind("!pub", "a/public-one")
-        self.bind("!sec", "a/secret-one")
-        self.state["!pub"][project_rooms.VISIBILITY_EVENT] = ({"visibility": "open"}, PM)
-        self.state["!sec"][project_rooms.VISIBILITY_EVENT] = ({"visibility": "listed"}, PM)
-        with mock.patch("project_rooms.repo_is_private", lambda repo: asyncio.sleep(0, repo == "a/secret-one")):
-            text = run(self.lp.find_projects())
-        self.assertIn("**Pub** · a/public-one", text)
-        self.assertIn("**Sec**", text)
-        self.assertNotIn("secret-one", text)
-        self.assertNotIn("Hidden", text)
-        self.assertIn("matrix.to/#/%21sec", text)
-
 
 class Panel(Visibility):
     def test_the_panel_switch_goes_through_the_same_checks_and_says_it_in_the_room(self):

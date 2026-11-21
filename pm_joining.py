@@ -1,8 +1,9 @@
-"""Asking to join a project room. Three ways in, one answer: the room's owners and maintainers decide.
+"""Asking to join a project room. Four ways in, one answer: the room's owners and maintainers decide.
   - Element's "Ask to join" on a listed room (a Matrix knock: project_rooms.py);
   - "@pm ask to join owner/name": the room working on that exact repo, even a private one (my reply
     comes first and is the same whether or not such a room exists: pm_projects.py);
-  - 🙋 under my "one room per repo" answer (pm_projects.py).
+  - 🙋 under my "one room per repo" answer (pm_projects.py), or under a listed room in "find a
+    project" (pm_find.py: by room, so a room without a repo works too).
 Each of the room's moderators gets a private message: "<name> (<full ID>) asks to join <room>.
 👍 Let in · 👎 Decline". Only that moderator's click counts, and only while they're still a joined
 moderator of that room; and only while the request still stands (a knock not withdrawn, the person
@@ -22,7 +23,7 @@ from project_rooms import plain
 from saved_dict import SavedDict
 
 log = logging.getLogger("loop")
-LET_IN, DECLINE = "👍", "👎"
+LET_IN, DECLINE, ASK = "👍", "👎", "🙋"
 REQUEST_S = 7 * 86400          # a moderator's click counts for a week
 AGAIN_S = 86400                # the same person and room: once a day
 ASKS_PER_HOUR = 5              # per person, all rooms

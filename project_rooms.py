@@ -2,7 +2,8 @@
 Hagency panel or by telling @pm, and kept in the room's own state (written by @pm only, like its repo):
   - private (the default): unlisted; joinable by invite, or by asking @pm with the exact repo name;
   - listed: in "Find a project" and the server's room directory; join rule "knock", so Element shows
-    "Ask to join", and @pm asks the room's owners (👍 let in · 👎 decline: pm_projects.py);
+    "Ask to join" (its feature_ask_to_join, on in deploy/element_home.py), and "find a project" has 🙋
+    (pm_find.py); either way @pm asks the room's owners (👍 let in · 👎 decline: pm_joining.py);
   - open: listed, and anyone joins directly (join rule "public").
 A room bound to a private GitHub repo can't be open, and a listing never shows a private repo's name.
 Listed and open rooms are in this server's room directory, which other Matrix servers can read too.
@@ -135,9 +136,3 @@ async def history_safe(client: AsyncClient, room_id: str) -> str | None:
     done = await client.room_put_state(room_id, "m.room.history_visibility", {"history_visibility": "shared"})
     return None if hasattr(done, "event_id") else "⚠️ I couldn't keep this room's history to its members."
 
-
-def listing_line(name: str, room_id: str, server: str, repo: str | None, repo_private: bool) -> str:
-    """One room in "Find a project": its name and a link; a repo's name only when the repo is public."""
-    link = f"https://matrix.to/#/{urllib.parse.quote(room_id)}?via={urllib.parse.quote(server)}"
-    shown = f" · {repo}" if repo and not repo_private else ""
-    return f"- **{plain(name)}**{shown}: [open it]({link})"
