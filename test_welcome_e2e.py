@@ -75,6 +75,20 @@ def joined_chat_with(token, me, sender):
     return next((room for room in direct.get(sender, []) if room in joined), None)
 
 
+def invite_from(token, sender, _since={}):
+    """A room `sender` invited me to. Incremental syncs: Synapse caches a repeated initial sync."""
+    since = _since.get(token)
+    url = "/_matrix/client/v3/sync?timeout=1000" + (f"&since={urllib.parse.quote(since)}" if since else "")
+    sync = api("GET", url, token)
+    _since[token] = sync["next_batch"]
+    seen = _since.setdefault((token, "invites"), {})
+    seen.update(sync.get("rooms", {}).get("invite", {}))
+    for room_id, info in seen.items():
+        if any(e.get("sender") == sender and e.get("type") == "m.room.member" for e in info["invite_state"]["events"]):
+            return room_id
+    return None
+
+
 def messages(token, room_id):
     return api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(room_id)}/messages?dir=b&limit=50", token)["chunk"]
 
@@ -108,7 +122,9 @@ def welcome_and_code(me, name):
     line = until("the install line", lambda: pm_message(me, dm, "connect.sh"))["content"]["body"]
     found = re.search(r"curl -fsSL (\S+)/connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})", line)
     check("🔌 sends one install line with a code", found and found.group(1) == CONSOLE)   # the code is never printed
-    agent_dm = until("the agent's chat, already joined", lambda: joined_chat_with(me, me_id, f"@{name}-agent:{SERVER_NAME}"))
+    # Only @pm's chat opens joined: the agent's stays an invite (-agent names aren't reserved at sign-up).
+    agent_dm = until("the agent's chat invite", lambda: invite_from(me, f"@{name}-agent:{SERVER_NAME}"))
+    api("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(agent_dm)}", me, {})
     members = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(welcome)}/joined_members", me)["joined"]
     print(f"note: shared-secret accounts auto-joined to #welcome: {f'@{name}-agent:{SERVER_NAME}' in members}")
     return agent_dm, found.group(2)

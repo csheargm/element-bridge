@@ -15,7 +15,7 @@ from configure_synapse import PM_LOCALPART
 
 SOURCE = Path(__file__).resolve().parent / "element_page"   # the page's template and images, in git
 OUT = "element-home"                          # generated next to bootstrap.sh; Caddy mounts it read-only
-PREFIX = "/hagency"                           # where Caddy serves OUT (Caddyfile: handle_path /hagency/*)
+PREFIX = "/hagency"                           # where Caddy serves OUT's three files (Caddyfile: @hagency)
 PM_PLACEHOLDER = "__PM_ID__"
 STATIC = ("logo.svg", "background.svg")
 BRAND = "Hagency Rooms"

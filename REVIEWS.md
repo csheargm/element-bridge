@@ -738,3 +738,22 @@ Rejected or deferred:
 - An owner's project-level Codex config disabling web search is overridden by our `-c` default;
   inherited GATEWAY_ALLOW_ALL_USERS in the supervisor's own environment (not set by us); locked
   Claude turns load user hooks; an old shared session from an --allow-members run (as before).
+
+Onboarding: Element home page and @pm's chat opening joined (GPT, feat/onboarding), adopted with tests:
+- The auto-join trusted `@<person>-agent` as "their own agent", but sign-up doesn't reserve -agent
+  names: whoever registered "bob-agent" first could pull bob into rooms. Only @pm's direct invites
+  are accepted now; the agent's chat stays an invite (README, test_welcome_e2e).
+- Retries could join on a stale invite, and m.direct was written before the join: each try first
+  checks that this very invite is still the person's membership, and m.direct is written only
+  after a successful join (re-read just before writing).
+- bootstrap restarted Synapse after @pm had started, so chats @pm opened in between missed the new
+  module: Synapse restarts (when its config or modules changed) before @pm starts.
+- Caddy served the whole generated folder: only home.html, logo.svg and background.svg now.
+Rejected or deferred:
+- A click on "Get your agent" before @pm's chat exists makes Element start a new chat with @pm
+  (no offer in it): rare (the greeting comes seconds after sign-up); PHASE 2 makes @pm answer a
+  person's own new chat with the offer. The Welcome pointer still says "accept it under Invites"
+  (pm_welcome.py, another agent's file now): PHASE 2.
+- Step ③ "Invite people" is guidance, not a button (no room exists yet at that point).
+- m.direct can still race a client's own write (the built-in module has the same limit).
+- Element's new config can reach a browser a moment before Caddy's new route (one deploy, once).

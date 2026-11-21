@@ -72,10 +72,11 @@ class HomePage(unittest.TestCase):
         self.page = parse(self.text)
 
     def test_three_steps_in_order_each_one_click(self):
-        steps = [self.text.index(s) for s in ("① Get your agent", "② Create a project room", "③ Invite people")]
+        steps = [self.text.index(s) for s in ("① Get your agent", "② Start or join a project", "Create a project room",
+                                              "Find a project to join", "③ Invite people")]
         self.assertEqual(steps, sorted(steps))
         self.assertIn("What is this?", self.text)
-        self.assertEqual(self.page.links, ["#/user/@pm:matrix.example.org?action=chat", "#/new"])
+        self.assertEqual(self.page.links, ["#/user/@pm:matrix.example.org?action=chat", "#/new", "#/directory"])
 
     def test_links_open_inside_element(self):
         """Element keeps #/ links as they are (same tab, its router): #/user/<id>?action=chat opens or
@@ -96,7 +97,7 @@ class HomePage(unittest.TestCase):
     def test_follows_elements_theme_and_loads_nothing_from_outside(self):
         self.assertIn("var(--cpd-color-bg-action-primary-rest", self.text)
         self.assertIn("var(--cpd-color-text-on-solid-primary", self.text)
-        self.assertEqual(self.page.imgs, ["/hagency/logo.svg"])
+        self.assertEqual(self.page.imgs, [])                                # the owner saw an <img> broken: none
         self.assertNotIn("http", self.text.split("-->", 1)[1])
 
     def test_the_server_name_is_escaped(self):
@@ -142,8 +143,11 @@ class Written(unittest.TestCase):
 class Served(unittest.TestCase):
     def test_caddy_serves_the_folder_at_hagency_before_element(self):
         rooms = (HERE / "Caddyfile").read_text().split("{$ROOMS_DOMAIN} {")[1].split("\n}")[0]
-        self.assertIn("handle_path /hagency/* {\n\t\troot * /srv/element-home", rooms)
-        self.assertLess(rooms.index("handle_path /hagency/*"), rooms.index("reverse_proxy element:80"))
+        route = rooms.split("@hagency path ")[1].split("\n")[0].split()
+        self.assertEqual(sorted(route), sorted(f"{element_home.PREFIX}/{n}" for n in ["home.html", *element_home.STATIC]))
+        self.assertIn("handle @hagency {\n\t\turi strip_prefix /hagency\n\t\troot * /srv/element-home", rooms)
+        self.assertNotIn("/hagency/*", rooms)                               # never the whole folder
+        self.assertLess(rooms.index("handle @hagency"), rooms.index("reverse_proxy element:80"))
         self.assertIn("./element-home:/srv/element-home:ro", (HERE / "docker-compose.yml").read_text())
         self.assertIn("element-home/", (HERE / ".gitignore").read_text())   # generated, never committed
 

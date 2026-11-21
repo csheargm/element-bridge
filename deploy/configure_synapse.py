@@ -7,7 +7,7 @@ running it again changes nothing):
   - the public URL; Synapse's own rate limits, except sign-ins per address (@pm's container signs in often);
   - Oracle's free limits: uploads up to 20 MB, local media kept 90 days and remote media 30 days;
   - @pm is a moderator in every new room (synapse_modules/hagency_pm_moderator.py, room version 12);
-  - a person's private chats from @pm and their own agent open joined (synapse_modules/hagency_auto_accept.py).
+  - @pm's private chat with a person here opens joined (synapse_modules/hagency_auto_accept.py).
 It refuses a config whose server_name differs from .env (a server's name can never change). The
 new file is written next to the old one and swapped in, so an interruption never leaves half a
 config; synapse/.hagency-configured marks success, and bootstrap won't start Synapse without it.
@@ -39,7 +39,7 @@ def welcome_settings(server_name: str) -> dict:
 
 def module_settings(server_name: str) -> dict:
     """The modules Synapse loads from /modules: @pm at power 50 in new rooms (it needs room version 12),
-    and a person's private chats from @pm and their own agent open already joined."""
+    and @pm's private chat with a person here opens already joined."""
     pm = f"@{PM_LOCALPART}:{server_name}"
     modules = [{"module": "hagency_pm_moderator.PmModerator", "config": {"pm": pm}},
                {"module": "hagency_auto_accept.AutoAccept", "config": {"pm": pm, "server": server_name}}]

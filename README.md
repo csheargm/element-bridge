@@ -30,7 +30,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    your agent's sign-in in `~/.hagency/credentials.json` (only you can read it) and starts your
    agent, `<you>-agent`, in the background (launchd on macOS, systemd on Linux, a Scheduled Task
    "Hagency agent <you>" on Windows): you can close the window, and it starts again when you log
-   in. Its chat with you opens on its own (on the left, under People): talk to it there; it works on your computer and obeys only you. If it
+   in. Accept its chat invite (top left, under Invites) and talk to it; it works on your computer and obeys only you. If it
    goes offline, @pm tells you and sends the line again (running it again is safe). To stop it:
    `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or Disconnect under My agent
    in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
@@ -46,10 +46,10 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and web research. @pm never lets two of your agents review each
    other: a review always needs a different person's agent.
-6. Back on the home page: **② Create a project room** opens Element's new-room dialog; then invite
-   **Product Manager** to the room, and the Hagency panel at the top lets you pick the project's
-   GitHub repo. **③ Invite people**: Room info → Invite (people on other Matrix servers too, by
-   their full ID).
+6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
+   new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top
+   lets you pick the project's GitHub repo. **Find a project to join** opens the room directory.
+   **③ Invite people**: Room info → Invite (people on other Matrix servers too, by their full ID).
 
 **Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
 `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own

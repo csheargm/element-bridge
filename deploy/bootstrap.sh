@@ -73,9 +73,11 @@ python3 hostfiles.py public
 mkdir -p flags
 chmod 755 flags
 dc stop pm >/dev/null 2>&1 || true                       # its files changed under it (deploy.sh): a clean start
+# Synapse reads its config (and modules) only at start: restart it BEFORE @pm starts, so the chats
+# @pm opens on start already get the new modules (hagency_auto_accept: they open joined).
+if [ "$loaded" != "$current" ]; then dc up -d synapse; dc restart synapse; fi
 dc up -d --remove-orphans
 dc up -d --no-deps --force-recreate element synapse-admin >/dev/null 2>&1   # their configs are new files
-if [ "$loaded" != "$current" ]; then dc restart synapse; fi  # Synapse reads its config only at start
 echo "$current" > .synapse-loaded
 # A single-file bind mount keeps the OLD file after git replaces it (new inode), so a reload alone
 # would load the old routes (seen live: /connect/start 404 after a deploy). Recreate Caddy when the

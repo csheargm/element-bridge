@@ -1,5 +1,4 @@
-"""Unit tests: the Synapse module that opens a person's private chats from @pm and their own agent
-already joined. Run from deploy/: python3 -m unittest test_auto_accept"""
+"""Unit tests: the Synapse module that opens @pm's private chat with a person already joined. Run from deploy/: python3 -m unittest test_auto_accept"""
 import asyncio
 import sys
 import unittest
@@ -20,11 +19,12 @@ def invite(sender: str, invitee: str, is_direct=True, membership="invite", room=
 
 
 class ShouldAccept(unittest.TestCase):
-    def test_pm_and_the_persons_own_agent(self):
+    def test_only_pm(self):
         self.assertTrue(m.should_accept(invite(PM, ANNA), S, PM))
-        self.assertTrue(m.should_accept(invite(ANNA_AGENT, ANNA), S, PM))
 
-    def test_never_someone_elses_agent_or_another_person(self):
+    def test_never_an_agent_not_even_the_persons_own(self):
+        """GPT review: sign-up doesn't reserve -agent names, so "anna-agent" may be anyone's account."""
+        self.assertFalse(m.should_accept(invite(ANNA_AGENT, ANNA), S, PM))
         self.assertFalse(m.should_accept(invite(BOB_AGENT, ANNA), S, PM))
         self.assertFalse(m.should_accept(invite(BOB, ANNA), S, PM))
         self.assertFalse(m.should_accept(invite("@pm:evil.org", ANNA), S, PM))       # same name, another server
@@ -55,9 +55,10 @@ class ShouldAccept(unittest.TestCase):
 
 
 class FakeApi:
-    def __init__(self, user=None, fail=0):
+    def __init__(self, user=None, fail=0, membership="$invite"):
         self.user = user if user is not None else SimpleNamespace(is_deactivated=False, suspended=False, locked=False)
         self.fail, self.joins, self.data, self.slept, self.cb = fail, [], {}, [], None
+        self.membership = membership          # the event id of the person's current membership, or None
         self.account_data_manager = SimpleNamespace(get_global=self.get_global, put_global=self.put_global)
 
     def register_third_party_rules_callbacks(self, on_new_event):
@@ -69,13 +70,18 @@ class FakeApi:
     def run_as_background_process(self, desc, func, *args):
         asyncio.get_running_loop().create_task(func(*args))
 
+    async def get_room_state(self, room_id, event_filter):
+        (kind, user), = event_filter
+        return {(kind, user): SimpleNamespace(event_id=self.membership)} if self.membership else {}
+
     async def sleep(self, seconds):
         self.slept.append(seconds)
 
     async def update_room_membership(self, **kw):
-        if self.fail:
+        if self.fail:                         # a failed join leaves the invite in place
             self.fail -= 1
             raise RuntimeError("busy")
+        self.membership = "$join"
         self.joins.append(kw)
 
     async def get_global(self, user_id, kind):
@@ -91,7 +97,7 @@ class Event(SimpleNamespace):
 
 
 def event(d: dict) -> Event:
-    return Event(raw=d, type=d.get("type"), state_key=d.get("state_key"), sender=d.get("sender"), room_id=d.get("room_id"))
+    return Event(raw=d, event_id="$invite", type=d.get("type"), state_key=d.get("state_key"), sender=d.get("sender"), room_id=d.get("room_id"))
 
 
 def deliver(api: FakeApi, d: dict) -> None:
@@ -128,13 +134,27 @@ class Module(unittest.TestCase):
 
     def test_a_failed_join_is_retried_then_left_for_the_person(self):
         api = self.make(fail=1)
-        deliver(api, invite(ANNA_AGENT, ANNA))
+        deliver(api, invite(PM, ANNA))
         self.assertEqual(len(api.joins), 1)
+        self.assertEqual(api.data[(ANNA, "m.direct")], {PM: ["!r:s.org"]})
         api = self.make(fail=m.JOIN_TRIES)
         with self.assertLogs(m.log, "WARNING") as logs:
             deliver(api, invite(PM, ANNA))
-        self.assertEqual(api.joins, [])
+        self.assertEqual((api.joins, api.data), ([], {}))                # not marked direct: not joined
         self.assertIn("couldn't auto-join", logs.output[0])           # in Synapse's log, not silent
+
+    def test_a_withdrawn_declined_or_replaced_invite_is_never_acted_on(self):
+        """GPT review: retries must not join on a stale invite."""
+        for now in (None, "$leave", "$a-newer-invite"):
+            api = self.make(membership=now)
+            deliver(api, invite(PM, ANNA))
+            self.assertEqual((api.joins, api.data), ([], {}), now)
+
+    def test_the_new_modules_load_before_pm_starts(self):
+        """GPT review: @pm's chats opened on start must already meet the new module."""
+        boot = (Path(__file__).parent / "bootstrap.sh").read_text()
+        self.assertLess(boot.index("dc restart synapse"), boot.index("dc up -d --remove-orphans"))
+        self.assertEqual(boot.count("dc restart synapse"), 1)
 
     def test_config_must_name_pm_on_this_server(self):
         for bad in ({}, {"pm": PM}, {"pm": "pm", "server": S}, {"pm": "@pm:other.org", "server": S}, None):
