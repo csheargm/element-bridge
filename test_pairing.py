@@ -155,7 +155,7 @@ class Provision(unittest.TestCase):
         self.assertEqual(remote_agent.provision("newbie1"), "newbie1-agent")
         self.assertEqual(self.ensure.call_args.args[1:], ("newbie1-agent", "secret"))
         self.dm.assert_called_once_with("newbie1-agent", "pw", "@newbie1:bridge.localhost")
-        self.assertEqual(registry.load()["@newbie1:bridge.localhost"], {"agent": "remote", "dm": "!dm"})
+        self.assertEqual(registry.load()["@newbie1:bridge.localhost"], {"agent": "remote", "dm": "!dm", "ready": True})
         self.assertEqual(registry.owner_of("newbie1-agent"), "@newbie1:bridge.localhost")
         remote_agent.provision("newbie1")                    # again: same chat, nothing new
         self.dm.assert_called_once()

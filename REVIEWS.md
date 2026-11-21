@@ -665,7 +665,18 @@ Adopted, with tests (test_more_agents, test_more_agents_flows, test_routing):
 - The console's agent field: an unknown agent fell back to the first agent for web research, and
   refused changes said "ok": a named agent must be theirs, and refusals are reported.
 - Caddy didn't route /panel-agents.js to @pm (the panel would have had no "My agents").
-- connect.py: with a code, a saved backend whose CLI is gone no longer stops a further agent's pairing.
+GPT re-check of those fixes, adopted with tests:
+- ensure_user saves a password BEFORE registering, so "we hold a password" wasn't proof: an agent is
+  marked ready once its account was made or signed into with our password; an older record without
+  the mark is checked by signing in with the saved password before any reset.
+- A recorded agent_user must be a localpart; `registry.update(person, "")` is no longer "the first".
+- A further agent that exists already ("add another agent called codex" again): its Connect page is
+  sent again (it may have been made but its message failed), never refused.
+- ➕ in our existing private chat asks there, never in a second chat.
+- connect.py's fallback for a missing saved CLI is reverted: re-pairing the first agent silently
+  changed its backend. `--agent` chooses.
+Rejected after checking: "codex-" being taken as "codex" (the regexes capture the hyphen and the
+exact-name check refuses it; tested).
 Rejected or deferred:
 - A cross-process lock with onboard.py (an operator's command, run by hand while @pm runs): deferred.
 - An older connect.py refuses a further agent's sign-in after using the code: connect.sh always

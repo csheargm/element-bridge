@@ -236,6 +236,7 @@ class Disconnect(unittest.TestCase):
         mock.patch.object(remote_agent, "load_env", side_effect=lambda: dict(self.env)).start()
         self.saved = mock.patch.object(setup_accounts, "save_env", side_effect=lambda e: self.env.update(e)).start()
         remote_agent.CODES.codes = {}
+        self.signs_in = mock.patch.object(remote_agent, "_signs_in", return_value=True).start()   # an older record: checked
         self.addCleanup(mock.patch.stopall)
 
     def test_a_new_password_everywhere_and_old_codes_die_first(self):

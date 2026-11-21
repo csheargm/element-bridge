@@ -25,6 +25,7 @@ REMOTE = "remote"                    # their agent runs on their own computer (c
 FIRST_LABEL = "main"                 # what the first agent is called when its person never named it
 MORE = "more"                        # a person's further agents, in their line
 PER_PERSON_DEFAULT = 3
+LOCALPART_RE = re.compile(r"[a-z0-9._=-]{1,120}")   # a recorded agent account name (Matrix localpart characters)
 LOCK = threading.RLock()             # @pm's read-modify-writes of this file (its loop and set-up threads)
 
 
@@ -142,7 +143,8 @@ def _text(value, ok=lambda v: True) -> str | None:
 def _agents(person: str, info: dict) -> list[dict]:
     first = {"label": _text(info.get("label"), identity.LABEL_RE.fullmatch) or FIRST_LABEL, "first": True,
              "agent": _text(info.get("agent")) or "server", "created": info.get("created"), "dm": _text(info.get("dm")),
-             "localpart": _text(info.get("agent_user")) or identity.agent_localpart(person, SERVER_NAME),
+             "localpart": _text(info.get("agent_user"), LOCALPART_RE.fullmatch) or identity.agent_localpart(person, SERVER_NAME),
+             "ready": info.get("ready") is True,
              "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
              "disconnected": info.get("disconnected")}
     found, labels = [first], {first["label"]}
@@ -154,7 +156,7 @@ def _agents(person: str, info: dict) -> list[dict]:
         found.append({"label": label, "agent": _text(e.get("agent")) or REMOTE, "first": False, "created": e.get("created"),
                       "localpart": identity.agent_localpart(person, SERVER_NAME, label), "dm": _text(e.get("dm")),
                       "follow": e.get("follow") if e.get("follow") in FOLLOW else "never",
-                      "disconnected": e.get("disconnected")})
+                      "disconnected": e.get("disconnected"), "ready": e.get("ready") is True})
     return found
 
 
@@ -183,8 +185,8 @@ def update(person: str, which: str | None, **fields) -> None:
 def _update(person: str, which: str | None, fields: dict) -> None:
     data = load()
     info = data.setdefault(person, {})
-    found = find(person, which) if which else None
-    if which and found is None:
+    found = find(person, which) if which is not None else None
+    if which is not None and found is None:
         raise ValueError(f"{person} has no agent {which}")   # never the first agent's fields by mistake
     if found and not found["first"]:
         more = info[MORE]

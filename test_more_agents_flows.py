@@ -141,11 +141,14 @@ class AddInChat(Base):
         registry.update(CX, "two", dm="!d")
         self.made.clear()
         with mock.patch.dict("os.environ", {"HAGENCY_AGENTS_PER_PERSON": "5"}):
-            self.run_(self.lp.start_add("!dm", CX, "co-dex"))
-            self.assertIn("doesn't work as a name", self.said[-1][1])                  # never silently "codex"
-            self.run_(self.lp.start_add("!dm", CX, "two"))
-            self.assertIn("already have an agent called two", self.said[-1][1])
-        self.assertEqual(self.made, [])
+            for typed in ("co-dex", "codex-"):
+                self.run_(self.lp.start_add("!dm", CX, pm_agents.NAME_ANSWER_RE.search(typed).group("label")))
+                self.assertIn("doesn't work as a name", self.said[-1][1])              # never silently "codex"
+            self.run_(self.lp.start_add("!dm", CX, "main"))
+            self.assertIn("already have an agent called main", self.said[-1][1])
+            self.run_(self.lp.start_add("!dm", CX, "two"))                              # GPT 24 re-check: its
+            self.assertIn("**cx-two-agent**", self.said[-1][1])                          # page again, not refused
+        self.assertEqual(self.made, [(CX, "two")])
 
     def test_from_the_console(self):
         loop = self.lp

@@ -163,8 +163,7 @@ def main() -> None:
         return
     if not args.code and not saved:
         raise SystemExit("✗ not connected yet: run this with the code @pm sent you")
-    last = saved.get("agent")                 # with a code, it may be a further agent: a gone CLI isn't fatal
-    backend = pick_backend(args.agent, last if not args.code or shutil.which(str(last)) else None)   # before the code is used
+    backend = pick_backend(args.agent, saved.get("agent"))      # before the code is used up
     if args.code:
         if not safe_url(args.server):
             raise SystemExit(f"✗ {args.server}: use https (plain http only for this computer)")

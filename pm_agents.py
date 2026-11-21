@@ -66,7 +66,7 @@ class MoreAgents:
         if not offer or offer.get("person") != event.sender or offer.get("dm") != room.room_id:
             return False
         if event.key.replace("️", "") == ADD:   # the question and the code: only in our private chat
-            dm = await self.private_room(event.sender)
+            dm = room.room_id if self.in_private(room, event.sender) else await self.private_room(event.sender)
             if dm is None:
                 await self.say(room.room_id, "I couldn't open a private chat with you; please try again.")
             else:
@@ -113,11 +113,11 @@ class MoreAgents:
         if label != (typed or "").strip().lower():
             label = None                      # never silently a different name than the one typed
         same = next((a for a in have if a["label"] == label), None) if label else None
-        unfinished = same is not None and not same["first"] and not same["dm"]   # a failed set-up: finished now
-        if len(have) >= registry.per_person() and not unfinished:
+        again = same is not None and not same["first"]   # theirs already: finished if it failed, its code resent
+        if len(have) >= registry.per_person() and not again:
             naming.pop(person, None)
             return await self._tell(dm, f"You have {len(have)} agents, the most one person can have here.")
-        if not typed or label is None or (same and not unfinished):
+        if not typed or label is None or (same and not again):
             naming[person] = {"dm": dm, "until": time.time() + NAMING_S}
             why = (f"You already have an agent called {label}. " if same else
                    "That doesn't work as a name. " if typed else "")

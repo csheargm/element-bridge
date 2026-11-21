@@ -206,6 +206,11 @@ class SignIn(unittest.TestCase):
                 remote_agent.disconnect(CX, "cx-laptop-agent")
             with self.assertRaisesRegex(AccountError, "isn't your agent"):
                 remote_agent.disconnect(BETTY, "cx-codex-agent")
+            with mock.patch.object(remote_agent, "_signs_in", return_value=False) as signs_in:
+                with self.assertRaisesRegex(AccountError, "never set up"):
+                    remote_agent.disconnect(CX, "cx-codex-agent")    # a saved password that isn't the account's
+            signs_in.assert_called_once_with("cx-codex-agent", "pw2")
+            registry.update(CX, "codex", ready=True)                 # provision_more: the account is ours
             admin.return_value = {}
             remote_agent.disconnect(CX, "cx-codex-agent")
         self.assertEqual(admin.call_count, 1)
@@ -259,6 +264,7 @@ class ProvisionMore(unittest.TestCase):
             self.assertEqual(remote_agent.provision_more(CX, "codex"), "cx-codex-agent")   # the same one, finished
         made.assert_called_once_with({}, "cx-codex-agent", "s", verify=True)
         self.assertEqual(registry.find(CX, "codex")["dm"], "!new")
+        self.assertTrue(registry.find(CX, "codex")["ready"])
         self.assertEqual(len(registry.agents_of(CX)), 2)
 
     def test_refused_without_a_first_agent_or_over_the_cap(self):

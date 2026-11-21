@@ -102,6 +102,7 @@ def _provision(person: str) -> str:
         if person not in people:              # counted and reserved BEFORE the account exists: a failed
             registry.update(person, None, agent=registry.REMOTE, created=remote_people.now())   # chat can't dodge the cap
     password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
+    registry.update(person, None, ready=True)  # made or signed in with our password: ours (disconnect checks)
     dm = info.get("dm") or open_dm(agent, password, person)
     registry.update(person, None, agent=registry.REMOTE, dm=dm)   # a fresh read under its lock: keeps the rest
     return agent
@@ -128,6 +129,7 @@ def provision_more(person: str, label: str) -> str:
         if found["agent"] != registry.REMOTE or registry.claimants(agent) != [person]:
             raise AccountError("that agent's account name is taken here; choose another name")
         password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
+        registry.update(person, agent, ready=True)   # made or signed in with our password: ours (disconnect checks)
         if not found.get("dm"):
             registry.update(person, agent, dm=open_dm(agent, password, person))
         return agent
@@ -145,8 +147,8 @@ def disconnect(person: str, agent: str | None = None) -> None:
             raise AccountError(f"@{agent} isn't your agent")
         key = setup_accounts.password_key(agent)
         old, new = env.get(key), secrets.token_urlsafe(18)
-        if old is None:                       # never set up (a failed reservation): never reset an account
-            raise AccountError(f"@{agent} was never set up here")   # we don't hold (GPT review 24)
+        if old is None or not (found["ready"] or _signs_in(agent, old)):   # never reset an account we
+            raise AccountError(f"@{agent} was never set up here")   # don't hold (GPT review 24)
         registry.update(person, None if found["first"] else agent, disconnected=time.time())   # older codes: dead
         setup_accounts.save_env({**env, key: new})
         try:
@@ -158,6 +160,14 @@ def disconnect(person: str, agent: str | None = None) -> None:
             if old is not None:                 # only our line, on a fresh read: other writers' lines stay
                 setup_accounts.save_env({**load_env(), key: old})
             raise AccountError(f"couldn't give @{agent} a new password: {r.get('errcode')}")
+
+
+def _signs_in(agent: str, password: str) -> bool:
+    """An older record (no "ready"): our saved password really signs in as `agent`."""
+    token = try_login(agent, password)
+    if token:
+        api("POST", "/_matrix/client/v3/logout", {}, token=token)
+    return bool(token)
 
 
 def locked_credentials(person: str, agent: str | None = None, issued: float | None = None) -> dict | None:
