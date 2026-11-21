@@ -140,7 +140,9 @@ class Projects(Finding, Joining, RepoRemoval):
             except room_state.StateUnreadable:
                 return "I couldn't read this room's settings just now; please try again."
             private = await project_rooms.repo_is_private(repo) if repo else False
-            failed = (project_rooms.refusal(value, private)
+            past = (value == project_rooms.OPEN and not private   # a private repo removed earlier (GPT re-check)
+                    and await project_rooms.had_private_repo(self.client, room.room_id))
+            failed = (project_rooms.refusal(value, private) or (project_rooms.NOT_OPEN_PAST if past else None)
                       or (private and await project_rooms.history_safe(self.client, room.room_id))
                       or await project_rooms.apply(self.client, room.room_id, value,
                                                    await project_rooms.visibility(self.client, room.room_id)))

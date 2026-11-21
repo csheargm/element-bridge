@@ -46,6 +46,9 @@ def module_settings(server_name: str) -> dict:
     return {"modules": json.dumps(modules), "default_room_version": '"12"'}
 
 
+LEGACY_DIRECTORY_KEY = "restrict_public_rooms_to_local_users"   # replaced by the two allow_public_rooms_* keys
+
+
 def directory_settings(server_name: str) -> dict:
     """Only @pm lists rooms in the room directory (the Lobby, and rooms their owners set to Listed or
     Open through @pm). Synapse's default lets only server admins publish, so "Listed" failed with
@@ -96,6 +99,8 @@ def configure(text: str, e: dict) -> str:
         **module_settings(e["SERVER_NAME"]),
         **directory_settings(e["SERVER_NAME"]),
     }
+    # Synapse refuses to start with this older key next to the two directory keys above (GPT re-check).
+    text = re.sub(rf"(?m)^{LEGACY_DIRECTORY_KEY}:.*\n?", "", text)
     return set_keys(text, extra)
 
 

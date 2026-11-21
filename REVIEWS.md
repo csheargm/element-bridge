@@ -1285,9 +1285,8 @@ Each point was checked in the code. Adopted, each with a test in tests/test_batc
   read, with no await between check, state and charge.
 - **"remove the repo" couldn't end a pending GitHub App wait** in a room with no repo yet: it ends
   the wait now and says so.
-- **A private repo's room, unbound, could later open its past** to new joiners ("shared" history,
-  and Open/Listed allowed once the repo is gone): unbinding a private repo sets history to "joined",
-  and says so if it couldn't.
+- **A private repo's room, unbound, could later be made open** and show its past to anyone who
+  joins: it stays refused (see the re-check below for how).
 - **"@pm …" typed in our private chat** wasn't understood by Add, Rename, GitHub or the welcome
   commands (the address was stripped only in rooms): pm_address.unaddressed for all four. (Found by
   the flow test for Add first; GPT named Rename.)
@@ -1314,3 +1313,24 @@ Deferred (the on-screen check covers them):
 - **Ollama's /api/tags may list no capabilities,** and then every model counts as able to use
   tools (a non-tool model fails at its first turn, not at Connect).
 - **The home button can open a DM the person made** (no My Hagency there), as deferred in #13.
+
+GPT re-check of these fixes (one blocking, two medium, four low). Adopted, with tests:
+- **Blocking: setting history to "joined" at unbind hides nothing.** Matrix shows each message
+  under the rule it was sent with. Instead, unbinding a private repo leaves a marker
+  (`xyz.hagencylabs.private_past`), and Open stays refused for that room (Listed is still allowed,
+  as for a private repo; an unreadable marker counts as set). If the marker can't be written, the
+  room is told to stay private or listed.
+- **Ending a quiet install wait named the repo.** A quiet wait exists before write access is known,
+  so naming it would confirm the repo. The answer is now the same words with or without a wait.
+- **A bind finishing as the wait ended was reported as "no repo".** stop_waiting waits for the
+  cancelled watch (its bind is shielded) and reads the room again, then asks the usual ✅ question.
+- **An already-blocked status client still had its body read:** a non-charging check comes first.
+- **The resend hint for a name of several words** said to remove the agent; it now says to rename
+  it to one word, which keeps the account.
+- **Synapse refuses `restrict_public_rooms_to_local_users`** next to the two directory keys: the
+  older key is removed from homeserver.yaml.
+- Also fixed: a watchdog test leaked status_board.at_start (from #12's panel lift), which failed
+  a later test when garbage-collected.
+
+Not adopted: **"pm-connect" or "@pm:server" prefixes** in the private chat. The same ADDRESS_RE
+already reads room messages this way, and Element sends a mention as the display name.

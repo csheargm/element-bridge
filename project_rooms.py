@@ -37,6 +37,20 @@ WORDS = {PRIVATE: "private: people join by invite, or by asking me with the exac
                   "people ask to join and an owner lets them in"),
          OPEN: "open: listed, and anyone can join"}
 NOT_OPEN = "This room works on a private repo, so it can't be open to anyone; it can be listed (people ask to join)."
+# Set when a private repo is removed from the room (pm_unbind.py): Matrix shows each message under the
+# history rule it was sent with, so changing the rule then can't hide the past; open stays refused.
+PRIVATE_PAST_EVENT = "xyz.hagencylabs.private_past"
+NOT_OPEN_PAST = ("This room's earlier messages are about a private repo, so it can't be open to anyone; it can be "
+                 "listed (people ask to join).")
+
+
+async def had_private_repo(client: AsyncClient, room_id: str) -> bool:
+    """This room once worked on a private repo (PRIVATE_PAST_EVENT); unreadable: as if it had."""
+    r = await client.room_get_state_event(room_id, PRIVATE_PAST_EVENT, "")
+    content = getattr(r, "content", None)
+    if isinstance(content, dict):
+        return content.get("private") is True
+    return getattr(r, "status_code", "") != "M_NOT_FOUND"
 
 
 FRONT_DOOR_IDS: set[str] = set()              # what FRONT_DOORS point to, looked up at each start (pm_welcome, pm_lobby)

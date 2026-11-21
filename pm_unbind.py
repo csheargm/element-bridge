@@ -35,11 +35,11 @@ UNREPO_RE = re.compile(r"^\W*(please\W+)?(this room has no (github )?repo(sitory
 ASK = ("Remove this room's GitHub repo, **{repo}**? Mode goes to off and the agents' copy of it goes. Nothing on "
        "GitHub changes, and you can pick a repo again any time. Click ✅ below to remove it.")
 DONE = "This room has no GitHub repo now. Pick one any time in the Hagency panel."
-NO_REPO_HERE = "This room has no GitHub repo to remove."
-HISTORY_OPEN = (" ⚠️ I couldn't keep its earlier messages (about a private repo) from people who join later: "
-                "keep the room private, or set Element's history to \"Members only (since they joined)\".")
-STOPPED_WAITING = ("I stopped waiting for the GitHub App on **{repo}**: this room won't get that repo. Pick one any "
-                   "time in the Hagency panel.")
+# The same words whether or not a repo choice was waiting for the GitHub App: a quiet wait must never
+# confirm that a repo exists (pm_settings.watch_install; GPT re-check, batch 12-14).
+NO_REPO_HERE = "This room has no GitHub repo to remove, and no earlier choice will set one up now."
+PAST_KEPT = (" ⚠️ I couldn't mark this room as having held a private repo, so keep it private or listed (never "
+             "open): its earlier messages stay readable to anyone who joins.")
 NOT_MODERATOR = "Only the room owner or a maintainer can remove this room's repo."
 UNREADABLE = "I couldn't check this room just now; please try again in a minute."
 NOT_PROJECT = "Only project rooms have a repo."
@@ -60,8 +60,10 @@ class RepoRemoval:
         if not refused and not await room_state.is_moderator(self.client, room, sender):
             refused = NOT_MODERATOR
         repo = None if refused else await room_state.repo_of(self.client, room.room_id)
+        if not refused and repo is None and await self.stop_waiting(room.room_id):
+            repo = await room_state.repo_of(self.client, room.room_id)   # a bind that was finishing
         if refused or repo is None:
-            await self.say(room.room_id, refused or self.stop_waiting(room.room_id) or NO_REPO_HERE)
+            await self.say(room.room_id, refused or NO_REPO_HERE)
             return
         event_id = await self.say(room.room_id, ASK.format(repo=repo))
         asked, now = self.repo_removals(), time.time()
@@ -70,14 +72,16 @@ class RepoRemoval:
         asked[event_id] = {"person": sender, "room": room.room_id, "until": now + CONFIRM_S, "repo": repo}
         await self.offer_thumb(room.room_id, event_id, "✅")
 
-    def stop_waiting(self, rid: str) -> str | None:
+    async def stop_waiting(self, rid: str) -> bool:
         """No repo yet, but one chosen and waiting for the GitHub App's install (pm_settings.watch_install):
-        "remove the repo" ends that wait, so it can't bind the repo later (GPT review, batch 12-14)."""
+        "remove the repo" ends that wait, so it can't bind the repo later, and waits for a bind it was
+        already finishing (that one is shielded) before the room is read again (GPT review and re-check)."""
         waiting = getattr(self, "install_watches", {}).get(rid)
         if not waiting:
-            return None
+            return False
         self.stop_install_watch(rid)
-        return STOPPED_WAITING.format(repo=waiting[0])
+        await asyncio.gather(waiting[1], return_exceptions=True)   # cancelled, or its bind done
+        return True
 
     async def on_repo_removal_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         """True if this was a reaction to my "remove the repo?" question (handled here)."""
@@ -121,18 +125,19 @@ class RepoRemoval:
         await self.blank_board(rid)
         await self.address_after_unbind(room)
         log.info("%s removed the repo of %s", sender, rid)
-        return DONE + (await self.close_history(rid, seen) or "")
+        return DONE + (await self.mark_private_past(rid, seen) or "")
 
-    async def close_history(self, rid: str, repo: str) -> str | None:
-        """A private repo's room keeps its past to itself: with the repo gone it may be made open or listed,
-        so people who join later read only from then on ("joined"; GPT review, batch 12-14)."""
+    async def mark_private_past(self, rid: str, repo: str) -> str | None:
+        """A private repo's room never becomes open, even with the repo gone: Matrix shows each earlier
+        message under the history rule it was sent with, so only keeping newcomers out protects them
+        (project_rooms.PRIVATE_PAST_EVENT; GPT review and re-check, batch 12-14)."""
         if not await project_rooms.repo_is_private(repo):
             return None
-        done = await self.client.room_put_state(rid, "m.room.history_visibility", {"history_visibility": "joined"})
+        done = await self.client.room_put_state(rid, project_rooms.PRIVATE_PAST_EVENT, {"private": True})
         if hasattr(done, "event_id"):
             return None
-        log.warning("couldn't close %s's history after removing %s: %s", rid, repo, done)
-        return HISTORY_OPEN
+        log.warning("couldn't mark %s as having held the private repo %s: %s", rid, repo, done)
+        return PAST_KEPT
 
     async def write_unbound(self, rid: str, sender: str, seen: str) -> str | None:
         """The binding with no repo, read and written under the binding lock (pm_settings.write_level);

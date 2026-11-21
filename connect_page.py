@@ -70,6 +70,8 @@ async def _status(request):
     client = remote_agent.client_of(request)
     if request.content_type != "application/json":
         return web.json_response({"error": "send JSON"}, status=415, headers=NO_STORE)
+    if connect_status.LIMIT.blocked(client):      # already over: no body read (not counted; GPT re-check)
+        return web.json_response({"error": "too many; wait a minute"}, status=429, headers=NO_STORE)
     try:
         body = await request.json()
     except ValueError:

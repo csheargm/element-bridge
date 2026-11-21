@@ -17,6 +17,7 @@ import agent_kinds
 import connect_page
 import connect_status
 import pairing
+import project_rooms
 import pm_unbind
 import registry
 import remote_agent
@@ -78,20 +79,56 @@ class StatusDuringRedeem(unittest.IsolatedAsyncioTestCase):
 
 
 class RemoveRepoEdges(repos.Setup):
-    def test_remove_the_repo_ends_a_pending_install_wait(self):
-        self.state["!b"] = {}
-        task = mock.Mock()
-        self.lp.install_watches["!b"] = ("acme/next", task)
-        self.tell(repos.ANNA, "remove the repo", room=self.b)
-        self.assertNotIn("!b", self.lp.install_watches)
-        task.cancel.assert_called_once()
-        self.assertIn("stopped waiting for the GitHub App on **acme/next**", self.said[-1][1])
+    def ask(self, room, waiting=None):
+        """"@pm remove the repo" in `room`, with an install wait running there (a coroutine) or none."""
+        async def go():
+            if waiting is not None:
+                self.lp.install_watches[room.room_id] = ("acme/next", asyncio.ensure_future(waiting()))
+                await asyncio.sleep(0)
+            body = "@pm remove the repo"
+            await self.lp.on_project_text(room, SimpleNamespace(sender=repos.ANNA, body=body, source={"content": {"body": body}}))
+        asyncio.run(go())
+        return self.said[-1][1]
 
-    def test_a_private_repos_room_keeps_its_past_from_later_joiners(self):
+    def test_remove_the_repo_ends_a_pending_install_wait_in_the_same_words(self):
+        self.state["!b"] = {}
+        ended = []
+
+        async def wait():
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                ended.append(True)
+                raise
+        self.assertEqual(self.ask(self.b, wait), pm_unbind.NO_REPO_HERE)
+        self.assertEqual((ended, self.lp.install_watches), ([True], {}))
+        self.assertEqual(self.ask(self.b), pm_unbind.NO_REPO_HERE)          # no wait: the very same words
+        self.assertNotIn("acme/next", " ".join(b for _, b in self.said))    # a quiet wait's repo is never named
+
+    def test_a_bind_finishing_as_the_wait_ends_is_asked_about(self):
+        self.state["!b"] = {}
+
+        async def binding():                  # cancelled in its shielded bind: the bind still finishes
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                self.bind("!b")
+                raise
+        self.assertIn(f"**{repos.REPO}**", self.ask(self.b, binding))      # the ✅ question, not "no repo"
+
+    def test_a_private_repos_room_never_becomes_open_after(self):
         with mock.patch("project_rooms.repo_is_private", mock.AsyncMock(return_value=True)):
-            answer = asyncio.run(self.lp.remove_repo(self.a, repos.ANNA, repos.REPO))
-        self.assertEqual(answer, pm_unbind.DONE)
-        self.assertEqual(self.state["!a"]["m.room.history_visibility"][0], {"history_visibility": "joined"})
+            self.assertEqual(asyncio.run(self.lp.remove_repo(self.a, repos.ANNA, repos.REPO)), pm_unbind.DONE)
+        self.assertEqual(self.state["!a"][project_rooms.PRIVATE_PAST_EVENT][0], {"private": True})
+        with mock.patch.object(project_rooms, "apply", mock.AsyncMock(return_value=None)) as applied, \
+                mock.patch("room_address.follow", mock.AsyncMock(return_value="")):
+            self.assertEqual(asyncio.run(self.lp.set_visibility(self.a, repos.ANNA, "open")), project_rooms.NOT_OPEN_PAST)
+            applied.assert_not_called()
+            self.assertIn("listed", asyncio.run(self.lp.set_visibility(self.a, repos.ANNA, "listed")))   # still allowed
+
+    def test_a_public_repos_room_may_open_after(self):
+        self.assertEqual(asyncio.run(self.lp.remove_repo(self.a, repos.ANNA, repos.REPO)), pm_unbind.DONE)
+        self.assertFalse(asyncio.run(project_rooms.had_private_repo(self.lp.client, "!a")))
 
 
 class AddressedInPrivate(flows.Provisioning):
@@ -128,4 +165,4 @@ class Pages(unittest.TestCase):
         reused, spaced = json.loads(out)
         self.assertIn("add another agent called codex&quot;", reused.replace('"', "&quot;"))
         self.assertNotIn("codex2", reused)
-        self.assertIn("Remove it here and add it again", spaced)
+        self.assertIn("Rename it here to one short word", spaced)

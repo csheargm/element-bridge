@@ -125,6 +125,12 @@ class RoomDirectory(unittest.TestCase):
         self.assertIn("allow_public_rooms_over_federation: true", again)          # an older file is fixed too
         self.assertNotIn("allow_public_rooms_over_federation: false", again)
 
+    def test_the_older_key_synapse_refuses_beside_them_goes(self):
+        """GPT re-check: restrict_public_rooms_to_local_users with either new key stops Synapse from starting."""
+        out = configure(GENERATED + "restrict_public_rooms_to_local_users: false\n", ENV)
+        self.assertNotIn("restrict_public_rooms_to_local_users", out)
+        self.assertIn("allow_public_rooms_over_federation: true", out)
+
 
 if __name__ == "__main__":
     unittest.main()

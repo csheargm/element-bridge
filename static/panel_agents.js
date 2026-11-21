@@ -37,12 +37,12 @@ function agentHint(a) {
   // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
   // A further one: @pm resends by the name its person calls it (pm_agents.start_add), never its slot
   // ("codex2" for one renamed or called "codex" again: GPT review, batch 12-14); a name of several words
-  // (or longer than 9) can't be typed in that line, so then: remove and add it again.
+  // (or longer than 9) can't be typed in that line, so then: rename it to one word first (GPT re-check).
   const called = a.display || a.label;
   const steps = a.first ? 'follow the 🔌 steps (type "resend me the code" there for a fresh one)'
     : /^[A-Za-z][A-Za-z0-9]{0,8}$/.test(called)   // identity.LABEL_RE, any case
       ? `follow its Connect message (for a fresh code, type "add another agent called ${esc(called)}" there)`
-      : "follow its Connect message (for a fresh code, Remove it here and add it again)";
+      : 'follow its Connect message (for a fresh code, Rename it here to one short word, then type "add another agent called" that word there)';
   return `<div class="hint">Not connected yet: open ${chatLink("your chat with Product Manager")} and ${steps}.</div>`;
 }
 // Rename: only the name people see (pm_rename.py); its Matrix ID stays. Plain text, up to 40 characters.
