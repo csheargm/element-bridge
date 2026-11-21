@@ -91,7 +91,7 @@ class WindowsTask(unittest.TestCase):
         (home / "agent.pid").write_text("101\n202\n")
         with mock.patch.object(agent_service, "kind", return_value=agent_service.WINDOWS), \
                 mock.patch.dict("os.environ", {"APPDATA": str(appdata)}):
-            ours = f'"C:\\py\\pythonw.exe" "{Path("/app") / "connect_win.py"}" --home "{home}"'
+            ours = f'C:\\py\\pythonw.exe|"C:\\py\\pythonw.exe" "{Path("/app") / "connect_win.py"}" --home "{home}"'
             runs, run = self.run_with(True, tasklist=ours)
             self.assertTrue(agent_service.stop(AGENT, run=run, home=home, app=Path("/app")))
             self.assertIn(["schtasks", "/Delete", "/TN", "Hagency agent newbie1", "/F"], runs)
@@ -99,7 +99,8 @@ class WindowsTask(unittest.TestCase):
             self.assertFalse((startup / "Hagency agent newbie1.lnk").exists())
             self.assertFalse((home / "agent.pid").exists())         # no stale numbers left behind
             (home / "agent.pid").write_text("101\n")
-            for other in ('"C:\\py\\python.exe" "C:\\work\\train.py"', "notepad.exe /app/connect_win.py", ""):
+            for other in ('C:\\py\\python.exe|python.exe C:\\work\\train.py', "C:\\x\\notepad.exe|notepad /app/connect_win.py",
+                          "C:\\w\\cmd.exe|cmd /c echo python /app/bridge.py", ""):
                 runs, run = self.run_with(False, tasklist=other)
                 self.assertFalse(agent_service.stop(AGENT, run=run, home=home, app=Path("/app")))
                 self.assertFalse(any(r[0] == "taskkill" for r in runs), other)   # a reused PID is spared

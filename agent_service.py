@@ -15,7 +15,7 @@ import platform
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from xml.sax.saxutils import escape
 
 LABEL = "xyz.hagencylabs.agent"
@@ -126,10 +126,12 @@ def install(app: Path, owner: str, backend: str, agent: str, creds: Path, run=su
 def _ours(pid: str, app: Path, run) -> bool:
     """Is this PID still a Python running this installation's keeper or bridge? (A stale agent.pid
     may name a reused number: only a command line naming our own files counts.)"""
-    ask = f"(Get-CimInstance Win32_Process -Filter 'ProcessId = {int(pid)}').CommandLine"
-    line = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ask],
-               capture_output=True, text=True).stdout.strip().lower()
-    return "python" in line and any(str(app / f).lower() in line for f in ("connect_win.py", "bridge.py"))
+    ask = (f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId = {int(pid)}'; "
+           '"$($p.ExecutablePath)|$($p.CommandLine)"')
+    out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ask], capture_output=True, text=True).stdout
+    exe, _, line = out.strip().lower().partition("|")
+    return (PureWindowsPath(exe).name.startswith("python")      # the program itself, not text in its arguments
+            and any(str(app / f).lower() in line for f in ("connect_win.py", "bridge.py")))
 
 
 def _stop_windows(agent: str, home: Path, run, app: Path) -> bool:
@@ -144,10 +146,14 @@ def _stop_windows(agent: str, home: Path, run, app: Path) -> bool:
     existed |= link.exists()
     link.unlink(missing_ok=True)
     pids = home / "agent.pid"
-    for pid in (pids.read_text().split() if pids.exists() else []):
-        if pid.isdigit() and _ours(pid, app, run):
-            run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True)
-    pids.unlink(missing_ok=True)
+    try:
+        numbers = pids.read_text().split()
+    except OSError:                           # none, or the keeper just removed it on its way out
+        numbers = []
+    ended = [run(["taskkill", "/PID", pid, "/T", "/F"], capture_output=True).returncode == 0
+             for pid in numbers if pid.isdigit() and _ours(pid, app, run)]
+    if all(ended):                            # kept while one of ours survived, for the next stop
+        pids.unlink(missing_ok=True)
     return existed
 
 

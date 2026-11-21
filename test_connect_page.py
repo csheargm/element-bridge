@@ -177,7 +177,9 @@ class WindowsInstaller(unittest.TestCase):
 
     def test_a_failed_rerun_starts_the_old_agent_again(self):
         """GPT review: an expired code or no network must not leave a working agent stopped."""
-        self.assertIn("$script:Stopped | Start-ScheduledTask", self.text)
+        self.assertIn("foreach ($task in $state.Stopped)", self.text)
+        self.assertIn("foreach ($link in $state.Relaunch)", self.text)
+        self.assertNotIn("$script:", self.text)                 # it runs in the person's own session
 
     def test_the_task_restarts_and_runs_as_the_person(self):
         for piece in ("New-ScheduledTaskTrigger -AtLogOn", "-RestartCount 255", "-RunLevel Limited", "-LogonType Interactive"):

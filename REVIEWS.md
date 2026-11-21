@@ -635,3 +635,8 @@ Rejected or deferred:
 - Pairing with connect.py directly on Windows (not through connect.ps1) relies on the profile
   folder's own private ACL; Startup resolved from %APPDATA% (a redirected Startup folder is rare);
   stop doesn't report schtasks/taskkill failures.
+- (re-check) The PID check now reads the process's own program (a Python) and its command line
+  separately, so text in another program's arguments can't pass; a vanished agent.pid is no error;
+  it is kept while one of ours survived. A failed rerun also relaunches a Startup-folder agent and
+  says honestly whether anything came back; that state lives in a local hashtable, never in the
+  person's own session scope.
