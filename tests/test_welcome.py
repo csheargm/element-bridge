@@ -238,6 +238,14 @@ class Buttons(Base):
         self.run_(self.lp.on_welcome_text(DM, text(NEW, "server agent please")))
         self.assertIn("isn't here yet", self.said[-1][1])
 
+    def test_bring_my_own_wins_over_a_mention_of_a_server_agent(self):
+        """GPT review: "bring my own ... on my server agent box" is a choice to bring one, not a question."""
+        async def bring():
+            await self.lp.on_welcome_text(DM, text(NEW, "bring my own using ollama on my server agent box"))
+            await asyncio.gather(*self.lp.busy)
+        self.run_(bring())
+        self.assertFalse(any("isn't here yet" in s[1] for s in self.said))
+
     def test_an_old_offers_house_button_still_gets_the_answer(self):
         self.assertTrue(self.click("🏠"))
         self.assertIn("server agent", self.said[0][1])

@@ -120,7 +120,7 @@ def welcome_and_code(me, name):
     api("PUT", f"/_matrix/client/v3/rooms/{urllib.parse.quote(dm)}/send/m.room.message/r{time.time_ns()}", me,
         {"msgtype": "m.text", "body": "server agent"})
     check("typing server agent says it comes later", True,
-          until("server agent reply", lambda: pm_message(me, dm, "isn't here yet"))["content"]["body"][:60])
+          until("server agent reply", lambda: pm_message(me, dm, "server agent, one that runs on this server for you, isn't here yet"))["content"]["body"][:60])
     react(me, dm, offer["event_id"], "🔌")
     line = until("the install line", lambda: pm_message(me, dm, "connect.sh"))["content"]["body"]
     found = re.search(r"curl -fsSL (\S+)/connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})", line)

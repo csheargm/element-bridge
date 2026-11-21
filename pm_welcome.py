@@ -191,11 +191,11 @@ class Welcome(Lobby, GitHubLink, FirstAgent):   # pm_github.py: Connect GitHub, 
             return True
         if in_dm and intents.NEGATED.search(text) and (SERVER_RE.search(text) or BRING_RE.search(text)):
             return False                      # "I don't want to bring my own": not a choice
-        if in_dm and SERVER_RE.search(text):
-            await self.choose(room.room_id, event.sender, HOUSE)
-        elif in_dm and BRING_RE.search(text):         # "... using ollama llama3.2": the AI it runs (pm_first.py)
-            picked = picked_from(text)
+        if in_dm and BRING_RE.search(text):           # "... using ollama llama3.2": the AI it runs (pm_first.py);
+            picked = picked_from(text)                # first, so "... on my server agent box" still brings one
             await (self.say(room.room_id, picked) if isinstance(picked, str) else self.choose(room.room_id, event.sender, BRING, picked))
+        elif in_dm and SERVER_RE.search(text):
+            await self.choose(room.room_id, event.sender, HOUSE)
         elif m := REMOVE_RE.search(text):
             await self.ask_removal(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_remove.py
         elif m := DISCONNECT_RE.search(text):
