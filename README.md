@@ -205,7 +205,7 @@ may discuss the repo but never runs its loop (its mode stays off; its panel says
 run from).
 
 **Who can join a project room** (owners and maintainers choose; joining never gives a say in how it runs):
-- **Private** (default): unlisted; by invite, or by asking @pm with the exact repo name.
+- **Private** (default): not listed; by invite, or by asking @pm with the exact repo name.
 - **Listed**: in Find a project and the server's room directory (other Matrix servers see it too).
   Element shows "Ask to join"; @pm asks the room's owners and invites on 👍. A private repo's name is
   never shown in a listing.
