@@ -19,9 +19,8 @@ from test_remove_agent import use_registry
 S = "bridge.localhost"
 
 
-class RemoveLastThenAdd(Base):
-    """#3: removing the first (last) agent deleted the line, and "bring my own" then tried to
-    register betty-agent again, which Synapse never allows for a deactivated name."""
+class RemovalCase(Base):
+    """Betty's agents on her own computer; Synapse, .env and the pairing codes faked."""
     people = {BETTY: {"agent": "remote", "ready": True, "dm": "!b"}}
 
     def setUp(self):
@@ -46,6 +45,12 @@ class RemoveLastThenAdd(Base):
             p = mock.patch.object(target, name, value)
             p.start()
             self.addCleanup(p.stop)
+
+
+
+class RemoveLastThenAdd(RemovalCase):
+    """#3: removing the first (last) agent deleted the line, and "bring my own" then tried to
+    register betty-agent again, which Synapse never allows for a deactivated name."""
 
     def say_(self, body):
         return self.run_(self.lp.on_welcome_text(SimpleNamespace(room_id="!dm"), text(BETTY, body)))
@@ -119,7 +124,7 @@ class PruneDropsGitHub(LinkCase):
         async def approved_meanwhile(flow, sleep=None):
             self.lp.forget_github_of(self.dead)                                  # the prune, as GitHub answers
             return "anna-gh", ANNA_ID
-        with mock.patch.object(github_link, "wait_for_login", approved_meanwhile):
+        with mock.patch.object(github_link, "wait_for_login", approved_meanwhile), self.assertLogs("loop", "WARNING"):
             async def flow():
                 await self.lp.connect_github(ANNA)
                 with self.assertRaises(asyncio.CancelledError):
@@ -134,6 +139,50 @@ class PruneDropsGitHub(LinkCase):
                 mock.patch.object(remote_agent.CODES, "revoke"):
             self.assertTrue(asyncio.run(self.lp.remove_for_good("!dm", ANNA, "anna-agent")))
         self.assertEqual(github_link.link_of(ANNA)["login"], "anna-gh")
+
+
+class SaveFails(RemovalCase):
+    """#5: agents.json unwritable (a full disk) after the account was closed, and during pruning."""
+    people = {BETTY: {"agent": "remote", "ready": True, "dm": "!b", "more": [{"label": "codex", "agent": "remote", "ready": True}]}}
+
+    def setUp(self):
+        super().setUp()
+        self.revoked, self.closed = [], []
+        for target, name, value in ((remote_agent.CODES, "revoke", lambda *a: self.revoked.append(a)),
+                                    (agent_removal.local_signup, "admin_call", lambda *a: self.closed.append(a[1]) or {})):
+            p = mock.patch.object(target, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_a_closed_account_is_reported_closed_and_its_codes_revoked(self):
+        with mock.patch.object(registry, "save", side_effect=OSError("disk full")), self.assertLogs("loop", "ERROR"):
+            self.assertTrue(self.run_(self.lp.remove_for_good("!dm", BETTY, "codex")))
+        self.assertEqual(len(self.closed), 1)                                    # deactivated
+        self.assertEqual(self.revoked, [(BETTY, "betty-codex-agent")])
+        self.assertIn("account is closed for good, but I couldn't update my records", self.said[-1][1])
+        self.assertNotIn("try again;", self.said[-1][1])
+        self.assertTrue(self.run_(self.lp.remove_for_good("!dm", BETTY, "codex")))   # later: frees its slot
+        self.assertEqual([a["label"] for a in registry.agents_of(BETTY)], ["main"])
+
+    def test_nothing_closed_and_unsaved_is_a_plain_retry(self):
+        registry.update(BETTY, "codex", ready=False)
+        with mock.patch.object(agent_removal, "_exists", return_value=False), \
+                mock.patch.object(registry, "save", side_effect=OSError("disk full")), self.assertLogs("loop", "ERROR"):
+            self.assertFalse(self.run_(self.lp.remove_for_good("!dm", BETTY, "codex")))
+        self.assertEqual((self.closed, self.revoked), ([], []))
+        self.assertIn("please try again", self.said[-1][1])
+
+    def test_a_prune_that_cant_save_is_logged_and_the_poll_goes_on(self):
+        dead = {f"@betty-agent:{S}", f"@betty-codex-agent:{S}", BETTY}
+        with mock.patch.object(agent_removal, "deactivated", return_value=dead), \
+                mock.patch.object(registry, "save", side_effect=OSError("disk full")), \
+                self.assertLogs("loop", "ERROR") as logs:
+            self.run_(self.lp.prune_registry(now=10**9))                         # never raises into the poll
+        self.assertIn("couldn't save agents.json", "\n".join(logs.output))
+        self.assertIn(BETTY, registry.load())
+        with mock.patch.object(agent_removal, "deactivated", return_value=dead), self.assertLogs("loop", "WARNING"):
+            self.run_(self.lp.prune_registry(now=10**9 + 11 * 60))               # tried again soon, not in 6 h
+        self.assertNotIn(BETTY, registry.load())
 
 
 if __name__ == "__main__":

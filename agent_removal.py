@@ -25,6 +25,11 @@ PAGE = 500
 MAX_PAGES = 40                       # 20 000 accounts: far beyond this server; a runaway list is "unreadable"
 
 
+class NotForgotten(OSError):
+    """The account IS closed, but agents.json couldn't be saved: it may still be listed (GPT review,
+    batch 5+6). The caller still revokes its codes; removing it again frees the slot."""
+
+
 def remove(person: str, agent: str) -> bool:
     """Remove this remote agent of `person` (localpart or label). Their first agent goes only when it
     is their last one. True if its account was deactivated (False: it never existed, so only its
@@ -46,7 +51,12 @@ def remove(person: str, agent: str) -> bool:
             raise AccountError(f"I couldn't confirm {localpart}'s account just now; please try again")
         if ours:
             _deactivate(f"@{localpart}:{SERVER_NAME}")
-        registry.forget_agent(person, localpart)
+        try:
+            registry.forget_agent(person, localpart)
+        except OSError as e:
+            if ours:                          # closed already: say so, never "try again" as if nothing happened
+                raise NotForgotten(f"closed {localpart}, but couldn't save agents.json: {e}") from e
+            raise                             # nothing was closed: a plain failure, nothing changed
         if key in env:
             try:
                 setup_accounts.save_env({k: v for k, v in load_env().items() if k != key})   # a fresh read: others stay

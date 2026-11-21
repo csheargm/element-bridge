@@ -25,12 +25,14 @@ from bridge_config import SERVER_NAME
 from setup_accounts import AccountError
 
 log = logging.getLogger("loop")
-CONFIRM_S, PRUNE_EVERY_S = 10 * 60, 6 * 3600
+CONFIRM_S, PRUNE_EVERY_S, PRUNE_RETRY_S = 10 * 60, 6 * 3600, 10 * 60   # a failed save: again in 10 minutes
 REMOVE_RE = re.compile(r"^\W*(please\W+)?remove my (agent(\s+(?P<name>[a-z0-9-]+))?|(?P<label>[a-z0-9]+) agent)\W*$", re.I)
 ASK = ("Remove **{agent}** for good? Its account here is closed: it's signed out everywhere, leaves every "
        "room and can never sign in again, and its place among your agents is free. This can't be undone "
        "(to only sign it out, say \"disconnect my agent {label}\"). Click ✅ below to remove it.")
 REMOVED = "Removed: {agent} is gone for good, and you can add another agent in its place."
+NOT_FORGOTTEN = ("Removed: {agent}'s account is closed for good, but I couldn't update my records just now, so it "
+                 "may still be listed. Say \"remove my agent {label}\" again later to free its place.")
 
 
 class Removal:
@@ -83,8 +85,12 @@ class Removal:
             await self.say(room_id, "That isn't one of your agents on your own computer.")
             return False
         localpart, first = found[0]["localpart"], found[0]["first"]
+        said = REMOVED.format(agent=localpart)
         try:
             await asyncio.to_thread(agent_removal.remove, person, localpart)
+        except agent_removal.NotForgotten as e:   # closed: its codes go too, and they're told the truth
+            log.error("removed %s's agent %s, but its record stays: %s", person, localpart, e)
+            said = NOT_FORGOTTEN.format(agent=localpart, label=found[0]["label"])
         except AccountError as e:
             await self.say(room_id, f"⚠️ I couldn't remove it: {e}.")
             return False
@@ -95,7 +101,7 @@ class Removal:
         remote_agent.CODES.revoke(person, None if first else localpart)   # only once it's gone (GPT re-check)
         self.seen().pop(localpart, None)       # pm_presence.py: no "offline" note for it ever again
         log.info("removed %s's agent %s for good", person, localpart)
-        await self.say(room_id, REMOVED.format(agent=localpart))
+        await self.say(room_id, said)
         return True
 
     async def prune_registry(self, now: float) -> None:
@@ -109,7 +115,13 @@ class Removal:
             return                            # agent_removal logged why; the dead set stays as it was
         self._dead = dead
         self.forget_github_of(dead)           # pm_github.py: a deactivated account's GitHub link goes too
-        for person in await asyncio.to_thread(agent_removal.prune, dead):
+        try:
+            gone = await asyncio.to_thread(agent_removal.prune, dead)
+        except OSError as e:                  # agents.json unwritable: logged, the poll goes on; next time again
+            log.error("couldn't save agents.json while forgetting deactivated accounts: %s", e)
+            self._pruned = now - PRUNE_EVERY_S + PRUNE_RETRY_S
+            return
+        for person in gone:
             log.warning("forgot %s in agents.json: every account of theirs here is deactivated", person)
 
     def is_deactivated(self, localpart: str) -> bool:
