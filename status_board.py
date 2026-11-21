@@ -19,6 +19,7 @@ from nio import RoomGetStateEventResponse, RoomSendResponse
 
 import github
 from loop_progress import num
+import console_personal
 import panel
 import pm_settings
 import project_rooms
@@ -124,7 +125,8 @@ class Boards:
 
     async def ensure_panel(self, room_id: str) -> None:
         """The side panel, once per project room, as soon as I may add it (a moderator), repo or not.
-        Never in my front doors (Welcome, the Lobby: taken out once per start if there) or my private chats."""
+        Never in my front doors (Welcome, the Lobby: taken out once per start if there) or my private chats,
+        except my own with one person (My Hagency: console_personal.py)."""
         room, board = self.client.rooms.get(room_id), self.boards.get(room_id, {})
         if room is not None and project_rooms.is_front_door(room):
             cleared = self.__dict__.setdefault("_front_doors_cleared", set())
@@ -134,7 +136,8 @@ class Boards:
                     self.save_boards()
             return
         if (board.get("panel") or room is None
-                or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
+                or (pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
+                    and not console_personal.is_personal_chat(self, room))   # My Hagency there: personal cards
                 or not await room_state.is_moderator(self.client, room, self.user_id)):   # creators too (v12)
             return
         if await panel.add_to_room(self.client, room_id):

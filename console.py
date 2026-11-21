@@ -23,6 +23,7 @@ import urllib.request
 from aiohttp import web
 
 import agent_kinds
+import console_personal
 import console_repo
 import customize
 import github
@@ -146,6 +147,10 @@ async def view(loop, room_id: str, user: str) -> dict:
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
     mine = my_agents(loop, room, room_id, user)
+    if console_personal.owner_of(loop, room):   # My Hagency: their personal cards only
+        return console_personal.view(loop, room, user, mine, can_add(user, mine),
+                                     {"kinds": agent_kinds.KINDS, "github": github_link.status(user),
+                                      "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None})
     return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.KINDS, "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
@@ -181,6 +186,8 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
         return "you're not in that room"
     if project_rooms.is_front_door(room):     # GPT review: no changes there either, only the reads refused
         return project_rooms.NOT_A_PROJECT
+    if refused := console_personal.refusal(loop, room, user, action):   # My Hagency: theirs, personal actions only
+        return refused
     if action == "mode" and value in github.LEVELS:
         if value != "off" and not await room_state.is_moderator(loop.client, room, user):
             return "only the room owner or a maintainer can change the mode"

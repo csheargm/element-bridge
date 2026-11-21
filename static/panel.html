@@ -172,6 +172,7 @@ async function show() {
   if (typing && (fields.includes(typing) || sameCode || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
+  if (s.personal) return personal(s);       // My Hagency: their own cards only (console_personal.py)
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
   $("who").innerHTML = `<span class="chip">${esc(s.user)}</span> <span class="chip role">${s.moderator ? "Owner / maintainer" : "Contributor"}</span>`;
   let h = "";
@@ -183,6 +184,12 @@ async function show() {
     ${card("repoCard", s)}</div>`;
   h += card("projectCard", s) + card("githubCard", s) + card("agentCards", s);   // panel_project.js, panel_github.js, panel_agents.js
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
+}
+function personal(s) {
+  $("sub").innerHTML = '<span class="chip">Your agents and GitHub, the same in every room</span>';
+  $("who").innerHTML = `<span class="chip">${esc(s.user)}</span>`;
+  $("controls").innerHTML = card("agentCards", s) + card("githubCard", s);
+  $("p").innerHTML = "";
 }
 start(); setInterval(refresh, __REFRESH_MS__);
 </script>
