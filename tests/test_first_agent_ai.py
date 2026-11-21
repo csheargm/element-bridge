@@ -96,6 +96,28 @@ class FirstAgentAI(kind_flow.KindFlow):
         mine = console.my_agents(self.lp, self.lp.client.rooms["!r"], "!r", NEWB)
         self.assertTrue(console.can_add(NEWB, mine))              # now "Add an agent" adds a further one
 
+    def test_the_one_on_my_computer_clears_an_earlier_choice(self):
+        """GPT review: "AI: the one on my computer" sent no choice, so the earlier one stayed."""
+        self.say_("bring my own using ollama qwen3:8b")
+        auto = json.dumps({"name": "", "agent_kind": "", "model": "", "base_url": ""})   # what addValue sends now
+        self.run_(console.act(self.lp, "!r", NEWB, "add", auto))
+        self.assertEqual(self.first_ai(), {})
+        self.assert_message_names(self.said[-1][1], None)
+        self.say_("bring my own")                                # plain words keep what it has
+        self.assertEqual(self.first_ai(), {})
+
+    def test_a_second_click_while_setting_up_says_so(self):
+        """GPT review: the panel promised a Connect page though nothing was started."""
+        self.lp._provisioning = {NEWB}
+        picked = json.dumps({"name": "", "agent_kind": "claude", "model": "", "base_url": ""})
+        self.assertIn("already setting up", self.run_(console.act(self.lp, "!r", NEWB, "add", picked)))
+
+    def test_hermes_says_where_its_line_runs(self):
+        message = self.say_("bring my own using hermes")
+        self.assertIn("Mac or Linux; on Windows only inside WSL", message)
+        self.assertIn("invite patch", message)
+        self.assertNotIn("Mac, Windows or Linux", message)
+
     def test_the_first_agents_picker_shows_until_one_has_connected(self):
         self.assertTrue(console_agents.first_pick(self.lp, NEWB))   # none yet
         self.say_("bring my own")

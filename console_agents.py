@@ -53,6 +53,10 @@ async def add_agent(loop, user: str, value: str) -> str:
     if not name and first_pick(loop, user):
         if not loop.may_have_agent(user):
             return f"Sorry, {remote_people.OFF}."
+        if user in loop.__dict__.get("_provisioning", ()):   # GPT review: a second click promised a page too
+            return "I'm already setting up an agent for you; one moment."
+        if picked is None and value.lstrip().startswith("{"):
+            picked = {}                       # the picker's "the one on my computer": clears an earlier choice
         await loop.choose(dm, user, BRING, picked)
         return "Setting up your agent: its Connect page is coming in our private chat."
     return await loop.start_add(dm, user, name or None, picked)

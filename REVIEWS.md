@@ -1382,3 +1382,42 @@ Adopted, with tests in test_panel_cards:
   script, so a fallback inline card keeps Off.
 - **Low: the disabled-state test passed even with buttons missing.** It now asserts all three are
   present and reads each one's disabled attribute.
+
+## GPT review of fix/screen-test-4 (federated panel sign-in, first agent's AI, panel wording, R15)
+Codex CLI, whole branch, focus on the federated OpenID check's SSRF and token handling. Twelve
+points (three blocking). Adopted, with tests in test_fed_openid_review, test_first_agent_ai,
+test_agent_picker and test_kind_flow:
+- **Blocking: "public" alone isn't the whole egress rule.** This server's own addresses (its server
+  name, its public console) and `HAGENCY_FED_DENY` CIDRs are refused too (safe_fetch.resolve's new
+  `deny`); every address of every hop, as before.
+- **Blocking: a slow peer could outlive the deadline** (headers dripped under a per-read timeout, a
+  hanging getaddrinfo, SRV timeouts per resolver). A watchdog cuts the TCP connection at the
+  deadline, the lookup is given up at the deadline, and SRV lookups share it.
+- **Blocking (partly): limits.** Our own homeserver's branch now counts against a per-client budget
+  too; the proxy-aware client address is computed in the worker thread; the concurrency slot is
+  taken before quotas are charged.
+- **Medium: case variants** of a server name are one quota and cache key (lower case); expired
+  console sessions are pruned.
+- **Medium: SRV parsing:** the echoed question and each record's owner must be our name, the target
+  must end inside its record, a label with "." is refused, an over-long name is never asked.
+- **Medium: odd input:** a non-object body, a non-ASCII Content-Length, deeply nested JSON, a
+  malformed redirect, a trailing newline (`$` with match → fullmatch) and scoped IPv6 literals all
+  end as "not verified", never a 500. The local check ignores environment proxies.
+- **Medium: "the one on my computer" couldn't undo a first agent's choice:** the picker always sends
+  its JSON, and for a first agent an empty kind clears the earlier one.
+- **Low: a second click while setting up** says so instead of promising a Connect page.
+- **Low: Hermes's Connect message** said "Mac, Windows or Linux" and didn't mention the invite patch;
+  the home page now points to My Hagency's picker.
+
+Deferred / rejected:
+- **Medium (6): the token in the userinfo query string** can be logged by the issuer's proxies:
+  that is the spec's own API (the token is meant for that server, and is short-lived).
+- **Medium (5, part): trying further SRV targets** after the first fails: the first by priority
+  is used; a server whose first target is broken falls back to the one-time console link.
+- **Medium (10): a kind change racing a code redeemed at the same moment:** the window is the
+  seconds between redeeming and the first presence; a person re-choosing then gets a fresh code
+  for the new kind anyway. A per-agent configuration generation is its own change.
+- **Low (8): IPv6-literal server names** can't sign in (identity.USER_RE): fails closed; such
+  servers use the one-time link.
+- A full cancellable transport and a maintained DNS library: the watchdog and the strict parser
+  cover the cases found without a new dependency.

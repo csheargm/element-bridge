@@ -42,6 +42,11 @@ def where(kind: str | None) -> str:
     return said + (f" ({about['also']})" if about.get("also") else "")
 
 
+def systems(kind: str | None) -> str:
+    """Where the Connect page's line runs (GPT review: Hermes's message said Windows too)."""
+    return "Mac or Linux; on Windows only inside WSL" if kind in agent_kinds.NOT_ON_WINDOWS else "Mac, Windows or Linux"
+
+
 LONG_RUN = 20                                 # a key-like piece: this long, letters and digits mixed,
 LONGER_RUN = 32                               # or this long of either (no model name has such a word)
 

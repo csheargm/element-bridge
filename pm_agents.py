@@ -39,7 +39,7 @@ ADD_HINT = "\n\nWant another agent too (for example Codex as well as Claude Code
 ASK_NAME = ("What should I call your new agent? One short word, letters and digits (up to 9), for example "
             "**codex** or **laptop**. (Say \"cancel\" to stop.)")
 BRING_REPLY = ("Your agent is **{agent}**. On the computer where {where}, open "
-               "[your Connect page]({link}): it shows the one line to paste there (Mac, Windows or Linux).\n\n"
+               "[your Connect page]({link}): it shows the one line to paste there ({systems}).\n\n"
                "Your code: `{code}` (it works once, within 30 minutes). On a Mac or Linux this is the same line:\n\n"
                "`{line}`\n\nYour agent then runs in the background. It has invited you to a private chat: "
                "accept it and talk to your agent there.")
@@ -171,7 +171,7 @@ class MoreAgents(Renaming):
         more = self.has_connected_agent(person)   # pm_presence.py: "another agent" only once one is connected
         kind = (registry.find(person, agent) or {}).get("agent_kind")   # the AI it runs (picker); none: as before
         event_id = await self.say(chat, BRING_REPLY.format(
-            agent=agent or registry.agent_of(person), where=pm_kinds.where(kind), code=code,
+            agent=agent or registry.agent_of(person), where=pm_kinds.where(kind), systems=pm_kinds.systems(kind), code=code,
             link=connect_page.page_link(code, kind), line=remote_agent.install_line(code, kind))
             + (ADD_HINT if more else pm_first.choose_hint(kind) if agent is None else ""))   # the first: its AI (pm_first.py)
         if more:

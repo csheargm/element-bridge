@@ -115,5 +115,6 @@ function kindPicker(kinds) {
 function addValue() {                    // panel.html's Add an agent click: what goes to console.act
   const v = id => (document.getElementById(id) || {value: ""}).value.trim();
   const name = v("newagent"), kind = v("newkind");
-  return kind ? JSON.stringify({name, agent_kind: kind, model: v("newmodel"), base_url: v("newbase")}) : name;
+  // Always the picker's JSON (GPT review): "the one on my computer" for a first agent then clears an earlier choice.
+  return JSON.stringify({name, agent_kind: kind, model: kind ? v("newmodel") : "", base_url: kind ? v("newbase") : ""});
 }

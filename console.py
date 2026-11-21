@@ -37,7 +37,7 @@ from bridge_config import ELEMENT_ORIGIN
 from console_agents import add_agent, can_add, first_pick, my_agents   # My agents: kept apart (file size)
 from setup_accounts import HS, SERVER_NAME
 
-SESSION_S = 12 * 3600
+SESSION_S, MAX_SESSIONS = 12 * 3600, 1000
 LINK_S = 600
 _sessions: dict[str, tuple[str, float, str | None]] = {}   # session → (user, expires, room scope or None)
 _links: dict[str, tuple[str, float, str]] = {}             # one-time code → (user, expires, room)
@@ -69,6 +69,9 @@ def allowed_origins() -> set[str]:
 
 
 def new_session(user_id: str, room: str | None = None) -> str:
+    if len(_sessions) > MAX_SESSIONS:         # GPT review: expired ones were kept for good
+        for gone in [t for t, (_, until, _) in _sessions.items() if until < time.time()]:
+            del _sessions[gone]
     token = secrets.token_urlsafe(32)
     _sessions[token] = (user_id, time.time() + SESSION_S, room)
     return token
@@ -94,7 +97,7 @@ def openid_user(access_token: str) -> str | None:
         return None
     url = f"{HS}/_matrix/federation/v1/openid/userinfo?access_token={urllib.parse.quote(access_token, safe='')}"
     try:
-        with urllib.request.build_opener(_NoRedirect).open(url, timeout=10) as r:
+        with urllib.request.build_opener(_NoRedirect, urllib.request.ProxyHandler({})).open(url, timeout=10) as r:   # no env proxy
             data = json.loads(r.read())
     except (OSError, ValueError):
         return None
@@ -233,8 +236,9 @@ def routes(loop, panel_html_fn) -> list:
             return reply({"error": "refused"}, 403)
         import remote_agent                   # here: it imports this module; client_of: the proxy-aware address
         body = await request.json()
-        user = await asyncio.to_thread(fed_openid.user_of, *(body.get(k) for k in ("access_token", "matrix_server_name")),
-                                       remote_agent.client_of(request), SERVER_NAME, openid_user)
+        body = body if isinstance(body, dict) else {}   # client_of may resolve the proxy's name: in the thread
+        user = await asyncio.to_thread(lambda: fed_openid.user_of(body.get("access_token"), body.get("matrix_server_name"),
+                                                                  remote_agent.client_of(request), SERVER_NAME, openid_user))
         return reply({"session": new_session(user)} if user else {"error": NOT_VERIFIED})
 
     async def auth_link(request):

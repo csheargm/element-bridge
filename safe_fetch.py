@@ -31,14 +31,15 @@ def public_ip(text: str) -> ipaddress._BaseAddress | None:
     return ip
 
 
-def resolve(host: str, port: int) -> str:
-    """One public address for host, or Refused if ANY of its addresses isn't public."""
+def resolve(host: str, port: int, deny: tuple = ()) -> str:
+    """One public address for host, or Refused if ANY of its addresses isn't public (or is in `deny`,
+    networks the caller also refuses: fed_https.py, this server's own addresses)."""
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except OSError as e:
         raise Refused(f"can't resolve {host}") from e
     ips = [public_ip(info[4][0]) for info in infos]
-    if not ips or any(ip is None for ip in ips):
+    if not ips or any(ip is None or any(ip.version == net.version and ip in net for net in deny) for ip in ips):
         raise Refused("only public addresses (never this machine or its network)")
     return str(ips[0])
 

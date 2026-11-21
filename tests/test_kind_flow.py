@@ -177,7 +177,7 @@ class WhatTheirComputerNeeds(KindFlow):
     installed"; it says what that kind needs there (agent_kinds.ABOUT)."""
     SAID = (("ol", "ollama qwen3:8b", "where Ollama and Codex are installed,"),
             ("rm", f"remote {OPENROUTER} openai/gpt-4o", "where Codex is installed (have the service's API key at hand"),
-            ("he", "hermes", "where Hermes is installed (macOS or Linux),"),
+            ("he", "hermes", "where Hermes is installed (with Hagency's Matrix invite patch"),
             ("cl", "claude", "where Claude Code is installed,"),
             ("cx2", "codex", "where Codex is installed,"))
 

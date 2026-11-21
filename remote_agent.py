@@ -111,7 +111,7 @@ def _provision(person: str, picked: dict | None = None) -> str:
             registry.update(person, None, agent=registry.REMOTE, created=remote_people.now())   # chat can't dodge the cap
     password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
     registry.update(person, None, ready=True)  # made or signed in with our password: ours (disconnect checks)
-    if picked:                                # every field, so an earlier choice's model or URL can't linger
+    if picked is not None:                    # every field, so an earlier choice's model or URL can't linger ({}: none)
         registry.update(person, None, **{k: picked.get(k, "") for k in agent_kinds.OFFER_KEYS})
     dm = info.get("dm") or open_dm(agent, password, person)
     registry.update(person, None, agent=registry.REMOTE, dm=dm)   # a fresh read under its lock: keeps the rest

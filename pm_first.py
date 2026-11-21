@@ -49,7 +49,8 @@ def picked_from(text: str) -> dict | str | None:
 class FirstAgent:
     async def choose(self, dm: str, person: str, key: str, picked: dict | None = None) -> None:
         """🔌 (or "bring my own"): set up their first agent and send its Connect message; picked: the AI
-        it runs (pm_kinds.choice), only while it has never connected."""
+        it runs (pm_kinds.choice; {}: the one found on their computer), only while it has never
+        connected; None: keep what it has."""
         if key == HOUSE:
             await self.say(dm, HOUSE_REPLY)
             return
@@ -59,7 +60,7 @@ class FirstAgent:
         if registry.first_removed(person):    # its name can't come back: ask for a new one (pm_agents.py)
             await self.start_add(dm, person, None, picked)
             return
-        if picked and self.has_connected_agent(person):
+        if picked is not None and self.has_connected_agent(person):
             await self.say(dm, CONNECTED)
             return
         busy.add(person)

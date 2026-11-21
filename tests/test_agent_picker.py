@@ -139,7 +139,8 @@ class PanelPicker(unittest.TestCase):
                         "process.stdout.write(addValue() + '|'); f.newkind = ''; process.stdout.write(addValue());")
         picked, plain = out.split("|")
         self.assertEqual(json.loads(picked), {"name": "lo", "agent_kind": "ollama", "model": "llama3.2", "base_url": ""})
-        self.assertEqual(plain, "lo")                                          # no kind: as before
+        self.assertEqual(json.loads(plain), {"name": "lo", "agent_kind": "", "model": "", "base_url": ""})   # GPT review
+        self.assertEqual(pm_kinds.from_panel(plain), ("lo", None))             # no kind: as before
         self.assertEqual(pm_kinds.from_panel(picked), ("lo", {"agent_kind": "ollama", "model": "llama3.2"}))
 
 

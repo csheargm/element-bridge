@@ -26,6 +26,7 @@ USERINFO_MAX = 8192
 TOKEN_MAX = 512
 WINDOW_S = 600
 PER_CLIENT, PER_SERVER = 10, 30               # federation checks per WINDOW_S
+PER_CLIENT_ANY = 60                           # any sign-in check (ours too: each holds a thread), per WINDOW_S
 AT_ONCE = 4
 MAX_TRACKED = 5000
 USERINFO = "/_matrix/federation/v1/openid/userinfo?access_token="
@@ -73,7 +74,7 @@ def userinfo(access_token: str, server_name: str) -> str | None:
         return None
     try:
         data = json.loads(body)
-    except ValueError:
+    except (ValueError, RecursionError):   # deeply nested JSON fits in the cap (GPT review)
         return None
     found = vouched_for(data.get("sub") if isinstance(data, dict) else None, server_name)
     if found is None:
@@ -84,18 +85,22 @@ def userinfo(access_token: str, server_name: str) -> str | None:
 def user_of(access_token: object, server_name: object, client: str, ours: str, local_check) -> str | None:
     """The Matrix user an OpenID token from the panel belongs to, or None. `ours`: this server's name
     (its tokens go to `local_check`, our homeserver); `client`: who is asking, for the limits."""
-    if not isinstance(access_token, str) or not access_token or len(access_token) > TOKEN_MAX:
+    if not isinstance(access_token, str) or not access_token or len(access_token) > TOKEN_MAX \
+            or not access_token.isascii() or not access_token.isprintable():
+        return None
+    if not may_try("any:" + client, PER_CLIENT_ANY):     # GPT review: our own branch was unlimited
+        log.info("panel sign-in: too many checks from %s; refused for now", client)
         return None
     if server_name is None or server_name == ours:   # Element sends it; an older one may not
         return local_check(access_token)
     if fed_https.parse_server_name(server_name) is None:
         return None
-    if not may_try("client:" + client, PER_CLIENT) or not may_try("server:" + server_name, PER_SERVER):
-        log.info("panel sign-in: too many checks from %s or for %s; refused for now", client, server_name)
-        return None
     if not _running.acquire(blocking=False):
         return None                           # several checks already underway: try again in a moment
     try:
+        if not may_try("client:" + client, PER_CLIENT) or not may_try("server:" + server_name.lower(), PER_SERVER):
+            log.info("panel sign-in: too many checks from %s or for %s; refused for now", client, server_name)
+            return None
         return userinfo(access_token, server_name)
     finally:
         _running.release()

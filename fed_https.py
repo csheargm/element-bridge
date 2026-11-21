@@ -16,9 +16,11 @@ Discovery answers are cached briefly. Callers pass secrets in `path`; nothing he
 import http.client
 import ipaddress
 import json
+import os
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.parse
 
@@ -31,8 +33,11 @@ WELL_KNOWN_MAX = 16_384
 CACHE_OK_S, CACHE_FAIL_S = 600, 60
 MAX_CACHED = 1000
 USER_AGENT = "hagency-rooms (Matrix OpenID check)"
-LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
-PORT_RE = re.compile(r"^[0-9]{1,5}$")
+LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")   # fullmatch only: "$" lets "\n" in
+PORT_RE = re.compile(r"[0-9]{1,5}")
+LENGTH_RE = re.compile(r"[0-9]{1,12}")
+OWN_S = 600                                   # this server's own addresses: looked up again this often
+_own: list = [0.0, ()]
 Refused = safe_fetch.Refused
 _cache: dict[str, tuple[float, tuple | None]] = {}   # server name → (expires, target or None)
 
@@ -40,10 +45,12 @@ _cache: dict[str, tuple[float, tuple | None]] = {}   # server name → (expires,
 def parse_server_name(name: object) -> tuple[str, int | None, bool] | None:
     """(host, port or None, is an IP literal) for a server name as the spec's grammar has it
     (hostname [":" port]; an IPv4 literal, "[" IPv6 "]" or a DNS name), else None."""
-    if not isinstance(name, str) or not 0 < len(name) <= 255 or not name.isascii():
+    if not isinstance(name, str) or not 0 < len(name) <= 255 or not name.isascii() or not name.isprintable():
         return None
     if name.startswith("["):
         host, sep, rest = name[1:].partition("]")
+        if "%" in host:
+            return None                       # a scoped address (fe80::1%eth0) is never another server
         try:
             ipaddress.IPv6Address(host)
         except ValueError:
@@ -56,9 +63,9 @@ def parse_server_name(name: object) -> tuple[str, int | None, bool] | None:
         host, sep, port = name.partition(":")
         port = port if sep else None
         is_ip = _is_ipv4(host)
-        if not is_ip and (re.fullmatch(r"[0-9.]+", host) or not all(LABEL_RE.match(p) for p in host.split("."))):
+        if not is_ip and (re.fullmatch(r"[0-9.]+", host) or not all(LABEL_RE.fullmatch(p) for p in host.split("."))):
             return None                       # "1.2.3" is neither an address nor a name
-    if port is not None and (not PORT_RE.match(port) or not 0 < int(port) < 65536):
+    if port is not None and (not PORT_RE.fullmatch(port) or not 0 < int(port) < 65536):
         return None
     return host, int(port) if port is not None else None, is_ip
 
@@ -72,14 +79,68 @@ def _is_ipv4(host: str) -> bool:
 
 
 class _Pinned(http.client.HTTPSConnection):
-    """HTTPS to a pre-checked IP; SNI and the certificate check are for `tls_name`."""
+    """HTTPS to a pre-checked IP; SNI and the certificate check are for `tls_name`. abort() cuts the
+    TCP connection from another thread: the deadline ends any read (headers, chunks, a slow drip)."""
     def __init__(self, tls_name, ip, port, timeout):
         super().__init__(tls_name, port, timeout=timeout, context=ssl.create_default_context())
-        self._ip = ip
+        self._ip, self._raw, self._aborted = ip, None, False
 
     def connect(self):
-        sock = socket.create_connection((self._ip, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        self._raw = socket.create_connection((self._ip, self.port), self.timeout)
+        if self._aborted:
+            raise OSError("deadline")
+        self.sock = self._context.wrap_socket(self._raw, server_hostname=self.host)
+
+    def abort(self):
+        self._aborted = True
+        if self._raw is not None:
+            try:
+                self._raw.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass                          # already closed: nothing left to cut
+
+
+def denied() -> tuple:
+    """Networks never contacted besides non-public ones: this server's own addresses (its server name
+    and its public console) and HAGENCY_FED_DENY (comma-separated CIDRs, e.g. a cloud's internal
+    public ranges). GPT review: "public" alone still reached this host's own public interface."""
+    now = time.monotonic()
+    if now - _own[0] < OWN_S:
+        return _own[1]
+    nets = []
+    for text in filter(None, (t.strip() for t in os.environ.get("HAGENCY_FED_DENY", "").split(","))):
+        try:
+            nets.append(ipaddress.ip_network(text, strict=False))
+        except ValueError:
+            continue                          # a typo in one entry: the others still count
+    import setup_accounts                     # here: only on the server, where it is configured
+    for name in {setup_accounts.SERVER_NAME, urllib.parse.urlsplit(os.environ.get("HAGENCY_PUBLIC_CONSOLE", "")).hostname}:
+        try:
+            nets += [ipaddress.ip_network(safe_fetch.public_ip(i[4][0]) or i[4][0].split("%")[0])
+                     for i in socket.getaddrinfo(name, None)] if name else []
+        except (OSError, ValueError):
+            continue                          # not resolvable here: nothing of it to refuse
+    _own[:] = [now, tuple(nets)]
+    return _own[1]
+
+
+def _resolve_by(host: str, port: int, deadline: float) -> str:
+    """safe_fetch.resolve, given up at the deadline (getaddrinfo can't be cancelled; it ends on its own)."""
+    out: list = []
+
+    def run():
+        try:
+            out.append(safe_fetch.resolve(host, port, denied()))
+        except Refused as e:
+            out.append(e)
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(remaining(deadline))
+    if not out:
+        raise Refused("took too long")
+    if isinstance(out[0], Exception):
+        raise out[0]
+    return out[0]
 
 
 CONNECT = _Pinned                             # tests replace this with a stand-in
@@ -96,13 +157,16 @@ def get(host: str, port: int, path: str, host_header: str, tls_name: str, deadli
         cap: int) -> tuple[int, str | None, bytes]:
     """One GET (no redirects followed): (status, Location, body up to `cap` bytes). Raises Refused
     for a non-public address, a body over `cap`, or the deadline passing (also while reading)."""
-    ip = safe_fetch.resolve(host, port)       # every address public, else Refused; this one is used
+    ip = _resolve_by(host, port, deadline)    # every address public (and not ours), else Refused; this one is used
     conn = CONNECT(tls_name, ip, port, remaining(deadline))
+    watchdog = threading.Timer(remaining(deadline), getattr(conn, "abort", lambda: None))
+    watchdog.daemon = True
+    watchdog.start()
     try:
         conn.request("GET", path, headers={"Host": host_header, "User-Agent": USER_AGENT, "Accept": "application/json"})
         resp = conn.getresponse()
         size = resp.getheader("Content-Length")
-        if size is not None and (not size.strip().isdigit() or int(size) > cap):
+        if size is not None and (not LENGTH_RE.fullmatch(size.strip()) or int(size) > cap):
             raise Refused("answer too big")
         body = b""
         while True:
@@ -116,9 +180,12 @@ def get(host: str, port: int, path: str, host_header: str, tls_name: str, deadli
                 raise Refused("answer too big")
             remaining(deadline)
         return resp.status, resp.getheader("Location"), body
-    except (OSError, http.client.HTTPException) as e:
+    except (OSError, http.client.HTTPException, ValueError) as e:
+        if isinstance(e, Refused):
+            raise
         raise Refused(f"couldn't reach {tls_name}") from e
     finally:
+        watchdog.cancel()
         conn.close()
 
 
@@ -127,11 +194,11 @@ def well_known(host: str, deadline: float) -> str | None:
     the spec then falls back to SRV records). Redirects: https only, each hop checked anew."""
     url = f"https://{host}/.well-known/matrix/server"
     for _ in range(MAX_REDIRECTS + 1):
-        parts = urllib.parse.urlsplit(url)
         try:
+            parts = urllib.parse.urlsplit(url)
             port = parts.port or 443
         except ValueError:
-            return None
+            return None                       # a malformed Location: no well-known
         if parts.scheme != "https" or not parts.hostname or parts.username or parse_server_name(parts.hostname) is None:
             return None
         netloc = parts.hostname if port == 443 else f"{parts.hostname}:{port}"
@@ -141,22 +208,25 @@ def well_known(host: str, deadline: float) -> str | None:
         except Refused:
             return None
         if status in (301, 302, 303, 307, 308) and location:
-            url = urllib.parse.urljoin(url, location)
+            try:
+                url = urllib.parse.urljoin(url, location)
+            except ValueError:
+                return None
             continue
         if status != 200:
             return None
         try:
             data = json.loads(body)
-        except ValueError:
+        except (ValueError, RecursionError):  # deeply nested JSON fits in the cap
             return None
         found = data.get("m.server") if isinstance(data, dict) else None
         return found if parse_server_name(found) is not None else None
     return None
 
 
-def _by_srv(host: str, host_header: str) -> tuple | None:
+def _by_srv(host: str, host_header: str, deadline: float) -> tuple | None:
     for service in ("_matrix-fed._tcp.", "_matrix._tcp."):
-        for target, port in fed_dns.lookup(service + host)[:1]:
+        for target, port in fed_dns.lookup(service + host, deadline)[:1]:
             if parse_server_name(target) is not None and not parse_server_name(target)[2]:
                 return target, port, host_header, host
     return None
@@ -175,14 +245,14 @@ def resolve(server_name: str, deadline: float) -> tuple[str, int, str, str]:
         d_host, d_port, d_ip = parse_server_name(delegated)
         if d_ip or d_port is not None:
             return d_host, d_port or DEFAULT_PORT, delegated, d_host
-        return _by_srv(d_host, d_host) or (d_host, DEFAULT_PORT, d_host, d_host)
-    return _by_srv(host, host) or (host, DEFAULT_PORT, host, host)
+        return _by_srv(d_host, d_host, deadline) or (d_host, DEFAULT_PORT, d_host, d_host)
+    return _by_srv(host, host, deadline) or (host, DEFAULT_PORT, host, host)
 
 
 def cached_resolve(server_name: str, deadline: float) -> tuple[str, int, str, str]:
-    """resolve(), remembered briefly (a failure for less long)."""
-    now = time.monotonic()
-    hit = _cache.get(server_name)
+    """resolve(), remembered briefly (a failure for less long), by the name in lower case (DNS is)."""
+    now, key = time.monotonic(), server_name.lower()
+    hit = _cache.get(key)
     if hit and hit[0] > now:
         if hit[1] is None:
             raise Refused("couldn't find that server (recently)")
@@ -193,7 +263,7 @@ def cached_resolve(server_name: str, deadline: float) -> tuple[str, int, str, st
     try:
         found = resolve(server_name, deadline)
     except Refused:
-        _cache[server_name] = (now + CACHE_FAIL_S, None)
+        _cache[key] = (now + CACHE_FAIL_S, None)
         raise
-    _cache[server_name] = (now + CACHE_OK_S, found)
+    _cache[key] = (now + CACHE_OK_S, found)
     return found
