@@ -23,6 +23,7 @@ from pathlib import Path
 
 import github
 import workdirs
+import bridge_config
 from bridge import ROOT, SERVER_NAME
 
 HERMES_HOME = Path.home() / ".hermes"
@@ -204,10 +205,12 @@ def write_env(profile: Path, values: dict, key_name: str | None) -> None:
 
 
 def configure(name: str, *, owner: str, agent: str, password: str, home_room: str | None,
-              mcp_env: dict | None = None, loop: bool = False) -> Path:
+              mcp_env: dict | None = None, loop: bool = False, owner_id: str | None = None) -> Path:
     """Write one profile's config.yaml, .env (Matrix + model key) and room rules in SOUL.md: the
     personal one (owner only, the owner's own tools) or, with loop=True, the loop one (@pm only,
-    the contained LOOP_TOOLS). configure_both writes the pair a person's agent runs as."""
+    the contained LOOP_TOOLS). configure_both writes the pair a person's agent runs as. On a
+    person's own computer (connect.py, ADR 0008) `owner_id` is their full Matrix ID and the
+    homeserver comes from the credentials file."""
     profile = ensure_profile(name, owner)
     workdirs.hermes_dir(owner).mkdir(parents=True, exist_ok=True)
     model, key_name = profile_model(profile)
@@ -238,9 +241,10 @@ mcp_servers:
     env:
 {env_lines}
 """)
-    values = {"MATRIX_HOMESERVER": "http://127.0.0.1:8648", "MATRIX_USER_ID": f"@{agent}:{SERVER_NAME}",
+    homeserver = bridge_config.CREDENTIALS.get("homeserver") or "http://127.0.0.1:8648"
+    values = {"MATRIX_HOMESERVER": homeserver, "MATRIX_USER_ID": f"@{agent}:{SERVER_NAME}",
               "MATRIX_PASSWORD": password, "MATRIX_DEVICE_ID": f"HERMES_{name.upper()}",
-              "MATRIX_ALLOWED_USERS": f"@pm:{SERVER_NAME}" if loop else f"@{owner}:{SERVER_NAME}",   # one sender each
+              "MATRIX_ALLOWED_USERS": f"@pm:{SERVER_NAME}" if loop else owner_id or f"@{owner}:{SERVER_NAME}",   # one each
               "MATRIX_E2EE_MODE": "off", "MATRIX_AUTO_THREAD": "false", "MATRIX_SESSION_SCOPE": "room",
               "MATRIX_REQUIRE_MENTION": "true", **({"MATRIX_HOME_ROOM": home_room} if home_room and not loop else {})}
     write_env(profile, values, key_name)
@@ -257,8 +261,8 @@ def forget_pairings(profile: Path) -> None:
 
 
 def configure_both(person: str, *, owner: str, agent: str, password: str, home_room: str | None,
-                   mcp_env: dict | None = None) -> tuple[Path, Path]:
+                   mcp_env: dict | None = None, owner_id: str | None = None) -> tuple[Path, Path]:
     """The two profiles a person's Hermes agent runs as: (personal, loop)."""
     personal, loop = profile_names(person)
-    return (configure(personal, owner=owner, agent=agent, password=password, home_room=home_room, mcp_env=mcp_env),
-            configure(loop, owner=owner, agent=agent, password=password, home_room=None, mcp_env=mcp_env, loop=True))
+    same = {"owner": owner, "agent": agent, "password": password, "mcp_env": mcp_env, "owner_id": owner_id}
+    return configure(personal, home_room=home_room, **same), configure(loop, home_room=None, loop=True, **same)

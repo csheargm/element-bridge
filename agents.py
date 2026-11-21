@@ -1,4 +1,5 @@
-"""Run a person's own agent CLI (Codex or Claude Code) for one room turn.
+"""Run a person's own agent CLI (Codex or Claude Code) for one room turn. The ollama and remote
+kinds are Codex with another model provider (codex_provider.py, docs/adr/0008-agent-kinds.md).
 
 Each room gets its own working folder (workdirs.py) and a saved session id so the CLI resumes
 the same conversation next time. The prompt goes in on stdin (never as argv, so chat text can't be
@@ -21,7 +22,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import bridge_config
 import cli_path
+import codex_provider
 import lifecycle
 import owner_cli
 from workdirs import SESSION_FILE, SESSION_ID_RE
@@ -66,13 +69,15 @@ def _codex_lockdown() -> list[str]:
     return args
 
 
-def _codex_argv(workdir: Path, session_id: str | None, write: bool = False, owner: bool = False) -> list[str]:
-    """owner: the owner's ~/.codex/config.toml, plus what a room needs to work (owner_cli.py)."""
+def _codex_argv(workdir: Path, session_id: str | None, write: bool = False, owner: bool = False,
+                provider: tuple[str, ...] = ()) -> list[str]:
+    """owner: the owner's ~/.codex/config.toml, plus what a room needs to work (owner_cli.py).
+    provider: another model provider's options (codex_provider.py); its hosted web search is OpenAI's."""
     sandbox = "workspace-write" if write else "read-only"
-    common = ["--json", "--skip-git-repo-check"]
+    common = ["--json", "--skip-git-repo-check", *provider]
     if owner:
         try:
-            common += owner_cli.codex_owner_args()
+            common += owner_cli.codex_owner_args(hosted_web=not provider)
         except owner_cli.ConfigError as e:
             raise AgentError(str(e)) from e
     else:      # and none of the owner's own widening of workspace-write (network, extra roots)
@@ -146,7 +151,26 @@ def denial_note(denied: tuple[str, ...]) -> str:
     return "\n\n⚠️ Refused (it can't ask you for approval from a chat room): " + "; ".join(why) + "."
 
 
-BACKENDS = {"codex": (_codex_argv, _parse_codex), "claude": (_claude_argv, _parse_claude)}
+def _provider_argv(kind: str):
+    """Codex's argv for the ollama / remote kind, with the model saved by connect.py."""
+    def argv(workdir: Path, session_id: str | None, write: bool = False, owner: bool = False) -> list[str]:
+        try:
+            provider = codex_provider.args(kind, bridge_config.CREDENTIALS)
+        except codex_provider.ProviderError as e:
+            raise AgentError(str(e)) from e
+        return _codex_argv(workdir, session_id, write, owner, tuple(provider))
+    return argv
+
+
+BACKENDS = {"codex": (_codex_argv, _parse_codex), "claude": (_claude_argv, _parse_claude),
+            "ollama": (_provider_argv("ollama"), _parse_codex), "remote": (_provider_argv("remote"), _parse_codex)}
+
+
+def _kind_env(backend: str) -> dict:
+    try:
+        return codex_provider.env(backend, os.environ.get("HAGENCY_CREDENTIALS"))
+    except codex_provider.ProviderError as e:
+        raise AgentError(str(e)) from e
 
 
 def agent_env(workdir: Path) -> dict:
@@ -170,8 +194,9 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
         session_id = None   # never pass a malformed id as a CLI positional; start a fresh session
 
     program, *args = argv_fn(workdir, session_id, write, owner)
+    extra = _kind_env(backend)                         # remote: the API key, in the environment only
     proc = await asyncio.create_subprocess_exec(       # Windows: npm's .cmd wrappers too, with no shell
-        *cli_path.command(program), *args, cwd=workdir, env=agent_env(workdir),
+        *cli_path.command(program), *args, cwd=workdir, env={**agent_env(workdir), **extra},
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await lifecycle.communicate(proc, prompt.encode(), TURN_TIMEOUT_S)
@@ -181,7 +206,7 @@ async def run_turn(backend: str, workdir: Path, prompt: str, write: bool = False
     if proc.returncode != 0:
         parse_fn(stdout)  # CLIs that report errors as JSON on stdout (claude) raise a clear AgentError here
         tail = (err.decode(errors="replace").strip() or stdout.strip()).splitlines()[-3:]
-        raise AgentError(f"{backend} exited {proc.returncode}: {' | '.join(tail)[:400]}")
+        raise AgentError(f"{backend} exited {proc.returncode}: {codex_provider.scrub(' | '.join(tail), extra)[:400]}")
 
     result = parse_fn(stdout)
     note = denial_note(result.denied) if owner else ""   # task output (VERDICT, plan JSON) stays as is

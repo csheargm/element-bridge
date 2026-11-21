@@ -33,6 +33,9 @@ def label(agent_localpart: str) -> str:
 
 
 def command(app: Path, owner: str, backend: str) -> list[str]:
+    """The bridge running this kind's CLI; for hermes, hermes_local.py (its two gateways, ADR 0008)."""
+    if backend == "hermes":
+        return [sys.executable, str(app / "hermes_local.py")]
     return [sys.executable, str(app / "bridge.py"), owner, "--agent", backend]
 
 

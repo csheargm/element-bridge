@@ -1,6 +1,7 @@
-"""Connect your own Codex or Claude Code to Hagency Rooms as your agent, from your own computer.
+"""Connect your own agent to Hagency Rooms, from your own computer: Codex, Claude Code, Hermes, a
+model in Ollama, or any OpenAI-compatible service (the kinds: agent_kinds.py, docs/adr/0008-agent-kinds.md).
 
-  python connect.py CODE [--agent codex|claude]   # once, with the code @pm sent you
+  python connect.py CODE [--agent KIND] [--model M] [--base-url URL]   # once, with the code @pm sent you
   python connect.py                               # later: start it again with the saved sign-in
   python connect.py --stop                        # stop it and remove the background service
   python connect.py --name cx-codex-agent [--stop] # the same for a further agent of yours
@@ -10,7 +11,10 @@ It trades @pm's one-time code for your agent's sign-in (POST <server>/connect), 
 background service (agent_service.py: launchd on macOS, systemd --user on Linux; --foreground, or
 neither available, runs it here instead). It works on this computer and obeys only you. A further
 agent of yours (one @pm made with ➕) keeps its own sign-in, log and service in ~/.hagency/<its name>/,
-so several run side by side.
+so several run side by side. The kind is --agent, else the one @pm's connect info names, else the
+last one, else Codex or Claude Code (whichever is installed). connect_kinds.py checks what each kind
+needs and asks for its settings (an Ollama model, a remote service's address, model and API key:
+the key only here, never echoed, kept in remote.env, mode 600).
 connect.sh (served by the Hagency console at /connect.sh) installs this and starts it.
 """
 import argparse
@@ -24,13 +28,16 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import agent_kinds
 import agent_service
 import cli_path
+import connect_kinds
 import identity
+from ask_line import ask_line
 from bridge_config import credentials_match
 
 APP = Path(__file__).resolve().parent
-BACKENDS = ("codex", "claude")
+BACKENDS = agent_kinds.LEGACY                 # what an agent with no kind runs, as before
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
 TIMEOUT_S = 30
 USER_RE = re.compile(r"^@[a-z0-9-]{2,80}-agent:[A-Za-z0-9.-]+(:\d+)?$")
@@ -62,7 +69,11 @@ def redeem(server: str, code: str) -> dict:
             and isinstance(owner, str) and (identity.USER_RE.match(owner) or identity.NAME_RE.match(owner))
             and credentials_match(data["user_id"], owner, data.get("label")) and isinstance(data.get("password"), str)):
         raise SystemExit("✗ the server's answer doesn't look like an agent's sign-in; nothing was saved")
-    return {k: data[k] for k in ("homeserver", "user_id", "password", "owner", "label") if k in data}
+    try:
+        offer = agent_kinds.from_connect_info(data)      # agent_kind / model / base_url, when @pm names them
+    except agent_kinds.BadConnectInfo as e:
+        raise SystemExit(f"✗ {e}; nothing was saved") from e
+    return {**{k: data[k] for k in ("homeserver", "user_id", "password", "owner", "label") if k in data}, **offer}
 
 
 def agent_dir(home: Path, creds: dict) -> Path:
@@ -104,7 +115,7 @@ def pick_backend(given: str | None, saved: str | None, ask=input) -> str:
         raise SystemExit("✗ install Codex (npm i -g @openai/codex) or Claude Code (npm i -g @anthropic-ai/claude-code) first")
     if not sys.stdin.isatty():
         raise SystemExit("✗ both Codex and Claude Code are installed: choose one with --agent codex or --agent claude")
-    while (choice := ask("Which one should be your agent, codex or claude? ").strip().lower()) not in BACKENDS:
+    while (choice := ask_line("Which one should be your agent, codex or claude?", ask).lower()) not in BACKENDS:
         print("Please type codex or claude.")
     return choice
 
@@ -140,10 +151,13 @@ def stop(saved: dict, home: Path) -> None:
           else f"✓ {name} had no background service here (if it runs in a Terminal, press Ctrl-C there)")
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("code", nargs="?", help="the one-time code from @pm (not needed once connected)")
-    ap.add_argument("--agent", choices=BACKENDS)
+    ap.add_argument("--agent", choices=agent_kinds.KINDS, help="which kind of agent (default: what @pm set up)")
+    ap.add_argument("--model", help="ollama / remote: the model to use")
+    ap.add_argument("--base-url", help="remote: the OpenAI-compatible service's address (https://…/v1)")
+    ap.add_argument("--new-key", action="store_true", help="remote: type the service's API key again")
     ap.add_argument("--server", default=os.environ.get("HAGENCY_CONSOLE", "http://localhost:8650"),
                     help="the Hagency console that sent the code")
     ap.add_argument("--home", type=Path, default=Path(os.environ.get("HAGENCY_DIR", Path.home() / ".hagency")),
@@ -155,6 +169,58 @@ def main() -> None:
     args = ap.parse_args()
     if args.name and not USER_RE.match(f"@{args.name}:x"):
         raise SystemExit(f"✗ {args.name} isn't an agent's name (like cx-codex-agent)")
+    return args
+
+
+def check_first(args) -> None:
+    """Before the one-time code is used up: the chosen kind (or at least some agent CLI) is here."""
+    why = connect_kinds.problem(args.agent) if args.agent else None
+    if why:
+        raise SystemExit(f"✗ {why}")
+    if args.code and not args.agent and not connect_kinds.anything_installed():
+        raise SystemExit("✗ install your agent first: Codex (npm i -g @openai/codex), Claude Code "
+                         "(npm i -g @anthropic-ai/claude-code) or Hermes Agent")
+
+
+def pick_kind(args, offered: dict, saved: dict) -> str:
+    """The kind this agent runs: --agent, @pm's, the last one, a further agent's label ("codex"), or
+    Codex / Claude Code as before."""
+    kind = connect_kinds.choose(args.agent, offered.get("agent_kind"), saved.get("agent"))
+    label = saved.get("label")
+    if kind is None and label in agent_kinds.LEGACY and cli_path.startable(label):
+        kind = label
+    return kind or pick_backend(None, None)
+
+
+def connect_here(args, home: Path, path: Path, saved: dict) -> tuple[dict, Path]:
+    """Redeem the code if there is one, then choose the kind and its settings. Saved at each step,
+    so a rerun without a code picks up where this one stopped."""
+    offered = {}
+    if args.code:
+        if not safe_url(args.server):
+            raise SystemExit(f"✗ {args.server}: use https (plain http only for this computer)")
+        fresh = redeem(args.server, args.code)
+        offered = {k: fresh.pop(k) for k in agent_kinds.OFFER_KEYS if k in fresh}
+        path = agent_dir(home, fresh) / "credentials.json"        # a further agent: its own folder
+        before = read_saved(path)
+        saved = {**fresh, **{k: before[k] for k in ("agent", "model", "base_url") if k in before}}
+        save(path, saved)                                         # the code is used up: keep the sign-in
+    kind = pick_kind(args, offered, saved)
+    why = connect_kinds.problem(kind)
+    if why:
+        save(path, {**saved, "agent": kind})
+        raise SystemExit(f"✗ {why}\n  Your sign-in is saved; then run {sys.executable} {APP / 'connect.py'} "
+                         f"{name_arg(saved)}(no code needed)")
+    save(path, {**saved, "agent": kind})                         # chosen: a rerun asks only what's missing
+    creds = connect_kinds.settings(kind, saved, offered, args, path.parent)
+    save(path, creds)
+    if kind == "hermes":
+        connect_kinds.setup_hermes(APP, path)
+    return creds, path
+
+
+def main() -> None:
+    args = parse_args()
     home = args.home.resolve()
     path = (home / args.name if args.name else home) / "credentials.json"
     saved = read_saved(path)
@@ -163,17 +229,8 @@ def main() -> None:
         return
     if not args.code and not saved:
         raise SystemExit("✗ not connected yet: run this with the code @pm sent you")
-    backend = pick_backend(args.agent, saved.get("agent"))      # before the code is used up
-    if args.code:
-        if not safe_url(args.server):
-            raise SystemExit(f"✗ {args.server}: use https (plain http only for this computer)")
-        saved = redeem(args.server, args.code)
-        path = agent_dir(home, saved) / "credentials.json"       # a further agent: its own folder
-        if saved.get("label") and not args.agent:   # its own last choice, or what it's called ("codex"), if installed
-            backend = next((b for b in (read_saved(path).get("agent"), saved["label"]) if b in BACKENDS and cli_path.startable(b)),
-                           backend)
-    creds = {**saved, "agent": backend}
-    save(path, creds)
+    check_first(args)
+    creds, path = connect_here(args, home, path, saved)
     print(f"✓ connected as {creds['user_id']} ({creds['agent']}); only {creds['owner']} can direct it")
     if args.pair_only:
         if creds.get("label") and os.name == "nt":   # connect.ps1 registers only the first agent's task (for now)
@@ -184,7 +241,7 @@ def main() -> None:
         return
     print("Your agent is online while this runs (Ctrl-C stops it).", flush=True)
     os.chdir(APP)
-    os.execve(sys.executable, [sys.executable, str(APP / "bridge.py"), creds["owner"], "--agent", creds["agent"]],
+    os.execve(sys.executable, agent_service.command(APP, creds["owner"], creds["agent"]),
               {**os.environ, "HAGENCY_CREDENTIALS": str(path)})
 
 

@@ -16,7 +16,8 @@ import room_context
 import tasks
 from bridge import ROOT, SERVER_NAME
 from redact import room_safe
-from setup_accounts import api, load_env, login
+from bridge_config import agent_password
+from setup_accounts import api, login
 
 AGENT = os.environ["HAGENCY_AGENT"]                 # Matrix localpart, also the .gh/<agent>/ identity
 ROOM = os.environ.get("HAGENCY_ROOM")               # optional: one room only (tests); default every joined room
@@ -41,7 +42,7 @@ _open: dict[str, dict] = {}                          # task_id → task (and its
 def token() -> str:
     global _token
     if _token is None:
-        _token = login(AGENT, load_env()["PW_" + AGENT.upper().replace("-", "_")])
+        _token = login(AGENT, agent_password(AGENT))   # .env here; on a person's computer their credentials file
     return _token
 
 

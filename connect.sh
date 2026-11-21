@@ -1,6 +1,8 @@
 #!/bin/sh
-# Hagency Rooms: connect your own Codex or Claude Code as your agent, from this computer.
-#   curl -fsSL __HAGENCY_CONSOLE__/connect.sh | sh -s -- CODE [--agent codex|claude]
+# Hagency Rooms: connect your own agent from this computer: Codex, Claude Code, Hermes, a model in
+# Ollama or any OpenAI-compatible service (docs/adr/0008-agent-kinds.md).
+#   curl -fsSL __HAGENCY_CONSOLE__/connect.sh | sh -s -- CODE [--agent KIND] [--model M] [--base-url URL]
+# Questions (an Ollama model, a service's API key: never echoed) are asked at this terminal.
 # Installs (or updates) Hagency Rooms in ~/.hagency/app, then runs connect.py with @pm's one-time
 # code. Your agent's sign-in is kept in ~/.hagency/credentials.json (only you can read it).
 # It then runs in the background (launchd / systemd --user); run this again any time, it's safe.

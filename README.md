@@ -39,6 +39,15 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
    the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
    the wrapper names (`cli_path.py`).
+   **Which agent** (docs/adr/0008-agent-kinds.md): the kind you chose with @pm, or
+   `--agent codex|claude|hermes|ollama|remote` (Windows: `-Agent`, no Hermes). **Hermes** needs
+   Hermes Agent with a model and Hagency's invite patch (`docs/hermes-matrix-invite-allowlist.patch`),
+   on macOS or Linux; it runs as its two profiles, like on the server. **Ollama** runs a model on your
+   computer through Codex (no OpenAI sign-in needed): the line lists your models that can use tools
+   and you pick one (or `--model qwen3:8b`). **Remote** is any OpenAI-compatible service that speaks
+   the Responses API, also through Codex (`--base-url https://…/v1 --model …`): your API key is
+   asked for only on your computer, never shown, kept in `~/.hagency/remote.env` (only you can read
+   it) and never sent to @pm; `--new-key` replaces it.
 5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): type "add another agent
    called codex" in @pm's chat. Once your first one has connected, @pm's Connect messages also
    carry a ➕ and the panel shows **Add an agent** under My agents. @pm asks for a one-word name if

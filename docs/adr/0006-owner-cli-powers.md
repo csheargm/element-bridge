@@ -58,8 +58,8 @@ to work without interactive approvals** (`owner_cli.py`):
   - **Starting them:** `onboard.py <name> --agent hermes` sets up both (`--loop` is kept as a
     no-op). `supervise.py` starts both as `<name>-agent` and `<name>-loop`. It skips a profile that
     isn't set up yet and says to re-run onboard.
-  - **Remote people:** `connect.py` doesn't run Hermes on a person's own computer yet (Codex and
-    Claude Code only). Hermes stays server-side until it does.
+  - **Remote people:** `connect.py` now runs these same two profiles on a person's own computer
+    (ADR 0008, `hermes_local.py`; macOS and Linux).
 
 **What the bridge keeps:**
 1. **Owner only.** Only the owner's messages trigger a turn, and others' messages are context.
