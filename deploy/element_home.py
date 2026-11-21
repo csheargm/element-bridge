@@ -31,6 +31,10 @@ WIDGET_LIFECYCLE = "io.element.element-web-modules.widget-lifecycle"
 # CONFIG_PRIORITISED; ConfigSettingsHandler reads "features", booleans). Screen test: a listed room only
 # offered Join, which Synapse refuses with 403 "You are not invited to this room".
 FEATURES = {"feature_ask_to_join": True}
+# ...and may open the person's chat with @pm in place (the widget API's navigate, MSC2931): its
+# "your chat with Product Manager" links. No other capability (nothing in a room is read or sent).
+PANEL_APPROVED = {"preload_approved": True, "identity_approved": True,
+                  "capabilities_approved": ["org.matrix.msc2931.navigate"]}
 # Screen test: right after sign-up a newcomer got Element's "Introducing Sections" tip on top of the
 # rest. v1.12.35's ReleaseAnnouncementStore shows each feature not marked seen in the account setting
 # "releaseAnnouncementData", which has a config level (Settings.tsx: LEVELS_ACCOUNT_SETTINGS), so
@@ -54,7 +58,7 @@ def element_config(values: dict) -> dict:
             "setting_defaults": SETTING_DEFAULTS,
             "embedded_pages": {"home_url": f"{rooms}/home.html"},
             "branding": {"auth_header_logo_url": f"{rooms}/logo.svg", "welcome_background_url": f"{rooms}/background.svg"},
-            WIDGET_LIFECYCLE: {"widget_permissions": {panel_url(values): {"preload_approved": True, "identity_approved": True}}}}
+            WIDGET_LIFECYCLE: {"widget_permissions": {panel_url(values): PANEL_APPROVED}}}
 
 
 def panel_url(values: dict) -> str:

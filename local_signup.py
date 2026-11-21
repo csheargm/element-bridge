@@ -8,6 +8,7 @@
 `token` needs a server admin: it creates the account admin-bot once (password in .env, never
 printed) through the shared secret, and uses it only for Synapse's registration-token API.
 """
+import contextlib
 import json
 import subprocess
 import sys
@@ -56,6 +57,14 @@ def setup() -> bool:
 
 def admin_call(method: str, path: str, body: dict) -> dict:
     """One call to Synapse's admin API, signed in as admin-bot only for this call."""
+    with admin_session() as call:
+        return call(method, path, body)
+
+
+@contextlib.contextmanager
+def admin_session():
+    """Several admin API calls on one admin-bot sign-in (each sign-in counts against Synapse's limit:
+    GPT review), signed out at the end. Yields call(method, path, body) -> dict."""
     env = load_env()
     try:
         password, _ = setup_accounts.ensure_user(env, ADMIN, setup_accounts.shared_secret(), admin=True)
@@ -63,7 +72,7 @@ def admin_call(method: str, path: str, body: dict) -> dict:
         raise SystemExit(str(e)) from e
     token = setup_accounts.login(ADMIN, password)
     try:
-        return api(method, path, body, token=token)
+        yield lambda method, path, body: api(method, path, body, token=token)
     finally:
         api("POST", "/_matrix/client/v3/logout", {}, token=token)     # the admin session ends here
 

@@ -82,7 +82,7 @@ class PageScript(unittest.TestCase):
         node = shutil.which("node")
         if node is None:
             self.skipTest("node not installed")
-        page = panel.PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(panel.ELEMENT_ORIGIN))
+        page = panel.PAGE.replace("__EMBEDDERS__", json.dumps([panel.ELEMENT_ORIGIN]))
         script = re.search(r"<script>(.*)</script>", page, re.S).group(1)
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
             f.write(script)

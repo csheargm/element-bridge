@@ -43,9 +43,10 @@ works (`./start.sh`).
 10. **Where can this GitHub App be installed?**
     - **Only on this account:** only your own repos (or your org's) can install it. This is safer
       while the server is new, but nobody else can bring their repo.
-    - **Any account:** anyone can install it on their repos. It is still read-only, and a room can
-      only choose repos the operator lists in `HAGENCY_REPOS`. Pick this once other people bring
-      their own projects.
+    - **Any account:** anyone can install it on their repos. It is still read-only. A room can then
+      choose any repo that has the App and that the asker's connected GitHub account can write to
+      (unless you restrict it with `HAGENCY_REPOS`, below). Pick this once other people bring their
+      own projects.
 
     Start with **Only on this account**. You can change it later under *Advanced → Make public*.
 11. Click **Create GitHub App**. On the App's **General** page, write down the **App ID**, a
@@ -80,8 +81,15 @@ Then in `~/hagency/app/deploy/.env` on the VM, set these. Use plain values: no q
 GITHUB_APP_ID=<the App ID from step 1.11>
 GITHUB_APP_SLUG=hagency-rooms
 GITHUB_APP_CLIENT_ID=<the Client ID from step 1.11>
-HAGENCY_REPOS=owner/repo,owner/other-repo
+HAGENCY_REPOS=
 ```
+
+**Which repos.** Leave `HAGENCY_REPOS` empty to let a room's owner or a maintainer choose any repo.
+Two checks still hold: the Hagency Rooms App must be installed on the repo, and their connected
+GitHub account must have write (or maintain, or admin) access to it. To allow only certain repos,
+list them (`HAGENCY_REPOS=owner/repo,owner/other-repo`); any other repo is then refused with "This
+server only allows certain repos". When a room can't use a repo, @pm names the one missing step:
+the App's install link, the GitHub account that can't write, or the server's list.
 
 Without `GITHUB_APP_CLIENT_ID` nobody can connect a GitHub account, so nobody can choose a room's
 repo on the server.

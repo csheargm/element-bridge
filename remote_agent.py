@@ -17,6 +17,8 @@ import urllib.parse
 
 from aiohttp import web
 
+import agent_kinds
+import connect_status
 import console
 import identity
 import local_signup
@@ -55,8 +57,11 @@ def client_of(request) -> str:
     return peer
 
 
-def install_line(code: str) -> str:
-    return f"curl -fsSL {console.public_url()}/connect.sh | sh -s -- {code}"
+def install_line(code: str, kind: str | None = None) -> str:
+    """The line to paste on a Mac or Linux; with the agent's kind (agent_kinds.KINDS only), --agent KIND,
+    as the Connect page's own line (static/connect.js commandFor)."""
+    named = f" --agent {kind}" if kind in agent_kinds.KINDS else ""
+    return f"curl -fsSL {console.public_url()}/connect.sh | sh -s -- {code}{named}"
 
 
 def open_dm(agent: str, password: str, person: str) -> str:
@@ -110,7 +115,7 @@ def _provision(person: str) -> str:
     return agent
 
 
-def provision_more(person: str, label: str) -> str:
+def provision_more(person: str, label: str, picked: dict | None = None) -> str:
     """A further agent of `person`, called `label` (registry.clean_label), as a remote agent; returns
     its localpart. Counted against their cap (and, from another server, the hourly cap) BEFORE its
     account exists. Raises AccountError with a sentence for them. Blocking I/O."""
@@ -123,12 +128,14 @@ def provision_more(person: str, label: str) -> str:
             if registry.local_name(person) is None:
                 remote_people.check_new(registry.from_elsewhere(registry.load()), person, further=True)
             try:
-                found = registry.add_agent(person, label)
+                found = registry.add_agent(person, label, picked=picked)   # pm_kinds.py: the AI it runs (agent_kinds' fields)
             except ValueError as e:
                 raise AccountError(str(e)) from e
         agent = found["localpart"]
         if found["agent"] != registry.REMOTE or registry.claimants(agent) != [person]:
             raise AccountError("that agent's account name is taken here; choose another name")
+        if picked and not found["ready"]:     # finishing an unfinished one: the AI chosen now (GPT review);
+            registry.update(person, agent, **{k: picked.get(k, "") for k in agent_kinds.OFFER_KEYS})   # a finished one keeps its own
         password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
         registry.update(person, agent, ready=True)   # made or signed in with our password: ours (disconnect checks)
         if not found.get("dm"):
@@ -201,7 +208,8 @@ def credentials_for(person: str, agent: str | None = None, issued: float | None 
         return None
     owner = registry.local_name(person) or person   # a bare name here: what an older connect.py accepts
     return {"homeserver": PUBLIC_HOMESERVER, "user_id": f"@{agent}:{SERVER_NAME}", "password": password, "owner": owner,
-            **({"label": label} if label else {})}
+            **({"label": label} if label else {}),
+            **{k: found[k] for k in agent_kinds.OFFER_KEYS if found.get(k)}}   # the AI it runs (none: connect.py picks)
 
 
 def routes() -> list:
@@ -216,11 +224,18 @@ def routes() -> list:
         except ValueError:                    # not JSON: the same answer as a wrong code
             body = {}
         person, agent, issued = CODES.redeem_agent(body.get("code") if isinstance(body, dict) else None)
-        creds = await asyncio.to_thread(locked_credentials, person, agent, issued) if person else None
+        if person:                            # the code is gone now: the page keeps "waiting" until the answer
+            connect_status.redeeming(body["code"])   # (no await in between; GPT review, batch 12-14)
+        try:
+            creds = await asyncio.to_thread(locked_credentials, person, agent, issued) if person else None
+        finally:
+            if person:
+                connect_status.redeemed(body["code"])
         if not creds:
             LIMIT.failed(client)
             return web.json_response({"error": "that code is wrong, used or expired: ask @pm for a new one"},
                                      status=400, headers=NO_STORE)
+        connect_status.mark_used(body["code"])   # the Connect page may now say "connected" (only that)
         return web.json_response(creds, headers=NO_STORE)
 
     async def installer(request):

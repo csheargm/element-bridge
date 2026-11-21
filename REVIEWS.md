@@ -1094,3 +1094,291 @@ Re-check (GPT, the fix commit): six points. Adopted, with tests:
 Rejected: **a failed Welcome lookup skips the Lobby lookup** and **is_welcome_room checks only the
 main address** (both pre-existing; the address check still guards, the next start retries; out of
 scope, R8).
+
+## GPT review of feat/remove-repo (remove repo, GitHub banner + Copy, panel on top, rename agent, R15)
+GPT (Codex) on origin/master..HEAD: two blocking, five medium, one low. Adopted, each verified in
+the code, with tests:
+- **Blocking: rename trusted a registry reservation as proof of the account.** A remote agent's name
+  is only reserved before its account is made, and Synapse's admin PUT creates a missing account.
+  Rename now needs an account @pm made or holds ("ready", or one this server runs) under the exact
+  name it must have, reads the account first (update only), under the set-up lock (remote_agent.
+  WRITING), which also keeps Synapse and agents.json in one order. test_rename_agent
+  (test_a_name_only_reserved_here_…, test_a_missing_account_is_never_created_…).
+- **Blocking: a confirmation removed whatever repo the room had then.** The ✅ question and the
+  panel's second click carry the repo the person saw; a different binding is refused (CHANGED).
+  test_remove_repo (test_a_confirmation_never_removes_a_repo_bound_since).
+- **Medium: cancelling released the poll lock before the removal finished.** As choose_repo: the
+  lock is held until the shielded job ends. test_cancelling_keeps_the_poll_lock_…
+- **Medium: the moderator check came before waiting for the binding lock.** It is read inside it,
+  right before the write. test_a_demotion_while_waiting_for_the_binding_lock_counts.
+- **Medium: rename held up the sync loop** (an admin sign-in can wait) **and AccountError escaped.**
+  The chat path runs in the background; AccountError is a refusal.
+- **Medium: a failed board edit stayed for good** (unbound rooms were skipped). The board stays
+  marked "unbound" and each poll retries; a reposted board is pinned. test_a_board_edit_that_failed_…
+- **Medium: any page under the panel's widget key was promoted.** Only our exact widget URL.
+  test_panel_layout (test_another_page_under_the_panels_key_is_never_promoted).
+- **Low: a focused code field froze the card on a stale code; a sign-in finished before the first
+  view kept the line.** The field is redrawn once its code changes; connected clears the line.
+  test_panel_github_card (test_connected_before_any_view_showed_the_code_clears_it_too).
+Rejected: **a binding revision for "removed then rebound to the same repo"** (the person confirmed
+removing that repo, within 10 minutes; the check above covers a different one) and **the layout
+read/write gap** (Element changes a room's layout only on a moderator's drag; the next start
+re-checks).
+Re-check (GPT, the fix commit and the chat links): one blocking, three medium, one low. Adopted,
+with tests:
+- **Blocking: the panel's armed Remove repo followed a redraw onto a newer repo.** The first click
+  stores the repo it armed; another repo shows unarmed and its click only arms. test_panel_cards
+  (test_a_repo_bound_after_the_first_click_is_never_armed).
+- **Medium: a reposted board whose pin failed lost its retry mark** (and the mark was saved only
+  after the network calls). Saved first; dropped only once edited or reposted, pinned in the old
+  board's place, and published. test_remove_repo (test_a_reposted_board_that_couldnt_be_pinned_…).
+- **Medium: the fallback opened a tab from Element's reply, which browsers block as a pop-up, and
+  no reply left nothing.** A refusal or no answer within 4 s shows a link to click.
+  test_panel_chat_link (test_a_refused_navigation_offers_a_link_to_click).
+- **Medium: a rename used two admin sign-ins while holding the set-up lock.** One admin session
+  (local_signup.admin_session) for the read and the write; renames go one at a time on their own
+  lock, and the set-up lock is held only around agents.json. test_rename_agent (one session).
+Rejected: **mark the Connect line only when a code was issued** (Connect shows only without a
+login, so "a login and no code" after it means the person connected meanwhile and the line is stale
+either way; a refusal is still kept while there is no login).
+Noted: navigation inside a running Element v1.12.35 was not exercised here (node stand-in for the
+widget API); the action name, data.uri and the lifecycle module's capabilities_approved were read
+from upstream, and the one screen check at the end covers it.
+
+## Panel framing: Element Desktop and Element's own apps (seen live, before its GPT review)
+The panel was blank in Element Desktop: its frame comes from `vector://vector`, and the panel allowed
+only `'self'` and our Element (frame-ancestors), with Caddy adding `X-Frame-Options SAMEORIGIN` to
+everything on the rooms name. Now one list (bridge_config.panel_embedders: ours, Element Desktop,
+app/develop/staging.element.io; HAGENCY_PANEL_EMBEDDERS / PANEL_EMBEDDERS replaces it, never `*`)
+sets the panel's frame-ancestors, and the page talks only to the first of those origins that speaks
+to it. X-Frame-Options stays on Element's own pages only (it can't name several origins; CSP
+frame-ancestors supersedes it); the Connect page keeps frame-ancestors 'none'.
+Why framing by more apps is safe (clickjacking): the panel does nothing until it is signed in, and
+inside a frame it signs in only with an OpenID token the framing Element app gives for its own
+signed-in person, which @pm verifies with our homeserver (so only our own people, and only as
+themselves); a page that isn't on the list gets no answer at all. Destructive clicks ask twice
+(Remove an agent, Remove repo). Element Desktop and other servers' Element apps never read our
+config.json, so they ask once (Continue / Allow) before showing the panel: a new room's first
+message says so and links the same panel in a browser (/console?room=…, signed in by link).
+Tests: tests.test_panel_framing (header values, the configurable list without a wildcard, Caddy,
+Element Desktop signs in, a page not on the list is never answered, the room message).
+GPT (Codex) on the commit: nothing blocking (frame-ancestors checks every ancestor; origin pinning,
+`vector://vector` as Element Desktop's origin, dropping X-Frame-Options from @pm's other responses
+and Caddy's header order all checked against upstream). Adopted: **pin the Element origin only on
+its capabilities request** (not any first message); **ELEMENT_ORIGIN is validated like the list**
+(it goes into the CSP and the page's script; test_a_malformed_element_origin_never_reaches_the_policy);
+**an empty PANEL_EMBEDDERS means ours only** (Compose's `-`, not `:-`). Noted, not changed: a framing
+app on the list can overlay the signed-in panel and induce clicks (that is trusting Element's own
+apps, which hold the person's Matrix session anyway); Element's nginx sends no X-Frame-Options today,
+so Caddy's one value is final.
+
+## GPT review of feat/agent-picker (AI picker, reusable names, My Hagency, home button, R15)
+GPT (Codex) on feat/remove-repo..HEAD: two blocking, three medium. Adopted, with tests:
+- **Blocking: a key without a known prefix (or in a URL path) passed as a model or URL**, and an
+  extra `api_key` field in the panel's JSON was silently dropped. A long mixed letters-and-digits
+  piece counts as a key too (model names and paths are short words), and any extra field refuses.
+  test_agent_picker ReviewFixes (test_keys_without_a_prefix_…).
+- **Blocking: another agent's slot name shadowed names.** After codex came back as slot codex2,
+  adding "codex2" resent codex's code; chat remove / disconnect / rename looked up slots only. One
+  rule now (registry.called: account, slot or given name), used by every typed lookup, and no two
+  of a person's agents share any of those names (add and rename refuse). test_another_agents_slot_…,
+  test_rename_agent (test_a_name_another_of_their_agents_has_is_refused).
+- **Medium: a personal chat that stopped being private fell through to project handling.** @pm's
+  own chats with a person are always My Hagency or refused (NOT_PRIVATE), never a project room.
+  test_my_hagency (test_a_chat_that_stopped_being_private_…).
+- **Medium: the picker took URLs ADR 0008's client refuses (a malformed port), and finishing an
+  unfinished agent kept its old choice.** The port is checked; the choice made now is recorded.
+  test_a_malformed_port_…, test_finishing_an_unfinished_agent_takes_the_ai_chosen_now.
+- R4: console.act was at 52 lines; Add an agent moved into console.add_agent.
+Deferred: **the home button may open a DM the person made themselves** (Element's #/user/…?action=chat
+reuses the direct chat in their m.direct; @pm creates its own with is_direct, so that is the usual
+one; a person-opened DM gets no My Hagency, and the panel's chat links point to @pm's own chat).
+Re-check (GPT, the fix commit): two blocking, two medium. Adopted, with tests:
+- **@pm's replaced chat lost its protection** (a newer chat overwrote the record). Every chat My
+  Hagency was put in is kept on disk (console_personal.had_panel) and stays refused if it changes.
+  test_my_hagency (test_a_chat_pm_replaced_since_is_still_refused).
+- **A new slot could take another agent's given name** (codex → codex2 while another agent is
+  called codex2). Slots skip given names too. test_a_new_slot_never_takes_another_agents_given_name.
+- **Resending a code could change a finished agent's AI.** Only an unfinished one takes the new
+  choice, after the account check. test_a_finished_agent_keeps_its_ai_when_its_code_is_resent.
+- **Keys of letters (or digits) only.** A word of 32+ characters counts too.
+  test_a_long_word_of_letters_only_is_a_key_too.
+Rejected: **catching every possible key** (a short or split key can't be told from a model name;
+@pm never asks for one, says where it goes, and refuses what looks like one; a model ID with a
+40-character hash in it is refused as the price); **two renames of one person racing past the
+name check** (5 per hour per person, one at a time on the server: the window is a person against
+themselves); **multi-word names in "remove my agent NAME"** (the panel's buttons cover them).
+
+## GPT review of feat/agent-backends (agent kinds on your own computer, Connect page, R15)
+
+The review focused on secret handling and command injection. GPT found no shell or flag injection:
+the model and address are separate argv items, and connect.ps1 splats an array. It raised 11
+points. Adopted, each verified in the code and covered by a test:
+- **Key bound to its address:** `remote.env` now holds the key together with the address it was
+  typed for. A turn whose `base_url` differs gets no key. Before, during a reconnect the running
+  bridge (old address) could send the newly typed key to the old address.
+- **A reply that echoes the key:** the exact key is now cut out of successful replies too, not
+  only out of errors.
+- **Sessions per address:** saved sessions are keyed by the address (`remote:<hash>`), so a
+  conversation never resumes at another provider.
+- **Hermes `.env` and YAML:**
+  - A line break in a server-sent value (the password) is refused rather than written into `.env`,
+    where it could have added `MATRIX_ALLOWED_USERS=*`.
+  - An older `.env` is chmod'ed to 0600 and opened without following symlinks.
+  - YAML values have their quotes doubled.
+- **Validators:** they used `match` with `$`, which allows a trailing newline. They now use
+  `fullmatch`, and PowerShell uses `\z`. A malformed IPv6 address no longer raises from
+  `urlsplit`.
+- **Status limiter:**
+  - The wrong-code budget is per client only, so many guessers can't stop everyone's status.
+  - Refused asks aren't stored.
+  - The page polls only a whole code, never one still being typed.
+- **Odd offer values:** a kind, model or address @pm sent that this computer won't use now still
+  leaves the sign-in saved (the code is used up), with "rerun with `--agent`". Before, nothing was
+  saved.
+- **Settings stay with their kind:** a model or address is kept only for the kind it was chosen
+  for, and @pm's only when @pm named that kind. It is saved before the tool check, so a rerun
+  keeps @pm's model.
+
+Not adopted:
+- **A credential broker that hides the key from the agent's own tools:** same-user files the
+  sandbox can read stay readable, as for `credentials.json` and the CLIs' own sign-ins (ADR 0006's
+  accepted risk, now named in ADR 0008).
+- **A fixed public error for remote failures:** errors are scrubbed and cut short, and they help
+  the owner fix a wrong address or model.
+- **Retryable redemption with a client-held claim secret:** a server protocol change, outside this
+  PR. A used code's sign-in is now always saved first.
+- **A separate status token and origin:** the status reveals only waiting/connected/expired, by
+  POST body, rate-limited.
+- **"@pm never supplies the kind":** that is the @pm side's part of the contract (another
+  change). The `#kind=` on the page is only a pre-check hint.
+
+GPT re-check of the fixes (9 points). Adopted, with tests:
+- **JSON-escaped key:** the key is also cut out as a JSON error would spell it.
+- **Every kind of line break** (` `, `\x1c`... as `splitlines` sees them) is refused, and
+  checked on the whole saved sign-in before any profile file is written.
+- **Status limiter:**
+  - It keeps no shared `"*"` list, and quiet clients are forgotten.
+  - An ask refused for wrong codes isn't counted against the minute's budget.
+- **Polling:** the page polls a code with its dashes anywhere, as redemption accepts it.
+- **@pm's settings:** a model or address from @pm applies only with the kind @pm named.
+
+Not adopted:
+- **`#`/`${}` in a dotenv password:** the server generates these passwords (no such characters).
+  The Hermes dotenv quoting is unchanged from the server set-up.
+- **A hard-link swap of a profile's `.env`:** it needs another local account to write in the
+  owner's own `~/.hermes`. Symlinks are already refused (`O_NOFOLLOW`) and the mode forced to 0600.
+
+## GPT review: batch 12–14 combined (remove repo, rename, picker, agent kinds, Connect page, R15)
+GPT (Codex) on the whole diff origin/master..integ/batch-12-14, after the wiring (pm_kinds on
+agent_kinds, the kind in credentials_for, page_link(code, kind) and `--agent` in every Connect
+message, the picker from agent_kinds.kinds()). One blocking, ten medium, four low. It found no
+shell, flag, TOML or HTML injection in the new paths, and the navigate handler's checks held.
+Each point was checked in the code. Adopted, each with a test in tests/test_batch_review.py:
+- **Blocking: a stale ✅ could remove another agent.** remove_for_good matched by any name, so once
+  the asked-about account was gone, another agent *displayed* as that account matched. It now
+  takes an account name only (localpart or slot), never a display name.
+- **"expired" while connecting.** POST /connect used the code before looking up the sign-in, so a
+  status ask in that gap said expired and the page stopped. The code is marked "redeeming" (no
+  await in between) and reads "waiting" until the answer.
+- **Concurrent status asks passed the wrong-code budget.** The check now runs after the body is
+  read, with no await between check, state and charge.
+- **"remove the repo" couldn't end a pending GitHub App wait** in a room with no repo yet: it ends
+  the wait now and says so.
+- **A private repo's room, unbound, could later be made open** and show its past to anyone who
+  joins: it stays refused (see the re-check below for how).
+- **"@pm …" typed in our private chat** wasn't understood by Add, Rename, GitHub or the welcome
+  commands (the address was stripped only in rooms): pm_address.unaddressed for all four. (Found by
+  the flow test for Add first; GPT named Rename.)
+- **Hermes on the Windows tab still showed a line** to copy by hand, which would use the code up:
+  no line there now (connect.js shownCommand).
+- **The panel's resend hint named the slot** ("add another agent called codex2"), which @pm refuses
+  for an agent called "codex": it names the agent's own name, or says to remove and add it again
+  when that name can't be typed in one word.
+
+Not adopted:
+- **A provider echoing the key into Codex's local history:** the provider already holds the key,
+  and the file is the person's own (ADR 0008's accepted same-user risk).
+- **The key check runs on @pm's side:** the panel never asks for a key; a key pasted into the model
+  field is refused, and catching every short key was rejected before (#13).
+- **Panel framing by an allowlisted Element:** by design (#12); every listed origin is an Element
+  the owner chose, and PANEL_EMBEDDERS is one list, never `*`.
+- **Two renames racing past the name check:** a person against themselves, 5 per hour (#13).
+- **"Connected" should say "code redeemed":** the page already says the agent is starting and to
+  wait for the Terminal.
+
+Deferred (the on-screen check covers them):
+- **Windows ACL when connect.py runs directly with its own `--home`:** connect.ps1 sets it; a
+  direct run on Windows with an existing folder keeps that folder's ACL.
+- **Ollama's /api/tags may list no capabilities,** and then every model counts as able to use
+  tools (a non-tool model fails at its first turn, not at Connect).
+- **The home button can open a DM the person made** (no My Hagency there), as deferred in #13.
+
+GPT re-check of these fixes (one blocking, two medium, four low). Adopted, with tests:
+- **Blocking: setting history to "joined" at unbind hides nothing.** Matrix shows each message
+  under the rule it was sent with. Instead, unbinding a private repo leaves a marker
+  (`xyz.hagencylabs.private_past`), and Open stays refused for that room (Listed is still allowed,
+  as for a private repo; an unreadable marker counts as set). If the marker can't be written, the
+  room is told to stay private or listed.
+- **Ending a quiet install wait named the repo.** A quiet wait exists before write access is known,
+  so naming it would confirm the repo. The answer is now the same words with or without a wait.
+- **A bind finishing as the wait ended was reported as "no repo".** stop_waiting waits for the
+  cancelled watch (its bind is shielded) and reads the room again, then asks the usual ✅ question.
+- **An already-blocked status client still had its body read:** a non-charging check comes first.
+- **The resend hint for a name of several words** said to remove the agent; it now says to rename
+  it to one word, which keeps the account.
+- **Synapse refuses `restrict_public_rooms_to_local_users`** next to the two directory keys: the
+  older key is removed from homeserver.yaml.
+- Also fixed: a watchdog test leaked status_board.at_start (from #12's panel lift), which failed
+  a later test when garbage-collected.
+
+Not adopted: **"pm-connect" or "@pm:server" prefixes** in the private chat. The same ADDRESS_RE
+already reads room messages this way, and Element sends a mention as the display name.
+
+### Owner decision in batch 12–14: any repo the asker can write to
+- **What changed:** `HAGENCY_REPOS` is optional. Empty means any repo that has the Hagency Rooms App
+  and that the asker's connected GitHub account can write to (github.any_repo / allowed_repo). When
+  set, it still restricts.
+- **Without the App** (local dev, the host's own `gh` login), only `LOOP_REPO` and the list count,
+  as before. A free choice there would expose whatever that login can read.
+- **Reading a room's binding** (room_state.repo_in, also in agents' processes, which have no App
+  settings) accepts any owner/name @pm wrote while no list is set. Hermes profiles get only the
+  operator's list.
+- **The refusal names the one missing step** (repo_refusals.py):
+  - the install link when the App isn't on the repo;
+  - "Your GitHub account @login can't write to owner/name";
+  - "This server only allows certain repos" when a list is set.
+- **Kept shared, and why:** a *private* repo with the App installed but no write access (or one
+  GitHub can't tell us about) gets the install step's words, and its wait ends quietly. Any other
+  answer would confirm to anyone in any room that a private repo of that name exists and has our
+  App. The install step itself confirms nothing, because GitHub answers "not installed" the same way
+  for a missing repo and for a private one without the App. (GPT's review below found the first
+  version, which had its own shared sentence, was still an oracle.)
+
+GPT review of this change (three blocking, two medium, two low). Adopted, with tests
+(test_any_repo, test_github_link_more, test_github_app_flows, test_batch_review):
+- **Blocking: install words vs a separate shared sentence was an oracle.** A private repo with the
+  App and no access now reads exactly like a repo without the App, and both waits end quietly: no
+  closing "still not installed" line, no denial. A public repo still names the account that can't
+  write.
+- **Blocking: switching from a private repo to another skipped the never-open marker.** bind() sets
+  it when the old repo was private, as removing does.
+- **Medium: case.** With no list to spell it, the bound name is GitHub's own `full_name`, so one repo
+  is one key in every record.
+
+Deferred:
+- **Blocking (pre-existing): a renamed or deleted repo whose name is reused** by another repo that
+  also installs our App. A binding stores only owner/name; storing GitHub's repo ID at bind and
+  checking it on every read is its own change. The new owner must install our App on the new repo,
+  so this needs that owner's own action.
+- **Medium: a list set later** hides unlisted bindings from @pm but not from agents on people's
+  computers (they have no list). Operator guidance: remove such rooms' repos first. A Matrix-side
+  revocation is a later change.
+- **Low: an install wait drops ➕'s "discuss here" choice;** the person is asked again.
+
+### GPT review of the panel order change (repo before Mode)
+Adopted, with tests in test_panel_cards:
+- **Medium: with panel_project.js missing, the panel lost its Off button.** Mode now lives in that
+  script, so a fallback inline card keeps Off.
+- **Low: the disabled-state test passed even with buttons missing.** It now asserts all three are
+  present and reads each one's disabled attribute.

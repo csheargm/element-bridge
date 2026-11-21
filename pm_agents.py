@@ -16,12 +16,13 @@ import time
 
 from nio import MatrixRoom, ReactionEvent, RoomMessageText
 
+import pm_kinds
 import connect_page
-import identity
 import registry
 import remote_agent
-from bridge import ROOT, SERVER_NAME
-from pm_chat import without_quote
+from bridge import ROOT
+from pm_address import unaddressed
+from pm_rename import Renaming
 from redact import room_safe
 from saved_dict import SavedDict
 from setup_accounts import AccountError
@@ -29,14 +30,14 @@ from setup_accounts import AccountError
 log = logging.getLogger("loop")
 ADD = "➕"
 ADD_RE = re.compile(r"^\W*(please\W+)?(add|make|create|get me|i want) (another|a second|one more|a new|a further) agent"
-                    r"(\s+(called|named)\s+(?P<label>[\w-]+))?(\s+please)?\W*$", re.I)
+                    r"(\s+(called|named)\s+(?P<label>[\w-]+))?(\s+(using|with|running)\s+(?P<how>.+?))?(\s+please)?\W*$", re.I)
 CANCEL_RE = re.compile(r"^\W*(cancel|stop|never ?mind|no)\W*$", re.I)
 NAMING_S = 10 * 60                    # how long @pm waits for the name it asked for
 NAME_ANSWER_RE = re.compile(r"^\W*((call|name) it|let'?s call it|it'?s)?\s*(?P<label>[A-Za-z][\w-]*)\W*$", re.I)   # "codex"
 ADD_HINT = "\n\nWant another agent too (for example Codex as well as Claude Code)? Click ➕ below."
 ASK_NAME = ("What should I call your new agent? One short word, letters and digits (up to 9), for example "
             "**codex** or **laptop**. (Say \"cancel\" to stop.)")
-BRING_REPLY = ("Your agent is **{agent}**. On the computer where Codex or Claude Code is installed, open "
+BRING_REPLY = ("Your agent is **{agent}**. On the computer where {where} is installed, open "
                "[your Connect page]({link}): it shows the one line to paste there (Mac, Windows or Linux).\n\n"
                "Your code: `{code}` (it works once, within 30 minutes). On a Mac or Linux this is the same line:\n\n"
                "`{line}`\n\nYour agent then runs in the background. It has invited you to a private chat: "
@@ -44,7 +45,7 @@ BRING_REPLY = ("Your agent is **{agent}**. On the computer where Codex or Claude
 HAVE = "You already have an agent here: {agents}." + ADD_HINT
 
 
-class MoreAgents:
+class MoreAgents(Renaming):
     def add_offers(self) -> dict:
         """➕ message event id → {"person", "dm"}, on disk: only that person's click there counts."""
         if "_add_offers" not in self.__dict__:
@@ -80,9 +81,12 @@ class MoreAgents:
         return mine or self.is_one_to_one(room, person)
 
     async def on_add_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
-        """True if the message asked for another agent, or answered my "what should I call it?"."""
+        """True if the message asked for another agent, or answered my "what should I call it?" (or
+        renamed one: pm_rename.py)."""
+        if await self.on_rename_text(room, event):
+            return True
         private = self.in_private(room, event.sender)
-        text = without_quote(event.body) if private else self.addressed_text(event, room)
+        text = unaddressed(event.body) if private else self.addressed_text(event, room)
         if text is None:
             return False
         naming = self.__dict__.setdefault("_naming", {})
@@ -94,20 +98,24 @@ class MoreAgents:
                 return True
             answer = NAME_ANSWER_RE.search(text)
             if answer:
-                await self.start_add(room.room_id, event.sender, answer.group("label"))
+                await self.start_add(room.room_id, event.sender, answer.group("label"), asked.get("picked"))
                 return True
         m = ADD_RE.search(text)
         if not m:
             return False
         dm = room.room_id if private else await self.private_room(event.sender)
-        if dm is None:
+        picked = pm_kinds.from_words(m.group("how")) if m.group("how") else None   # the AI it runs
+        if isinstance(picked, str):
+            await self.say(room.room_id, picked)      # (an API key typed here is never repeated)
+        elif dm is None:
             await self.say(room.room_id, "I couldn't open a private chat with you; please try again.")
         else:
-            await self.start_add(dm, event.sender, m.group("label"))
+            await self.start_add(dm, event.sender, m.group("label"), picked)
         return True
 
-    async def start_add(self, dm: str, person: str, typed: str | None = None) -> str:
-        """Ask for a name, or set the agent up (in the background). Returns what was said, for the console."""
+    async def start_add(self, dm: str, person: str, typed: str | None = None, picked: dict | None = None) -> str:
+        """Ask for a name, or set the agent up (in the background). Returns what was said, for the console.
+        picked: the AI it runs (pm_kinds.choice; None: connect.py picks), kept while I ask its name."""
         naming = self.__dict__.setdefault("_naming", {})
         have = registry.agents_of(person)
         if not registry.may_add_more(person):     # their first agent removed for good: a named one is next
@@ -115,13 +123,14 @@ class MoreAgents:
         label = registry.clean_label(typed) if typed else None
         if label != (typed or "").strip().lower():
             label = None                      # never silently a different name than the one typed
-        same = next((a for a in have if a["label"] == label), None) if label else None
-        again = same is not None and not same["first"]   # theirs already: finished if it failed, its code resent
+        same = next((a for a in have if registry.called(a, label)), None) if label else None   # any of its names
+        again = (same is not None and not same["first"]   # theirs already: finished if it failed, its code resent;
+                 and registry.name_of(same).lower() == label)   # never by another one's slot name (GPT review)
         if len(have) >= registry.per_person() and not again:
             naming.pop(person, None)
             return await self._tell(dm, f"You have {len(have)} agents, the most one person can have here.")
         if not typed or label is None or (same and not again):
-            naming[person] = {"dm": dm, "until": time.time() + NAMING_S}
+            naming[person] = {"dm": dm, "until": time.time() + NAMING_S, "picked": picked}
             why = (f"You already have an agent called {label}. " if same else
                    "That doesn't work as a name. " if typed else "")
             return await self._tell(dm, f"{why}{ASK_NAME}")
@@ -130,20 +139,19 @@ class MoreAgents:
         if person in busy:
             return "I'm already setting up an agent for you; one moment."
         busy.add(person)
-        job = asyncio.create_task(self.add_agent(dm, person, label))
+        job = asyncio.create_task(self.add_agent(dm, person, label, picked))
         job.add_done_callback(lambda _: busy.discard(person))
         self.busy.add(job)
         job.add_done_callback(self.busy.discard)
-        return (f"Setting up {identity.agent_localpart(person, SERVER_NAME, label)}: your Connect page is coming "
-                "in our private chat.")
+        return f"Setting up {label}: your Connect page is coming in our private chat."
 
     async def _tell(self, dm: str, text: str) -> str:
         await self.say(dm, text)
         return text
 
-    async def add_agent(self, dm: str, person: str, label: str) -> None:
+    async def add_agent(self, dm: str, person: str, label: str, picked: dict | None = None) -> None:
         try:
-            agent = await asyncio.to_thread(remote_agent.provision_more, person, label)
+            agent = await asyncio.to_thread(remote_agent.provision_more, person, label, picked)
             await self.send_code(person, agent)
         except (AccountError, OSError, RuntimeError) as e:   # refused, cap reached, .env unwritable, send failed
             log.error("adding an agent failed for %s: %s", person, e)
@@ -160,8 +168,9 @@ class MoreAgents:
             raise RuntimeError("I couldn't open a private chat with just you")
         code = remote_agent.CODES.issue(person, agent=agent)
         more = self.has_connected_agent(person)   # pm_presence.py: "another agent" only once one is connected
+        kind = (registry.find(person, agent) or {}).get("agent_kind")   # the AI it runs (picker); none: as before
         event_id = await self.say(chat, BRING_REPLY.format(
-            agent=agent or registry.agent_of(person), link=connect_page.page_link(code), code=code,
-            line=remote_agent.install_line(code)) + (ADD_HINT if more else ""))
+            agent=agent or registry.agent_of(person), where=pm_kinds.where(kind), code=code,
+            link=connect_page.page_link(code, kind), line=remote_agent.install_line(code, kind)) + (ADD_HINT if more else ""))
         if more:
             await self.offer_add(chat, event_id, person)

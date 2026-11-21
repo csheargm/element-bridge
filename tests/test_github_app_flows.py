@@ -11,6 +11,7 @@ import github
 import github_app
 import pm_brain
 import pm_settings
+import repo_refusals
 import room_state
 from loop import Loop
 from tests.test_github_app import OTHER, REPO, AppCase, issue
@@ -148,13 +149,16 @@ class Binding(BindingSetup):
         self.assertIn("now works on **octo/other**", self.said[-1])
         self.assertEqual(self.lp.install_watches, {})
 
-    def test_after_ten_minutes_it_stops_looking_and_says_so(self):
+    def test_after_ten_minutes_it_stops_looking_quietly(self):
+        """GPT review, batch 12–14: a closing "still not installed" line (and silence for a private repo
+        that has the App) would tell the two apart; the install step was said once, at the start."""
         async def flow():
             await self.lp.set_repo(self.room, ANNA, OTHER)
             await asyncio.wait_for(self.lp.install_watches["!r"][1], 5)
         asyncio.run(flow())
         self.assertEqual(self.written, [])
-        self.assertIn("still don't see the Hagency Rooms app on octo/other", self.said[-1])
+        self.assertEqual(len(self.said), 1)
+        self.assertIn("Install the Hagency Rooms app on octo/other", self.said[-1])
 
     def test_a_newer_choice_ends_the_older_wait(self):
         async def flow():
@@ -249,10 +253,13 @@ class Binding(BindingSetup):
         self.assertEqual(self.lp.room_repos, {"!r": OTHER})          # @pm's records match Matrix
 
     def test_only_moderators_and_allowed_repos_reach_the_install_step(self):
-        asyncio.run(self.lp.set_repo(self.room, "@mallory:bridge.localhost", OTHER))
-        asyncio.run(self.lp.set_repo(self.room, ANNA, "someone/private"))
+        """With an operator list set (HAGENCY_REPOS): an unlisted repo is refused before GitHub is asked."""
+        with mock.patch.object(github, "OPERATOR_REPOS", frozenset({OTHER})), \
+                mock.patch.object(github, "ALLOWED_REPOS", frozenset({OTHER})):
+            asyncio.run(self.lp.set_repo(self.room, "@mallory:bridge.localhost", OTHER))
+            asyncio.run(self.lp.set_repo(self.room, ANNA, "someone/private"))
         self.assertEqual(self.lp.install_watches, {})
-        self.assertEqual(self.said[-1], pm_settings.refusal("someone/private"))   # the same words for every refusal
+        self.assertEqual(self.said[-1], repo_refusals.not_listed("someone/private"))
         self.assertFalse(any("installation" in r[1] for r in self.fake.requests))
 
     def test_unconfigured_binds_as_before(self):

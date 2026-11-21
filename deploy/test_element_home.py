@@ -85,7 +85,8 @@ class PanelTrusted(unittest.TestCase):
     def test_only_our_exact_panel_url_skips_both_prompts(self):
         rules = element_home.element_config(VALUES)[element_home.WIDGET_LIFECYCLE]["widget_permissions"]
         self.assertEqual(rules, {"https://rooms.example.org/panel?room=$matrix_room_id":
-                                 {"preload_approved": True, "identity_approved": True}})
+                                 {"preload_approved": True, "identity_approved": True,
+                                  "capabilities_approved": ["org.matrix.msc2931.navigate"]}})
         self.assertFalse(any(pattern.endswith("*") for pattern in rules))   # Element: "*" would match by prefix
 
     def test_element_runs_the_image_that_carries_its_widget_lifecycle_module(self):
@@ -103,7 +104,12 @@ class HomePage(unittest.TestCase):
                                               "Find a project to join", "③ Invite people")]
         self.assertEqual(steps, sorted(steps))
         self.assertIn("What is this?", self.text)
-        self.assertEqual(self.page.links, ["#/user/@pm:matrix.example.org?action=chat", "#/new", "#/directory"])
+        self.assertEqual(self.page.links, ["#/user/@pm:matrix.example.org?action=chat"] * 2 + ["#/new", "#/directory"])
+
+    def test_my_agents_and_settings_comes_first_and_opens_the_chat_with_pm(self):
+        """Owner request: a prominent button to My Hagency (the panel in the Product Manager chat)."""
+        self.assertLess(self.text.index("⚙ My agents &amp; settings"), self.text.index("① Get your agent"))
+        self.assertEqual(self.page.links[0], "#/user/@pm:matrix.example.org?action=chat")
 
     def test_links_open_inside_element(self):
         """Element keeps #/ links as they are (same tab, its router): #/user/<id>?action=chat opens or

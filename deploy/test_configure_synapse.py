@@ -115,6 +115,22 @@ class RoomDirectory(unittest.TestCase):
         rules = json.loads(directory_settings("x.org")["room_list_publication_rules"])
         self.assertEqual(rules, [{"user_id": "@pm:x.org", "action": "allow"}, {"action": "deny"}])
 
+    def test_other_servers_can_browse_it_but_not_without_a_sign_in(self):
+        """Seen live: a matrix.org account in Element Desktop couldn't browse our directory (federation 401)."""
+        out = configure(GENERATED, ENV)
+        self.assertEqual(out.count("allow_public_rooms_over_federation: true"), 1)
+        self.assertEqual(out.count("allow_public_rooms_without_auth: false"), 1)
+        older = out.replace("allow_public_rooms_over_federation: true", "allow_public_rooms_over_federation: false")
+        again = configure(older, ENV)
+        self.assertIn("allow_public_rooms_over_federation: true", again)          # an older file is fixed too
+        self.assertNotIn("allow_public_rooms_over_federation: false", again)
+
+    def test_the_older_key_synapse_refuses_beside_them_goes(self):
+        """GPT re-check: restrict_public_rooms_to_local_users with either new key stops Synapse from starting."""
+        out = configure(GENERATED + "restrict_public_rooms_to_local_users: false\n", ENV)
+        self.assertNotIn("restrict_public_rooms_to_local_users", out)
+        self.assertIn("allow_public_rooms_over_federation: true", out)
+
 
 if __name__ == "__main__":
     unittest.main()

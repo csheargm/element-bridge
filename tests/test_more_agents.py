@@ -130,10 +130,10 @@ class Caps(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "one short word"):
             registry.add_agent(BETTY, "my-box")
 
-    def test_a_name_someone_else_claims_is_refused(self):
+    def test_an_account_name_someone_else_claims_gets_a_new_one(self):
         use_registry(self, {CX: {"agent": "remote"}, BETTY: {"agent_user": "cx-codex-agent"}})
-        with self.assertRaisesRegex(ValueError, "taken"):
-            registry.add_agent(CX, "codex")
+        added = registry.add_agent(CX, "codex")
+        self.assertEqual((added["localpart"], registry.name_of(added)), ("cx-codex2-agent", "codex"))
 
     def test_the_hourly_cap_for_other_servers_counts_further_agents(self):
         people = {ALICE: {"agent": "remote", "created": 1000, "more": [{"label": "b", "created": 1001}]}}

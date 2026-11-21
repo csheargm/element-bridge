@@ -160,6 +160,7 @@ class EnvUpgrade(unittest.TestCase):
         self.assertEqual(envfile.validate({**base, **good}), [])
         self.assertEqual(len(envfile.validate({**base, **bad})), 4)
         self.assertEqual(envfile.validate({**base, **good, "GITHUB_APP_CLIENT_ID": ""}), [])   # optional
+        self.assertEqual(envfile.validate({**base, **good, "HAGENCY_REPOS": ""}), [])   # optional: any repo
         key.unlink()
         self.assertEqual(envfile.validate({**base, **good}), [])      # `get` and configure_synapse never read the key
         key.write_text(f"-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\n")

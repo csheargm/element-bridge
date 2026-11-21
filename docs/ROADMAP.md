@@ -42,7 +42,8 @@ So other people can try it.
   one room per repo.
 - Let a repo's GitHub owner add it from the console. This needs proof that the Matrix user
   controls that GitHub repo (for example, a one-time code they commit or put in a repo topic).
-  Without that proof, only the server operator adds repos (`HAGENCY_REPOS`).
+  (Partly done in batch 12–14: with the App, any repo the asker can write to; `HAGENCY_REPOS` is
+  optional.)
 - Connect GitHub with GitHub's web flow (a callback tied to the console session) instead of the
   device flow, which can be phished with someone else's code (ADR 0007). Needs a client secret and a
   callback URL on the server.

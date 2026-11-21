@@ -22,10 +22,13 @@ import urllib.request
 
 from aiohttp import web
 
+import agent_kinds
+import pm_kinds
+import console_personal
+import console_repo
 import customize
 import github
 import github_link
-import github_setup
 import ownership
 import project_rooms
 import registry
@@ -120,6 +123,7 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
         if registry.owns(user, a["localpart"]):
             aid = f"@{a['localpart']}:{SERVER_NAME}"
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
+                          "display": a.get("display") or "", "runs": pm_kinds.describe(a),   # pm_rename, pm_kinds
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
                           "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
                           "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
@@ -144,11 +148,16 @@ async def view(loop, room_id: str, user: str) -> dict:
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
     mine = my_agents(loop, room, room_id, user)
-    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    if console_personal.is_dm(loop, room):   # My Hagency: their personal cards only (or refused)
+        return console_personal.view(loop, room, user, mine, can_add(user, mine),
+                                     {"kinds": agent_kinds.kinds(), "github": github_link.status(user),
+                                      "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None})
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.kinds(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
             "follow": registry.follow(user) if agent else None, "github": github_link.status(user),   # pm_github.py
+            "pm_chat": (getattr(loop, "dm_rooms", None) or {}).get(user),   # my private chat with them (their view only): its links open it
             "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
             "remote": bool(agent and registry.load().get(user, {}).get("agent") == registry.REMOTE),   # on their computer
             "online": loop.agent_online(agent.split(":")[0][1:]) if agent else None,
@@ -176,8 +185,9 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     room = loop.client.rooms.get(room_id)
     if room is None or not loop.is_person(room, user):     # a joined human (never an agent or a bot)
         return "you're not in that room"
-    if project_rooms.is_front_door(room):     # GPT review: no changes there either, only the reads refused
-        return project_rooms.NOT_A_PROJECT
+    if refused := (project_rooms.NOT_A_PROJECT if project_rooms.is_front_door(room)   # GPT review: no changes there
+                   else console_personal.refusal(loop, room, user, action)):        # My Hagency: theirs, personal only
+        return refused
     if action == "mode" and value in github.LEVELS:
         if value != "off" and not await room_state.is_moderator(loop.client, room, user):
             return "only the room owner or a maintainer can change the mode"
@@ -188,14 +198,11 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
         done = await loop.set_follow(room, user, value, agent or None)
         return "ok" if done is not False else "that isn't one of your agents"
     if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
-        dm = await loop.private_room(user)
-        return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"
+        return await add_agent(loop, user, value)
     if action == "github":                # pm_github.py: Connect / Disconnect GitHub, for themselves only
         return await loop.github_action(user, value)
-    if action == "repo":
-        return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
-    if action == "check":
-        return await check_repo(loop, room, user)
+    if action in console_repo.ACTIONS:    # the room's repo: choose, remove, check readiness
+        return await console_repo.act(loop, room, user, action, value)
     if action == "visibility":            # pm_projects.py: who can find and join this room
         answer = await loop.set_visibility(room, user, value)
         await loop.say(room_id, answer)
@@ -209,6 +216,8 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     if action == "remove" and value == "sure":   # pm_remove.py: for good; the page asked twice first
         done = await loop.remove_for_good(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't remove it (see my message)"
+    if action == "rename":                # pm_rename.py: their own agent's display name, answered in our chat
+        return await loop.rename_agent(await loop.private_room(user) or room_id, user, agent or None, value)
     if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
         done = await loop.disconnect(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't disconnect it (see my message)"
@@ -219,22 +228,13 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     return "unknown action"
 
 
-async def check_repo(loop, room, user: str) -> str:
-    """Is this room's repo ready for the loop? Read-only: changing the repo's settings stays with its
-    GitHub owner (github_setup.py ruleset), never with @pm."""
-    if not await room_state.is_moderator(loop.client, room, user):
-        return "only the room owner or a maintainer can run the check"
-    repo = await room_state.repo_of(loop.client, room.room_id)
-    if repo is None:
-        return "this room has no repo yet"
-    agents = [a.split(":")[0].lstrip("@") for a in loop.agents_in(room)]
-    if not agents:
-        return "no agents in this room yet (each person's agent joins with them)"
-    _, problems = await github_setup.readiness(repo, agents, detail=False)
-    if not problems:
-        return f"✓ {repo} is ready: {', '.join(agents)} can write, merges need an approving review, agent-ok exists."
-    return "\n".join([f"{repo} isn't ready yet:", *(f"✗ {p}" for p in problems),
-                      f"The repo's owner fixes the rule and label with: python github_setup.py ruleset --repo {repo}"])
+async def add_agent(loop, user: str, value: str) -> str:
+    """Add an agent: a name, or the picker's JSON with the AI it runs (pm_kinds.from_panel)."""
+    name, picked = pm_kinds.from_panel(value)
+    if isinstance(picked, str):
+        return picked
+    dm = await loop.private_room(user)
+    return await loop.start_add(dm, user, name or None, picked) if dm else "I couldn't open a private chat with you"
 
 
 def allowed(request, post: bool) -> bool:

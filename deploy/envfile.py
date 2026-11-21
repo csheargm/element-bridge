@@ -32,7 +32,7 @@ RULES = {
     "GITHUB_APP_ID": r"[1-9][0-9]{0,11}",         # @pm's GitHub App (docs/GITHUB_APP.md); empty: no GitHub reads
     "GITHUB_APP_SLUG": r"[a-z0-9][a-z0-9-]{0,62}",   # its github.com/apps/<slug> name, for install links
     "GITHUB_APP_CLIENT_ID": r"Iv[A-Za-z0-9.]{6,62}",  # its Client ID (public, not the secret): Connect GitHub
-    "HAGENCY_REPOS": rf"{REPO}(,{REPO}){{0,49}}",   # the repos rooms may choose, comma-separated
+    "HAGENCY_REPOS": rf"{REPO}(,{REPO}){{0,49}}",   # optional: only these repos (empty: any; github.allowed_repo)
 }
 SECRETS = {"POSTGRES_PASSWORD"}
 OPTIONAL = {"OPERATOR", "ALLOW_REMOTE", "REMOTE_PER_HOUR",     # OPERATOR: empty until the operator has an account

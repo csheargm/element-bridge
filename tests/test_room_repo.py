@@ -15,18 +15,22 @@ import room_state
 from loop import Loop
 from loop_progress import migrate
 from pm_settings import NO_REPO
+import repo_refusals
 
 PM, ANNA, BETTY = "@pm:bridge.localhost", "@anna:bridge.localhost", "@betty:bridge.localhost"
 HELLO = "your-name/hagency-hello"
-_allowed = mock.patch("github.ALLOWED_REPOS", frozenset({HELLO, "octocat/other", "a/x", "b/y"}))
+_LISTED = frozenset({HELLO, "octocat/other", "a/x", "b/y"})   # an operator list set (HAGENCY_REPOS)
+_allowed = (mock.patch("github.ALLOWED_REPOS", _LISTED), mock.patch("github.OPERATOR_REPOS", _LISTED))
 
 
 def setUpModule():
-    _allowed.start()
+    for p in _allowed:
+        p.start()
 
 
 def tearDownModule():
-    _allowed.stop()
+    for p in _allowed:
+        p.stop()
 
 
 class Parsing(unittest.TestCase):
@@ -117,16 +121,16 @@ class SetRepo(unittest.TestCase):
     def test_a_repo_the_server_doesnt_allow_is_refused_without_listing_others(self):
         self.tell(ANNA, "this room works on someone/private")
         self.assertEqual(self.written, [])
-        self.assertIn("I can't use someone/private", self.said[-1])
+        self.assertEqual(self.said[-1], repo_refusals.not_listed("someone/private"))
         self.assertNotIn(HELLO, self.said[-1])
 
     def test_an_allowed_repo_still_needs_the_requesters_own_access(self):
         """GPT review 10: anyone can create (and own) a room, so the allowlist alone exposed every
-        allowed repo. Same answer as for a repo that isn't allowed: it never confirms a name."""
+        allowed repo. (Without the App, @pm checks their own agent's GitHub account.)"""
         self.can_write = False
         self.tell(ANNA, "this room works on octocat/other")
         self.assertEqual(self.written, [])
-        self.assertIn("I can't use octocat/other", self.said[-1])
+        self.assertEqual(self.said[-1], "Your agent's GitHub account can't write to octocat/other, so this room can't use it.")
 
     def test_a_plan_from_the_old_repo_is_never_filed_in_the_new_one(self):
         self.repo = HELLO
@@ -281,7 +285,8 @@ class Allowlist(unittest.TestCase):
     """GPT-style check: a room anyone can create must not become a window into any repo the host's gh sees."""
     def test_only_the_operators_repos(self):
         import github
-        with mock.patch.object(github, "ALLOWED_REPOS", frozenset({HELLO})):
+        with mock.patch.object(github, "ALLOWED_REPOS", frozenset({HELLO})), \
+                mock.patch.object(github, "OPERATOR_REPOS", frozenset({HELLO})):
             self.assertEqual(github.allowed_repo("Your-Name/Hagency-Hello"), HELLO)    # GitHub ignores case
             self.assertIsNone(github.allowed_repo("your-name/private-thing"))
             self.assertIsNone(room_state.repo_in({"level": "autonomous", "repos": ["your-name/private-thing"]}))

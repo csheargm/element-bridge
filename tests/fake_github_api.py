@@ -26,6 +26,8 @@ class FakeGitHub:
         self.prs: dict[tuple, dict] = {}               # (repo, number) -> GraphQL fields
         self.pages: dict[str, dict] = {}
         self.permissions: dict[tuple, str] = {}        # (repo, login) -> permission
+        self.private: set[str] = set()                 # "owner/name" (lower) of private repos; others public
+        self.names: dict[str, str] = {}                # "owner/name" (lower) -> GitHub's own spelling
         self.token_ttl_s = 3600
         self.echo_auth = False                         # a misbehaving upstream: its errors repeat the credential
         self.tokens: dict[str, set] = {}               # token -> repos (lower) it may read
@@ -135,7 +137,8 @@ class FakeGitHub:
         if rest == ["pages"]:
             return (200, self.pages[repo]) if repo in self.pages else (404, {"message": "Not Found"})
         if not rest:
-            return 200, {"full_name": repo, "default_branch": "main"}
+            return 200, {"full_name": self.names.get(repo.lower(), repo), "default_branch": "main",
+                         "private": repo.lower() in self.private}
         if len(rest) == 3 and rest[0] == "rules" and rest[1] == "branches":
             return 200, [{"type": "pull_request", "parameters": {"required_approving_review_count": 1}}]
         if len(rest) == 3 and rest[0] == "collaborators" and rest[2] == "permission":

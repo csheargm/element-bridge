@@ -166,7 +166,7 @@ class HermesProfile(unittest.TestCase):
         cfg = self.profile / "config.yaml"
         for allowed in ({"me/project-a"}, {"me/project-b", "me/c", "x'\n  evil: 1"}):
             with mock.patch.object(github, "REPO", sorted(allowed)[0]), \
-                    mock.patch.object(github, "ALLOWED_REPOS", frozenset(allowed)):
+                    mock.patch.object(github, "OPERATOR_REPOS", frozenset(allowed)):
                 hermes_profile.set_repos("annaroom")
         text = cfg.read_text()
         self.assertEqual((text.count("LOOP_REPO:"), text.count("HAGENCY_REPOS:")), (1, 1))

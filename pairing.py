@@ -58,6 +58,13 @@ class Codes:
                 dict.pop(self.codes, h, None)
         self.codes._save()
 
+    def live(self, code: str, now: float | None = None) -> bool:
+        """This code is fresh and unused (it stays so: nothing is changed). For the Connect page's
+        status only (connect_status.py)."""
+        entry = self.codes.get(digest(code)) if isinstance(code, str) and len(code) <= MAX_CODE_CHARS else None
+        now = time.time() if now is None else now
+        return isinstance(entry, dict) and isinstance(entry.get("expires"), (int, float)) and entry["expires"] > now
+
     def redeem(self, code: str, now: float | None = None) -> str | None:
         """The person a fresh code was issued to, or None. The code is gone after this either way."""
         return self.redeem_agent(code, now)[0]

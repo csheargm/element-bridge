@@ -16,7 +16,7 @@ from nio import MatrixRoom, RoomMessageText
 
 import github
 import github_link
-from pm_address import without_quote
+from pm_address import unaddressed
 from redact import room_safe
 
 log = logging.getLogger("loop")
@@ -191,7 +191,7 @@ class GitHubLink:
     async def on_github_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was "connect my github" / "disconnect my github" (answered here)."""
         private = self.in_private(room, event.sender)
-        text = without_quote(event.body) if private else self.addressed_text(event, room)
+        text = unaddressed(event.body) if private else self.addressed_text(event, room)
         if text is None or not (CONNECT_RE.search(text) or DISCONNECT_RE.search(text)):
             return False
         if DISCONNECT_RE.search(text):

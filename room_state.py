@@ -47,7 +47,7 @@ def repo_in(content: dict) -> str | None:
         repo = repos[0] if isinstance(repos, list) and len(repos) == 1 else None
     else:
         repo = content.get("repo")
-    return github.allowed_repo(repo)     # also when someone wrote the state by hand: only allowed repos
+    return github.bound_repo(repo)       # only an owner/name, and only listed ones once an operator lists them
 
 
 def is_discussion(content: dict) -> bool:
@@ -66,6 +66,11 @@ def level_of(content: dict) -> str:
 
 def content(level: str, repo: str, discussion: bool = False) -> dict:
     return {"level": level, "repos": [repo], "repo": repo, **({"discussion": True} if discussion else {})}
+
+
+def unbound() -> dict:
+    """A room whose repo was removed (pm_unbind.py): no repo, so its mode is off (level_of)."""
+    return {"level": "off", "repos": []}
 
 
 async def repo_of(client: AsyncClient, room_id: str) -> str | None:

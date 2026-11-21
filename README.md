@@ -15,9 +15,13 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 3. In that chat, click 🔌 **Bring your own** (a house agent, run by the server, isn't built yet).
 4. @pm gives you a one-time code and a link to the **Connect page**
    (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
-   or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line
-   to paste (with a Copy button, and tabs for the other systems), and tells you where to paste it.
-   The code stays in your browser: it's after the `#`, which is never sent to the server.
+   or Claude Code is installed: it sees whether that's a Mac, Windows or Linux and shows numbered
+   steps with a picture (open Terminal or PowerShell, one big **Copy command** button, paste, press
+   Return), a "Before you start" checklist for your kind of agent, and tabs for the other systems.
+   It then says "Waiting for your computer…" and turns to "✓ Connected!" by itself once the command
+   has used the code (or "expired", with a link back to @pm). The code is after the `#`, so it's
+   never in a link the server sees. The page sends it only in the body of that status check, which
+   answers just waiting / connected / expired.
 
    ```bash
    curl -fsSL https://rooms.hagencylabs.xyz/connect.sh | sh -s -- ABCDE-FGHJK                  # Mac, Linux
@@ -39,6 +43,16 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
    the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
    the wrapper names (`cli_path.py`).
+   **Which agent** (docs/adr/0008-agent-kinds.md): the kind you chose with @pm (its Connect link
+   and line then name it, `--agent ollama`), or
+   `--agent codex|claude|hermes|ollama|remote` (Windows: `-Agent`, no Hermes). **Hermes** needs
+   Hermes Agent with a model and Hagency's invite patch (`docs/hermes-matrix-invite-allowlist.patch`),
+   on macOS or Linux; it runs as its two profiles, like on the server. **Ollama** runs a model on your
+   computer through Codex (no OpenAI sign-in needed): the line lists your models that can use tools
+   and you pick one (or `--model qwen3:8b`). **Remote** is any OpenAI-compatible service that speaks
+   the Responses API, also through Codex (`--base-url https://…/v1 --model …`): your API key is
+   asked for only on your computer, never shown, kept in `~/.hagency/remote.env` (only you can read
+   it) and never sent to @pm; `--new-key` replaces it.
 5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): type "add another agent
    called codex" in @pm's chat. Once your first one has connected, @pm's Connect messages also
    carry a ➕ and the panel shows **Add an agent** under My agents. @pm asks for a one-word name if
@@ -47,8 +61,14 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
    any time); **Remove** (click twice, or "@pm remove my agent codex" and ✅) closes its account for
-   good and frees its place, and the first agent goes last. A removed agent's name can't be used
-   again. @pm never lets two of your agents review each other: a review always needs a different
+   good and frees its place, and the first agent goes last. Its name can be used again: the new
+   agent gets a new account (`<you>-codex2-agent`). **Add an agent** also picks the AI it runs
+   (Codex, Claude Code, Hermes, a local Ollama model, or a remote OpenAI-compatible model by base URL
+   and model; "@pm add another agent called pi using claude"); a remote model's API key is entered
+   only on your computer when it connects, never in a chat. All of this is also in **My Hagency**,
+   the panel at the top of your chat with Product Manager (the home page's **⚙ My agents &
+   settings**). **Rename** changes only the name people see (its ID stays; "@pm call my agent NAME" or
+   "@pm rename my agent codex to NAME" works too), even while its computer is off. @pm never lets two of your agents review each other: a review always needs a different
    person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
    new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top
@@ -197,6 +217,7 @@ to write "@pm": everything you say there is for it (in project rooms, start with
 | "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
 | "@pm find a project" | one message per listed or open project room: click 🙋 under a listed one to ask its owners, or join an open one by its link (also Element's Explore rooms) | anyone |
 | "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |
+| "@pm remove the repo" / "this room has no repo" | after your ✅: no repo, mode off, the repo free for another room; also **Remove repo** in the panel (click twice). Nothing on GitHub changes | owner or maintainer |
 | "@pm make this room listed" (or private, open) | who can find and join it; also "Who can join" in the panel | owner or maintainer |
 
 **One project room per repo.** @pm's build loop runs per room, so a room that picks a repo another
@@ -241,18 +262,23 @@ Delete `data/`, `.env` and `rooms/` to start from scratch.
 `agent-ok` on **the room's own repo** and drives each issue through the room, one step per line.
 
 **One room, one repo.** The room owner or a maintainer picks it: say `@pm this room works on
-owner/name`, or use **Project repo** in the Hagency console. The console's **Check readiness**
+owner/name`, or use **Project repo** in the Hagency console (**Remove repo** there, or `@pm remove the repo`, takes it
+off again; refused while work runs). The console's **Check readiness**
 button runs the same read-only check as `github_setup.py check`: each agent can write, merges
 need an approving review, and the `agent-ok` label exists. The repo is stored as a list in the
 room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A project that spans
 repos is a **Matrix Space** with one room per repo. Create the Space in Element (＋ → Create a
 space) and add the rooms to it. Each room keeps its own board, mode and agents.
 
-**Which repos.** Rooms choose from the repos this server allows: `LOOP_REPO` plus any in
-`HAGENCY_REPOS="owner/a owner/b"`. Set both in `local.env` (copy `local.env.example`; git-ignored),
-which `start.sh` loads; the code's own default is only a placeholder. Anyone here can
-create a room, and @pm reads with the host's own `gh` login. A free choice would let any room
-see any repo that login can read, private ones included. The demo room starts on `LOOP_REPO`.
+**Which repos.** On a server with the Hagency Rooms GitHub App (docs/GITHUB_APP.md), a room's owner
+or a maintainer may choose **any repo** that has the App installed and that their connected GitHub
+account can write to. An operator may restrict this with `HAGENCY_REPOS` (empty: any repo). When a
+room can't use a repo, @pm names the one missing step: the App's install link, the account that
+can't write, or the server's list. **Locally, without the App**, rooms choose only from `LOOP_REPO`
+plus any in `HAGENCY_REPOS="owner/a owner/b"`. Set both in `local.env` (copy `local.env.example`;
+git-ignored), which `start.sh` loads; the code's own default is only a placeholder. There @pm reads
+with the host's own `gh` login, so a free choice would let any room see any repo that login can read,
+private ones included. The demo room starts on `LOOP_REPO`.
 
 A step in the loop looks like this:
 

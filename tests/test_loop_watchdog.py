@@ -180,6 +180,7 @@ class FastPoll(unittest.TestCase):
 
         async def scenario():
             lp.locked_tick = locked_tick
+            lp.at_start = mock.AsyncMock()        # its start-up work (status_board.at_start) needs a client
             with mock.patch.object(loop, "POLL_S", 60), mock.patch.object(loop, "FAST_POLL_S", 0.02):
                 runner = asyncio.create_task(lp.poll_forever())
                 await asyncio.sleep(0.15)
@@ -201,6 +202,7 @@ class Kick(unittest.TestCase):
 
         async def scenario():
             lp.locked_tick = locked_tick
+            lp.at_start = mock.AsyncMock()        # its start-up work (status_board.at_start) needs a client
             with mock.patch.object(loop, "POLL_S", 60):
                 runner = asyncio.create_task(lp.poll_forever())
                 await asyncio.sleep(0.05)

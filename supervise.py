@@ -47,6 +47,7 @@ class Child:
         self.crashes = 0
         self.restarting = False
         self.closing = False             # supervisor shutting down: never spawn again
+        self.on_clean_exit: asyncio.Event | None = None   # set (not restarted) when it exits 0 by itself
 
     async def start(self) -> None:
         if self.closing:
@@ -111,18 +112,25 @@ def children(agent: str, allow_members: bool) -> list[Child]:
         choice, person = info.get("agent", agent), registry.local_name(key)
         if choice == registry.REMOTE or not person:   # runs on the person's own computer (connect.py), not here
             continue
-        if choice == "hermes":           # two profiles, one account: the owner's, and @pm's loop tasks
-            for name, profile in zip(("agent", "loop"), hermes_profile.profile_names(person)):
-                if not (hermes_profile.profile_dir(profile) / "config.yaml").exists():
-                    print(f"[supervise] no Hermes profile {profile}: run onboard.py {person} --agent hermes", flush=True)
-                    continue
-                hermes_profile.set_repos(profile)    # its MCP server works on this run's repos
-                kids.append(Child(f"{person}-{name}", ["hermes", "-p", profile, "gateway", "run"],
-                                  owner=person, profile=profile))
-            kids.append(Child(f"{person}-buttons", [PY, "bridge.py", person, "--buttons-only"]))   # always official
+        if choice == "hermes":
+            kids += hermes_children(person, person, f"onboard.py {person} --agent hermes")
         else:
             kids.append(Child(f"{person}-agent", [PY, "bridge.py", person, "--agent", choice, *extra], owner=person))
     return [*kids, Child("pm", [PY, "loop.py"])]
+
+
+def hermes_children(person: str, owner: str, fix: str) -> list[Child]:
+    """A Hermes person's agent: two profiles, one account (the owner's, and @pm's loop tasks), plus
+    the bridge that handles code-change buttons. `owner` is what the bridge is started for; `fix` is
+    what to run when a profile isn't set up. Also connect.py's hermes kind (hermes_local.py)."""
+    kids = []
+    for name, profile in zip(("agent", "loop"), hermes_profile.profile_names(person)):
+        if not (hermes_profile.profile_dir(profile) / "config.yaml").exists():
+            print(f"[supervise] no Hermes profile {profile}: run {fix}", flush=True)
+            continue
+        hermes_profile.set_repos(profile)    # its MCP server works on this run's repos
+        kids.append(Child(f"{person}-{name}", ["hermes", "-p", profile, "gateway", "run"], owner=person, profile=profile))
+    return [*kids, Child(f"{person}-buttons", [PY, "bridge.py", owner, "--buttons-only"])]   # always official
 
 
 def compiles(paths: list[Path]) -> bool:
@@ -139,6 +147,10 @@ async def revive(kid: Child) -> None:
     """A process exited on its own: restart it after a back-off that grows with repeated crashes.
     Caller must have claim()ed the child; the claim is held through the back-off and the spawn."""
     try:
+        if kid.on_clean_exit is not None and kid.proc.returncode == 0:
+            print(f"[supervise] {kid.name} stopped cleanly (the server disconnected the agent): stopping", flush=True)
+            kid.on_clean_exit.set()
+            return
         kid.crashes = 0 if time.time() - kid.started > STABLE_S else kid.crashes + 1
         if kid.launched and kid.crashes >= CUSTOM_CRASHES and customize.go_back(kid.owner, only_if=kid.launched):
             print(f"[supervise] {kid.name}: the owner's own version keeps crashing; back to the official one", flush=True)
@@ -177,9 +189,9 @@ async def supervise(kids: list[Child]) -> None:
                 asyncio.create_task(revive(kid))
 
 
-async def run(kids: list[Child]) -> None:
-    """Supervise until SIGTERM, then stop every child (each drains) before exiting."""
-    stop = asyncio.Event()
+async def run(kids: list[Child], done: asyncio.Event | None = None) -> None:
+    """Supervise until SIGTERM (or `done` is set), then stop every child (each drains) before exiting."""
+    stop = done or asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
     watcher = asyncio.create_task(supervise(kids))
     await asyncio.wait({watcher, asyncio.create_task(stop.wait())}, return_when=asyncio.FIRST_COMPLETED)

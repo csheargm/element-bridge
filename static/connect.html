@@ -5,15 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="hagency-console" content="__HAGENCY_CONSOLE__">
+<meta name="hagency-pm" content="__HAGENCY_PM_LINK__">
 <title>Connect your agent</title>
 <link rel="stylesheet" href="/connect/start.css">
+<script id="kinds" type="application/json">__HAGENCY_KINDS__</script>
 <script src="/connect/start.js" defer></script>
 </head>
 <body>
 <main>
   <h1>Connect your agent</h1>
-  <p class="lead">Your own Codex or Claude Code joins Hagency Rooms as your agent. It works on this
-    computer and obeys only you.</p>
+  <p class="lead">Your own AI agent joins Hagency Rooms. It runs on this computer and does only what
+    you tell it. This takes about two minutes.</p>
+
+  <div id="status" class="status" role="status" aria-live="polite" hidden></div>
 
   <p id="other-device" class="note" hidden>This looks like a phone or tablet. Open this page on the
     computer where your agent will run.</p>
@@ -23,28 +27,73 @@
     <input id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHJK">
   </div>
 
+  <details id="before">
+    <summary>Before you start</summary>
+    <p class="small">This computer needs:</p>
+    <ul id="needs-list"></ul>
+    <p class="small">If something is missing, the command tells you what to install. Install it,
+      then run the same command again.</p>
+  </details>
+
   <div class="tabs" role="tablist" aria-label="Your computer">
-    <button role="tab" id="tab-mac" data-os="mac" aria-controls="panel" aria-selected="false">macOS</button>
+    <button role="tab" id="tab-mac" data-os="mac" aria-controls="panel" aria-selected="false">Mac</button>
     <button role="tab" id="tab-windows" data-os="windows" aria-controls="panel" aria-selected="false">Windows</button>
     <button role="tab" id="tab-linux" data-os="linux" aria-controls="panel" aria-selected="false">Linux</button>
   </div>
 
   <section id="panel" role="tabpanel">
-    <ol>
-      <li id="step-open"></li>
-      <li>Paste this line and press <span id="enter-key">Enter</span>:</li>
+    <ol class="steps">
+      <li>
+        <h2 id="open-title"></h2>
+        <p id="open-how"></p>
+        <svg class="picture" data-os="mac" viewBox="0 0 320 90" role="img" aria-label="Press Command and Space, then Terminal opens">
+          <rect class="key" x="4" y="22" width="60" height="44" rx="8"/><text class="key-text" x="34" y="51">⌘</text>
+          <text class="plus" x="76" y="51">+</text>
+          <rect class="key" x="92" y="22" width="92" height="44" rx="8"/><text class="key-text small-key" x="138" y="50">space</text>
+          <text class="plus" x="198" y="51">→</text>
+          <rect class="window" x="220" y="10" width="96" height="70" rx="6"/><rect class="bar" x="220" y="10" width="96" height="14" rx="6"/>
+          <text class="prompt" x="230" y="50">$ _</text>
+        </svg>
+        <svg class="picture" data-os="windows" viewBox="0 0 320 90" role="img" aria-label="Click Start, type PowerShell, and it opens">
+          <rect class="key" x="4" y="22" width="60" height="44" rx="8"/>
+          <rect class="logo" x="21" y="31" width="12" height="12"/><rect class="logo" x="35" y="31" width="12" height="12"/>
+          <rect class="logo" x="21" y="45" width="12" height="12"/><rect class="logo" x="35" y="45" width="12" height="12"/>
+          <text class="plus" x="76" y="51">+</text>
+          <rect class="field" x="92" y="28" width="112" height="32" rx="6"/><text class="field-text" x="148" y="49">PowerShell</text>
+          <text class="plus" x="214" y="51">→</text>
+          <rect class="window" x="230" y="10" width="86" height="70" rx="6"/><rect class="bar" x="230" y="10" width="86" height="14" rx="6"/>
+          <text class="prompt" x="238" y="50">PS&gt; _</text>
+        </svg>
+        <svg class="picture" data-os="linux" viewBox="0 0 320 90" role="img" aria-label="Press Ctrl, Alt and T, then a terminal opens">
+          <rect class="key" x="4" y="22" width="56" height="44" rx="8"/><text class="key-text small-key" x="32" y="50">Ctrl</text>
+          <rect class="key" x="66" y="22" width="56" height="44" rx="8"/><text class="key-text small-key" x="94" y="50">Alt</text>
+          <rect class="key" x="128" y="22" width="44" height="44" rx="8"/><text class="key-text small-key" x="150" y="50">T</text>
+          <text class="plus" x="190" y="51">→</text>
+          <rect class="window" x="220" y="10" width="96" height="70" rx="6"/><rect class="bar" x="220" y="10" width="96" height="14" rx="6"/>
+          <text class="prompt" x="230" y="50">$ _</text>
+        </svg>
+      </li>
+      <li>
+        <h2>Copy the command</h2>
+        <button id="copy" type="button" class="primary">Copy command</button>
+        <p class="small">Or select the line below and copy it yourself:</p>
+        <pre class="command"><code id="command"></code></pre>
+        <p id="no-windows" class="note" hidden></p>
+      </li>
+      <li>
+        <h2 id="paste-title"></h2>
+        <p id="paste-how"></p>
+      </li>
+      <li>
+        <h2>Wait for it to finish</h2>
+        <p>It takes a minute or two. If it asks you something (like which model to use), type your
+          answer in the window and press <span class="enter-key">Enter</span>.</p>
+      </li>
     </ol>
-    <div class="command">
-      <pre><code id="command"></code></pre>
-      <button id="copy" type="button">Copy</button>
-    </div>
-    <p id="needs" class="small"></p>
   </section>
 
-  <p class="after">When it says you're connected, your agent keeps running in the background and
-    starts again when you sign in to this computer. You can close the window.</p>
-  <p class="small">The code works once, for 30 minutes. If it has expired, ask @pm for a new one.
-    It stays on this page: nothing you see here is sent anywhere.</p>
+  <p class="small after">The code works once, for 30 minutes. It stays in this page and goes only to
+    this server, to check whether your computer has connected.</p>
 </main>
 </body>
 </html>

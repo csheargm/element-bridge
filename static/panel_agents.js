@@ -27,22 +27,37 @@ function confirmed(b) {                // panel.py's click handler: false = this
   b.textContent = "Click again to remove it for good";
   return false;
 }
+// "your chat with Product Manager" opens it (panel.html's pmChatLink; without the page: plain words).
+const chatLink = text => typeof pmChatLink === "function" ? pmChatLink(text) : esc(text);
 // A screen test found newcomer jargon here: the label "main" for their only agent, "run the connect
 // line again" for one that never connected, and "the official version" nobody had changed.
 function agentHint(a) {
   if (!a.remote || a.online === true) return "";
   if (a.connected) return '<div class="hint">Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁).</div>';
   // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
+  // A further one: @pm resends by the name its person calls it (pm_agents.start_add), never its slot
+  // ("codex2" for one renamed or called "codex" again: GPT review, batch 12-14); a name of several words
+  // (or longer than 9) can't be typed in that line, so then: rename it to one word first (GPT re-check).
+  const called = a.display || a.label;
   const steps = a.first ? 'follow the 🔌 steps (type "resend me the code" there for a fresh one)'
-    : `follow its Connect message (for a fresh code, type "add another agent called ${esc(a.label)}" there)`;
-  return `<div class="hint">Not connected yet: open your chat with Product Manager and ${steps}.</div>`;
+    : /^[A-Za-z][A-Za-z0-9]{0,8}$/.test(called)   // identity.LABEL_RE, any case
+      ? `follow its Connect message (for a fresh code, type "add another agent called ${esc(called)}" there)`
+      : 'follow its Connect message (for a fresh code, Rename it here to one short word, then type "add another agent called" that word there)';
+  return `<div class="hint">Not connected yet: open ${chatLink("your chat with Product Manager")} and ${steps}.</div>`;
+}
+// Rename: only the name people see (pm_rename.py); its Matrix ID stays. Plain text, up to 40 characters.
+function renameRow(a) {
+  return `<li><div class="field"><input id="rename-${esc(a.name)}" maxlength="40" placeholder="Name people see"
+    value="${esc(a.display || "")}"><button data-a="rename" data-v="" data-g="${esc(a.name)}">Rename</button></div></li>`;
 }
 function agentRow(a, version, several) {
-  const title = several ? `<b>${esc(a.label)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`;
+  const called = a.display || (several ? a.label : "");     // the name its person gave it, then its account
+  const title = (called ? `<b>${esc(called)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`)
+    + (a.runs ? ` <span class="chip">${esc(a.runs)}</span>` : "");   // the AI it runs (pm_kinds.describe)
   const where = a.here ? ' <span class="chip">in this room</span>'
     : a.invited ? ' <span class="chip">invited to this room</span>' : "";
   return `<li><div>${title}${where}${agentHint(a)}</div>
-    <div>${agentStatus(a)}</div></li>
+    <div>${agentStatus(a)}</div></li>${renameRow(a)}
     <li><div class="hint">Comes along when I join a project room${a.first ? "" : " (or invite it yourself)"}</div>${agentSeg("follow", a.name, ["always", "ask", "never"], a.follow)}</li>
     ${a.first && version ? `<li><div class="hint">Code it runs: your own version (${esc(version)})</div>
       <button data-a="goback" data-v="">Go back to official</button></li>` : ""}`;
@@ -50,7 +65,40 @@ function agentRow(a, version, several) {
 function agentCards(s) {
   if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
   const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
-    <button data-a="add" data-v="">Add an agent</button></div><div class="hint">@pm sends its Connect page in your private chat.</div></div>` : "";
+    ${kindPicker(s.kinds)}<button data-a="add" data-v="">Add an agent</button></div>
+    <div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}. A remote model's API key is asked
+    for on your computer when it connects, never here.</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
     <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
+}
+// The AI a new agent runs: s.kinds is agent_kinds.kinds() (the one list: kind, name, needs, windows);
+// "" = the one its computer finds, as before. A kind that can't run on Windows says so, and is greyed
+// out when this browser runs on Windows. Choosing one shows what it needs. Ollama: the model is picked
+// on that computer (or named here); remote: base URL and model here.
+const onWindows = () => typeof navigator !== "undefined" && /Win/i.test(navigator.platform || navigator.userAgent || "");
+function kindOption(k) {
+  const needs = `Needs on your computer: ${(k.needs || []).join("; ")}.`;
+  return `<option value="${esc(k.kind)}" data-needs="${esc(needs)}"${!k.windows && onWindows() ? " disabled" : ""}>`
+    + `${esc(k.name)}${k.windows ? "" : " (Mac/Linux only)"}</option>`;
+}
+let needsShown = false;                 // the change listener, added once, at the first draw
+function showNeeds() {
+  if (needsShown || typeof document === "undefined") return;
+  needsShown = true;
+  document.addEventListener("change", e => {   // the chosen kind's needs, under the picker
+    const out = document.getElementById("newneeds"), sel = e.target;
+    if (out && sel && sel.id === "newkind") out.textContent = (sel.selectedOptions[0] || {dataset: {}}).dataset.needs || "";
+  });
+}
+function kindPicker(kinds) {
+  showNeeds();
+  return `<select id="newkind"><option value="" data-needs="">AI: the one on my computer</option>${(kinds || []).map(kindOption).join("")}</select>
+    <input id="newmodel" maxlength="100" placeholder="model (Ollama: optional)">
+    <input id="newbase" maxlength="200" placeholder="base URL (remote only), https://…">
+    <div class="hint" id="newneeds"></div>`;
+}
+function addValue() {                    // panel.html's Add an agent click: what goes to console.act
+  const v = id => (document.getElementById(id) || {value: ""}).value.trim();
+  const name = v("newagent"), kind = v("newkind");
+  return kind ? JSON.stringify({name, agent_kind: kind, model: v("newmodel"), base_url: v("newbase")}) : name;
 }

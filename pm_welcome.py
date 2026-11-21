@@ -27,7 +27,7 @@ import server_admins
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
-from pm_chat import without_quote
+from pm_address import unaddressed
 from pm_github import GitHubLink
 from pm_lobby import WELCOME_NAME, WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
@@ -185,7 +185,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             return True
         entry = self.welcomes().get(event.sender) or {}
         in_dm = room.room_id == entry.get("dm") or self.is_one_to_one(room, event.sender)   # pm_address.py
-        text = without_quote(event.body) if in_dm else self.addressed_text(event, room)
+        text = unaddressed(event.body) if in_dm else self.addressed_text(event, room)
         if text is None:
             return False
         if RESEND_RE.search(text) and not intents.NEGATED.search(text):
