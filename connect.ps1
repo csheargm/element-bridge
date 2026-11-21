@@ -46,11 +46,22 @@ function Invoke-Checked([string]$What, [scriptblock]$Run) {
     if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
 }
 
+function Test-Ours([string]$Text) {
+    # Does this command line (a task's, a shortcut's) run this installation's keeper for this folder?
+    $has = { param($part) $Text.IndexOf($part, [StringComparison]::OrdinalIgnoreCase) -ge 0 }
+    [bool]($Text -and (& $has (Join-Path $App 'connect_win.py')) -and (& $has $HagencyHome))
+}
+
 function Get-OurTasks {
-    # Only tasks that run this installation's connect_win.py, whatever their name.
-    $runner = Join-Path $App 'connect_win.py'
+    # Only tasks that run this installation's keeper for this folder, whatever their name.
     @(Get-ScheduledTask -TaskName 'Hagency agent *' -ErrorAction SilentlyContinue | Where-Object {
-        @($_.Actions | Where-Object { $_.Arguments -and $_.Arguments.Contains($runner) }).Count -gt 0 })
+        @($_.Actions | Where-Object { Test-Ours $_.Arguments }).Count -gt 0 })
+}
+
+function Remove-OurShortcuts([string]$Startup) {
+    $shell = New-Object -ComObject WScript.Shell
+    Get-ChildItem $Startup -Filter 'Hagency agent *.lnk' -ErrorAction SilentlyContinue |
+        Where-Object { Test-Ours $shell.CreateShortcut($_.FullName).Arguments } | Remove-Item -ErrorAction SilentlyContinue
 }
 
 function Stop-OldAgent {
@@ -65,8 +76,9 @@ function Stop-OldAgent {
         $id = 0
         if (-not [int]::TryParse($line.Trim(), [ref]$id)) { continue }
         $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $id" -ErrorAction SilentlyContinue
-        # Only our own keeper or bridge: a stale number may belong to something else by now.
-        if ($proc -and $proc.CommandLine -and @($ours | Where-Object { $proc.CommandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0) {
+        # Only a Python running our own keeper or bridge: a stale number may belong to something else by now.
+        if ($proc -and $proc.Name -like 'python*.exe' -and $proc.CommandLine -and
+            @($ours | Where-Object { $proc.CommandLine.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0) {
             taskkill.exe /PID $id /T /F | Out-Null    # with the CLI it runs; already gone is fine
         }
     }
@@ -142,12 +154,16 @@ function Select-Backend {
 }
 
 function Protect-Home {
-    # Only you (not other accounts on this PC) can read the folder that holds your agent's sign-in.
+    # Only you (not other accounts on this PC) can read the folder that holds your agent's sign-in:
+    # the folder's whole access list is replaced first, then what's inside inherits only that.
     New-Item -ItemType Directory -Force -Path $HagencyHome | Out-Null
-    $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    Invoke-Checked 'resetting the sign-in folder' { icacls $HagencyHome /reset /t /q | Out-Null }   # no other grants left
-    Invoke-Checked 'protecting the sign-in folder' {
-        icacls $HagencyHome /inheritance:r /grant:r "*${me}:(OI)(CI)F" /q | Out-Null   # files inside follow
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+        [Security.Principal.WindowsIdentity]::GetCurrent().User, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+    Set-Acl -Path $HagencyHome -AclObject $acl
+    if (Get-ChildItem -Force $HagencyHome) {
+        Invoke-Checked 'protecting the sign-in folder' { icacls (Join-Path $HagencyHome '*') /reset /t /q | Out-Null }
     }
 }
 
@@ -161,12 +177,12 @@ function Register-Agent([string]$VenvPy) {
     $startup = [Environment]::GetFolderPath('Startup')
     # An earlier connection (maybe under another name) goes first: one keeper per computer.
     Get-OurTasks | Where-Object { $_.TaskName -ne $name } | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue
-    Get-ChildItem $startup -Filter 'Hagency agent *.lnk' -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
+    Remove-OurShortcuts $startup
     try {
         $action = New-ScheduledTaskAction -Execute $pyw -Argument $runArgs -WorkingDirectory $App
         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
         $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-            -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) `
+            -RestartCount 255 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) `
             -MultipleInstances IgnoreNew
         $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
         Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings `
@@ -188,7 +204,9 @@ function Register-Agent([string]$VenvPy) {
     Say "Its log is in $(Join-Path $HagencyHome 'logs'). You can close this window."
 }
 
+$savedEncoding = $env:PYTHONIOENCODING
 try {
+    $env:PYTHONIOENCODING = 'utf-8'              # Python's piped output on a cp1252 PC: no crash on its check marks
     if ($Code -notmatch $CodePattern) { throw 'that does not look like a code from @pm (like ABCDE-FGHJK)' }
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     $python = Find-Python
@@ -207,4 +225,6 @@ try {
 } catch {
     # Not `exit`: this runs inside the person's own PowerShell window, which must stay open.
     Write-Host "x $($_.Exception.Message)" -ForegroundColor Red
+} finally {
+    $env:PYTHONIOENCODING = $savedEncoding       # this window's own setting, as it was
 }

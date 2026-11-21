@@ -609,3 +609,15 @@ Rejected or deferred:
   within seconds, as with connect.sh. TLS 1.2 before the first `irm`: Windows 10/11 default to it.
 - X11/BSD shown as Linux, and the installer reporting failure only on screen (it must not close
   the person's window): the tabs and the red message cover them.
+
+Connect page and the Windows installer (GPT re-check), adopted with tests:
+- connect.py's check mark crashed Python's piped output on a cp1252 PC after the code was used:
+  PYTHONIOENCODING=utf-8 for the installer's Python calls (restored after) and for the bridge.
+- `icacls /reset` briefly let the folder's contents inherit the parent's access: the folder's
+  whole access list is replaced first (only you), then its contents reset to inherit just that.
+- -RestartCount 255 (Task Scheduler's maximum). Old tasks and Startup entries are matched by
+  this installation's keeper AND sign-in folder, case-insensitively; a PID is stopped only if it
+  is a Python running our keeper or bridge. A refused Windows job is logged, not fatal.
+Rejected or deferred:
+- A CLI reachable only through a PowerShell profile's PATH: the hint says it must be on the PATH.
+- README describes the link @pm will send: it lands with the @pm change (PR notes).

@@ -51,6 +51,7 @@ class KeepRunning(unittest.TestCase):
         self.assertEqual(argv[1:], [str(connect_win.APP / "bridge.py"), "anna", "--agent", "claude"])
         self.assertNotIn("s3cret-pw", " ".join(argv))
         self.assertEqual(kw["env"]["HAGENCY_CREDENTIALS"], str(home / "credentials.json"))
+        self.assertEqual(kw["env"]["PYTHONIOENCODING"], "utf-8")
         self.assertEqual((kw["cwd"], kw["stdin"], kw["stderr"]), (str(connect_win.APP), subprocess.DEVNULL, subprocess.STDOUT))
         self.assertEqual((home / "agent.pid").read_text().split()[1], "4242")
         log = (home / LOG).read_text()
@@ -78,6 +79,14 @@ class KeepRunning(unittest.TestCase):
                 mock.patch.object(connect_win, "keep_running") as keep:
             connect_win.main()                                # a second task or Startup entry: does nothing
         keep.assert_not_called()
+
+    def test_a_refused_job_is_said_not_fatal(self):
+        home = home_with()
+
+        def refuse():
+            raise OSError(5, "access denied")
+        connect_win.tie_or_say(home, tie=refuse)
+        self.assertIn("no job for the agent", (home / "logs" / "connect_win.log").read_text())
 
     def test_the_job_layout_matches_windows(self):
         """JOBOBJECT_EXTENDED_LIMIT_INFORMATION is 144 bytes on 64-bit Windows (112 on 32-bit)."""

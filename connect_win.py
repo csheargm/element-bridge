@@ -56,6 +56,16 @@ def tie_children_to_me() -> None:
         raise OSError(ctypes.get_last_error(), "couldn't tie the agent to this process")
 
 
+def tie_or_say(home: Path, tie=tie_children_to_me) -> None:
+    """The job is a safety net (the lock already keeps one keeper): if Windows refuses it, the agent
+    still runs, and the log says a stopped task may leave its bridge running until it exits."""
+    try:
+        tie()
+    except OSError as e:
+        with open_log(home / "logs" / "connect_win.log") as log:
+            log.write(f"[connect_win] no job for the agent ({e}); stopping this may leave the bridge running\n".encode())
+
+
 def hold_lock(path: Path):
     """The open lock file while this is the only keeper for this sign-in folder, else None."""
     f = open(path, "a+b")
@@ -92,7 +102,8 @@ def child_python() -> str:
 def bridge_command(creds: dict, creds_path: Path) -> tuple[list[str], dict]:
     """argv and environment for the bridge: the sign-in travels by file path, never in argv."""
     argv = [child_python(), str(APP / "bridge.py"), creds["owner"], "--agent", creds.get("agent") or "codex"]
-    return argv, {**os.environ, "HAGENCY_CREDENTIALS": str(creds_path)}
+    # utf-8: its log is a file, which on Windows would otherwise be cp1252 and choke on a check mark
+    return argv, {**os.environ, "HAGENCY_CREDENTIALS": str(creds_path), "PYTHONIOENCODING": "utf-8"}
 
 
 def next_delay(delay: float, ran_s: float) -> float:
@@ -151,7 +162,7 @@ def main() -> None:
     with lock:                                # held for as long as this keeper runs
         try:
             if os.name == "nt":
-                tie_children_to_me()
+                tie_or_say(home)
             keep_running(home)
         except (SystemExit, OSError) as e:    # pythonw has no console: say why in the log, then stop
             with open_log(home / "logs" / "connect_win.log") as log:

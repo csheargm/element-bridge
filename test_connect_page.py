@@ -167,8 +167,13 @@ class WindowsInstaller(unittest.TestCase):
         self.assertIn('Get-Command "$Name.exe" -CommandType Application', self.text)
 
     def test_the_task_restarts_and_runs_as_the_person(self):
-        for piece in ("New-ScheduledTaskTrigger -AtLogOn", "-RestartCount", "-RunLevel Limited", "-LogonType Interactive"):
-            self.assertIn(piece, self.text)
+        for piece in ("New-ScheduledTaskTrigger -AtLogOn", "-RestartCount 255", "-RunLevel Limited", "-LogonType Interactive"):
+            self.assertIn(piece, self.text)                       # 255: Task Scheduler's most restarts
+
+    def test_python_output_cant_crash_on_a_cp1252_pc(self):
+        """GPT review: connect.py prints a check mark after saving; piped on cp1252 that raised."""
+        self.assertIn("$env:PYTHONIOENCODING = 'utf-8'", self.text)
+        self.assertIn("$env:PYTHONIOENCODING = $savedEncoding", self.text)
 
 
 PWSH = shutil.which("pwsh") or shutil.which("powershell")
