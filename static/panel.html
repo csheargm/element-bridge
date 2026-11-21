@@ -177,7 +177,9 @@ async function show() {
   if (s.waiting && s.waiting.mine) h += `<section class="card attn"><h2>Waiting for you</h2><div class="set"><div>${esc(cap(s.waiting.kind))}${
     s.waiting.items.length ? ": " + s.waiting.items.map(esc).join(" · ") : ""}</div>
     <button class="primary" data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div></section>`;
-  h += `<div class="grid">${card("repoCard", s)}${card("modeCard", s)}</div>`;   // the repo first, then its mode
+  const mode = typeof window.modeCard === "function" ? card("modeCard", s)   // its script missing: still a way to pause
+    : `<section class="card"><h2>Mode</h2>${buttons("mode", ["off"], s.mode, s.moderator)}</section>`;
+  h += `<div class="grid">${card("repoCard", s)}${mode}</div>`;   // the repo first, then its mode (GPT review)
   h += card("projectCard", s) + card("githubCard", s) + card("agentCards", s);   // panel_project.js, panel_github.js, panel_agents.js
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }

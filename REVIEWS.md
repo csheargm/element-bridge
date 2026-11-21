@@ -1375,3 +1375,10 @@ Deferred:
   computers (they have no list). Operator guidance: remove such rooms' repos first. A Matrix-side
   revocation is a later change.
 - **Low: an install wait drops ➕'s "discuss here" choice;** the person is asked again.
+
+### GPT review of the panel order change (repo before Mode)
+Adopted, with tests in test_panel_cards:
+- **Medium: with panel_project.js missing, the panel lost its Off button.** Mode now lives in that
+  script, so a fallback inline card keeps Off.
+- **Low: the disabled-state test passed even with buttons missing.** It now asserts all three are
+  present and reads each one's disabled attribute.

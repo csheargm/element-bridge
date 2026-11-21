@@ -152,7 +152,10 @@ class RepoThenMode(unittest.TestCase):
         return render("panel-project.js", f"modeCard({json.dumps({'mode': 'off', 'moderator': True, **view})})")
 
     def enabled(self, html: str) -> list:
-        return re.findall(r'data-v="(\w+)"[^>]*?\s*>', re.sub(r'data-v="(\w+)"([^>]*?)disabled\s*>', "", html))
+        """The mode buttons that can be clicked; all three must be there (GPT review: a missing one isn't "disabled")."""
+        found = re.findall(r'<button data-a="mode" data-v="(\w+)"([^>]*)>', html)
+        self.assertEqual([v for v, _ in found], ["off", "assist", "autonomous"])
+        return [v for v, attrs in found if "disabled" not in attrs]
 
     def test_with_no_repo_only_off_is_clickable_and_it_says_why(self):
         html = self.mode(repo=None)
@@ -178,6 +181,17 @@ class RepoThenMode(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr[-500:])
         html = done.stdout
         self.assertLess(html.index("<h2>Pick a project repo</h2>"), html.index("<h2>Mode</h2>"))
+
+    def test_without_its_script_the_panel_can_still_pause(self):
+        """GPT review: Mode moved into panel_project.js; if that script doesn't load, Off stays."""
+        page = re.search(r"<script>(.*)</script>", panel.PAGE.replace("__EMBEDDERS__", '["https://e"]'), re.S).group(1)
+        cards = "\n".join(p.read_text() for k, p in panel.SCRIPTS.items() if k != "panel-project.js")
+        view = {"room": "P", "repo": "a/b", "user": "anna", "moderator": True, "mode": "assist", "waiting": None,
+                "html": "", "agents": [], "can_add": False}
+        done = subprocess.run([NODE, "-e", PAGE_HARNESS, page, cards, json.dumps(view)], capture_output=True,
+                              text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr[-500:])
+        self.assertRegex(done.stdout, r'<h2>Mode</h2><span class="seg"><button data-a="mode" data-v="off"\s+>Off</button>')
 
 
 if __name__ == "__main__":
