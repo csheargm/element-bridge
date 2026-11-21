@@ -3,7 +3,8 @@
     accept its invite and pick the repo in the panel (their agent follows them in, per their setting);
   - "find a project": the listed and open rooms, one message each, with 🙋 to ask to join (pm_find.py);
   - "make this room private / listed / open" (owner or maintainer): who can find and join it;
-  - "ask to join owner/name": pm_joining.py.
+  - "ask to join owner/name": pm_joining.py;
+  - "remove the repo" / "this room has no repo" (owner or maintainer, with a ✅): pm_unbind.py.
 ONE PROJECT ROOM PER REPO: @pm's loop runs per room, so two rooms on one repo would hand the same
 GitHub issues out twice. When a room picks a repo another room already runs, I answer with
 🙋 "Ask to join that room" and ➕ "Make a separate room anyway": a separate room may discuss the
@@ -26,6 +27,7 @@ import room_state
 from bridge import ROOT
 from pm_find import FIND_RE, Finding
 from pm_joining import ASK, ASKED, Joining
+from pm_unbind import UNREPO_RE, RepoRemoval
 from project_rooms import plain
 from saved_dict import SavedDict
 
@@ -54,7 +56,7 @@ class Answer(str):
         return made
 
 
-class Projects(Finding, Joining):
+class Projects(Finding, Joining, RepoRemoval):
     async def on_project_text(self, room: MatrixRoom, event: RoomMessageText) -> bool:
         """True if the message was one of the project commands (answered here)."""
         text = self.addressed_text(event, room)       # my private chat with them: no need to say "@pm"
@@ -62,6 +64,8 @@ class Projects(Finding, Joining):
             return False
         if m := MAKE_RE.match(text):
             await self.make_project_room(room, event.sender, (m.group("name") or "").strip(" \"'"))
+        elif UNREPO_RE.match(text):                   # pm_unbind.py: asks with a ✅ first
+            await self.ask_remove_repo(room, event.sender)
         elif FIND_RE.match(text):
             self.in_background(self.answer_find(room.room_id, event.sender))   # never holds up the sync loop
         elif m := ASK_RE.search(text):
@@ -108,7 +112,8 @@ class Projects(Finding, Joining):
             return
         await panel.add_to_room(self.client, resp.room_id)
         await self.say(resp.room_id, f"This is **{plain(name)}**. Next: pick its GitHub repo in the Hagency panel above "
-                                     "(or say \"@pm this room works on owner/name\"), then invite people: Room info → Invite.")
+                                     "(or say \"@pm this room works on owner/name\"), then invite people: Room info → Invite."
+                                     + panel.browser_note(resp.room_id))
         await self.say(origin.room_id, f"Made **{plain(name)}**: accept its invite on the left (under Invites), then pick "
                                        f"its GitHub repo in the Hagency panel at the top.{self.agent_note(person)}")
 
@@ -246,4 +251,4 @@ class Projects(Finding, Joining):
 
     async def on_project_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
         return (await self.on_join_reaction(room, event) or await self.on_conflict_reaction(room, event)
-                or await self.on_find_reaction(room, event))
+                or await self.on_find_reaction(room, event) or await self.on_repo_removal_reaction(room, event))

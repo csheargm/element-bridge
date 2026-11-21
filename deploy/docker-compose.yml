@@ -70,6 +70,7 @@ services:
       HAGENCY_PUBLIC_HOMESERVER: https://${MATRIX_DOMAIN}
       HAGENCY_PUBLIC_CONSOLE: https://${ROOMS_DOMAIN}
       ELEMENT_ORIGIN: https://${ROOMS_DOMAIN}
+      HAGENCY_PANEL_EMBEDDERS: ${PANEL_EMBEDDERS-vector://vector https://app.element.io https://develop.element.io https://staging.element.io}
       HAGENCY_SHARED_SECRET_FILE: /run/hagency/registration_shared_secret
       HAGENCY_TRUST_PROXY: caddy          # X-Forwarded-For counts only from Caddy's address
       HAGENCY_OPERATOR: ${OPERATOR:-}     # who guard.py's warnings go to

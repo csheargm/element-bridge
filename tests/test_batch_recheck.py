@@ -126,7 +126,7 @@ class PanelWithoutAgents(unittest.TestCase):
         self.assertEqual(hidden, "")
 
     def test_clicks_work_without_the_agents_script_and_remove_is_refused(self):
-        ok = re.search(r"^const ok = .*;$", panel.PAGE, re.M).group(0)
+        ok = re.search(r"^const ok = .*?; };$", panel.PAGE, re.S | re.M).group(0)
         out = self.node("const window = {};\n" + ok + "\nprocess.stdout.write(String(ok({dataset: {a: 'mode'}})) + "
                         "String(ok({dataset: {a: 'remove'}})));")
         self.assertEqual(out, "truefalse")

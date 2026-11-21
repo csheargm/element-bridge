@@ -19,6 +19,7 @@ from nio import RoomGetStateEventResponse, RoomSendResponse
 
 import github
 from loop_progress import num
+import console_personal
 import panel
 import pm_settings
 import project_rooms
@@ -98,6 +99,8 @@ class Boards:
             await self.ensure_panel(room_id)  # as soon as I'm a moderator: it's where the repo is picked
             repo = await room_state.repo_of(self.client, room_id)
             if repo is None:
+                if self.boards.get(room_id, {}).get("unbound"):   # its repo was removed: the board not blanked yet
+                    await self.blank_board(room_id)               # pm_unbind.py
                 continue                      # not a project room (no repo yet)
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id and v.get("repo") == repo}
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now, repo)
@@ -122,7 +125,8 @@ class Boards:
 
     async def ensure_panel(self, room_id: str) -> None:
         """The side panel, once per project room, as soon as I may add it (a moderator), repo or not.
-        Never in my front doors (Welcome, the Lobby: taken out once per start if there) or my private chats."""
+        Never in my front doors (Welcome, the Lobby: taken out once per start if there) or my private chats,
+        except my own with one person (My Hagency: console_personal.py)."""
         room, board = self.client.rooms.get(room_id), self.boards.get(room_id, {})
         if room is not None and project_rooms.is_front_door(room):
             cleared = self.__dict__.setdefault("_front_doors_cleared", set())
@@ -132,12 +136,33 @@ class Boards:
                     self.save_boards()
             return
         if (board.get("panel") or room is None
-                or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
+                or (pm_settings.is_my_chat(room, self.user_id, self.dm_rooms)
+                    and not console_personal.is_personal_chat(self, room))   # My Hagency there: personal cards
                 or not await room_state.is_moderator(self.client, room, self.user_id)):   # creators too (v12)
             return
+        if console_personal.is_personal_chat(self, room):
+            console_personal.had_panel(self)[room_id] = console_personal.owner_of(self, room)   # refused for good if it changes
         if await panel.add_to_room(self.client, room_id):
             self.boards[room_id] = {**board, "panel": True}
             self.save_boards()
+
+    async def at_start(self) -> None:
+        """Once per start, in the background: the panel on top in older rooms, then readable addresses."""
+        await self.lift_panels()
+        await self.give_addresses()           # pm_projects.py
+
+    async def lift_panels(self) -> None:
+        """Every project room's panel above the chat, as new rooms get it (panel.lift_to_top). One room's
+        failure never stops the others; the next start retries it. A person who minimized the panel
+        keeps that: Element stores their own choice per user, over the room's layout."""
+        for room_id, room in list(self.client.rooms.items()):
+            if project_rooms.is_front_door(room) or pm_settings.is_my_chat(room, self.user_id, self.dm_rooms):
+                continue
+            try:
+                if await panel.lift_to_top(self.client, room_id):
+                    log.info("moved the Hagency panel to the top of %s", room_id)
+            except Exception:                 # noqa: BLE001 - one room (unreadable, refused, network) never stops the rest
+                log.exception("couldn't move the Hagency panel in %s", room_id)
 
     async def publish(self, room_id: str, text: str, repo: str) -> bool:
         """The same status as room state, so every agent in the room can read it (room_context.py)."""

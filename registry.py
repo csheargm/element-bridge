@@ -16,6 +16,7 @@ import threading
 import time
 from pathlib import Path
 
+import pm_kinds
 import bridge_config
 import identity
 from bridge_config import SERVER_NAME
@@ -151,7 +152,7 @@ def _agents(person: str, info: dict) -> list[dict]:
              "localpart": _text(info.get("agent_user"), LOCALPART_RE.fullmatch) or identity.agent_localpart(person, SERVER_NAME),
              "ready": info.get("ready") is True,
              "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
-             "disconnected": info.get("disconnected")}
+             "disconnected": info.get("disconnected"), "display": _text(info.get("display"))}   # pm_rename.py
     found, labels = ([], set()) if info.get(FIRST_GONE) is True else ([first], {first["label"]})
     for e in info.get(MORE) if isinstance(info.get(MORE), list) else []:
         label = e.get("label") if isinstance(e, dict) else None
@@ -161,8 +162,26 @@ def _agents(person: str, info: dict) -> list[dict]:
         found.append({"label": label, "agent": _text(e.get("agent")) or REMOTE, "first": False, "created": e.get("created"),
                       "localpart": identity.agent_localpart(person, SERVER_NAME, label), "dm": _text(e.get("dm")),
                       "follow": e.get("follow") if e.get("follow") in FOLLOW else "never",
-                      "disconnected": e.get("disconnected"), "ready": e.get("ready") is True})
+                      "disconnected": e.get("disconnected"), "ready": e.get("ready") is True,
+                      "display": _text(e.get("display")), **_picked(e)})
     return found
+
+
+def _picked(entry: dict) -> dict:
+    """The AI a further agent runs (pm_kinds.py), as recorded; a damaged record: none."""
+    found = pm_kinds.choice(*(entry.get(k) if isinstance(entry.get(k), str) else "" for k in pm_kinds.FIELDS))
+    return found if isinstance(found, dict) else {}
+
+
+def name_of(agent: dict) -> str:
+    """What its person calls it: the name they gave (its label is then only the account's slot)."""
+    return agent.get("display") or agent["label"]
+
+
+def called(agent: dict, word: str) -> bool:
+    """`word` names this agent: its account, its slot or the name its person gave it (GPT review: every
+    lookup by a typed name uses this one rule, and no two of a person's agents share any of them)."""
+    return str(word).lower() in (agent["localpart"], agent["label"], name_of(agent).lower())
 
 
 def agents_of(person: str, people: dict | None = None) -> list[dict]:
@@ -190,7 +209,8 @@ def find(person: str, agent: str | None) -> dict | None:
     found = agents_of(person)
     if agent is None:
         return found[0] if found else None
-    return next((a for a in found if agent in (a["localpart"], a["label"])), None)
+    return (next((a for a in found if agent in (a["localpart"], a["label"])), None)   # its own names first
+            or next((a for a in found if a.get("display") and a["display"].lower() == agent.lower()), None))
 
 
 def update(person: str, which: str | None, **fields) -> None:
@@ -214,34 +234,44 @@ def _update(person: str, which: str | None, fields: dict) -> None:
     save(data)
 
 
-def add_agent(person: str, label: str, kind: str = REMOTE) -> dict:
+def add_agent(person: str, label: str, kind: str = REMOTE, picked: dict | None = None) -> dict:
     """Reserve a further agent for `person` (counted before its account exists, so a failed set-up
-    can't dodge the cap). Raises ValueError with a sentence to show them."""
+    can't dodge the cap), called `label` by them; picked: the AI it runs (pm_kinds.choice).
+    Raises ValueError with a sentence to show them."""
     with LOCK:
-        return _add_agent(person_id(person), label, kind)
+        return _add_agent(person_id(person), label, kind, picked or {})
 
 
-def _add_agent(person: str, label: str, kind: str) -> dict:
+def free_label(person: str, word: str, data: dict) -> str:
+    """The account slot for a new agent the person calls `word`: `word` itself, or (that name's account
+    was closed for good, or is someone else's) word2, word3 … so a removed name can be used again."""
+    have = agents_of(person, data)            # never another agent's slot or given name (GPT re-check)
+    gone = set(data[person].get(REMOVED) or []) | {a["label"] for a in have} | {name_of(a).lower() for a in have}
+    for n in range(1, 100):
+        label = word if n == 1 else f"{word[:identity.LABEL_MAX - len(str(n))]}{n}"
+        if label not in gone and not claimants(identity.agent_localpart(person, SERVER_NAME, label)):
+            return label
+    raise ValueError(f"I couldn't find a free account name for {word}; please choose another name")
+
+
+def _add_agent(person: str, label: str, kind: str, picked: dict) -> dict:
     data = load()
     have = agents_of(person, data)
     if not have and not first_removed(person, data):
         raise ValueError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
     if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label):
         raise ValueError("an agent's name is one short word: letters and digits, up to 9, starting with a letter")
-    if any(a["label"] == label for a in have):
+    if any(called(a, label) for a in have):   # names are unique among their agents NOW only
         raise ValueError(f"you already have an agent called {label}")
-    if label in (data[person].get(REMOVED) or []):   # its account was closed for good: the name can't come back
-        raise ValueError(f"you removed an agent called {label} earlier; please choose another name")
     if len(have) >= per_person():
         raise ValueError(f"you have {len(have)} agents, the most one person can have here")
-    localpart = identity.agent_localpart(person, SERVER_NAME, label)
-    if claimants(localpart):
-        raise ValueError(f"the account name {localpart} is taken here; choose another name")
+    slot = free_label(person, label, data)    # a closed account's name never comes back: a new slot
     if not isinstance(data[person].get(MORE), list):
         data[person][MORE] = []               # a damaged list: _agents() never read it anyway
-    data[person][MORE].append({"label": label, "agent": kind, "created": time.time()})
+    data[person][MORE].append({"label": slot, "agent": kind, "created": time.time(), **picked,
+                               **({"display": label} if slot != label else {})})
     save(data)
-    return find(person, label)
+    return find(person, slot)
 
 
 # --- removing agents (forget_agent, prune: registry_removal.py) ---

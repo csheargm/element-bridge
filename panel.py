@@ -8,13 +8,14 @@ import html
 import json
 import logging
 import os
+import urllib.parse
 from pathlib import Path
 
 import markdown
 from aiohttp import web
 
 import console
-from bridge_config import ELEMENT_ORIGIN
+from bridge_config import ELEMENT_ORIGIN, panel_embedders
 import remote_agent
 import github
 import identity
@@ -25,17 +26,27 @@ PORT = console.PORT
 HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
 WIDGET_KIND, LAYOUT_KIND = "im.vector.modular.widgets", "io.element.widgets.layout"   # the room state Element reads
+TOP = {"container": "top", "index": 0, "width": 100, "height": 40}   # pinned above the chat, in every project room
 STATIC = Path(__file__).resolve().parent / "static"
 # The panel's card scripts, by the URL the page loads them from. The one list: the page's <script>
 # tags and the routes come from it, and deploy/Caddyfile's @pm route must name every one (test_panel).
 SCRIPTS = {"panel-agents.js": STATIC / "panel_agents.js",      # "My agents"
-           "panel-project.js": STATIC / "panel_project.js",    # "Who can join", "Run from another room"
+           "panel-project.js": STATIC / "panel_project.js",    # "Project repo", "Who can join", "Run from another room"
            "panel-github.js": STATIC / "panel_github.js"}      # "Connect GitHub" (pm_github.py)
 REFRESH_MS = 3000
 SIGNIN_MS = 20000                 # no answer from Element by then: the panel says so instead of "Signing in…"
-HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
+EMBEDDERS = panel_embedders()      # who may frame the panel (no X-Frame-Options: it can't name several)
+HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {' '.join(EMBEDDERS)}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+
+
+def browser_note(room_id: str) -> str:
+    """For a room's first message: Element Desktop and other servers' Element apps never read our
+    config.json, so they ask once before showing the panel; and the same panel opens in a browser."""
+    url = f"{console.public_url()}/console?room={urllib.parse.quote(room_id)}"
+    return (" (In Element Desktop or another server's Element, click Continue or Allow on the panel once. "
+            f"Or [open the Hagency panel in your browser]({url}).)")
 
 
 def widget_url() -> str:
@@ -99,7 +110,7 @@ async def start(loop) -> web.AppRunner | None:
     async def page(request):
         if not local_host(request):
             return web.Response(status=403)
-        return web.Response(text=PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(ELEMENT_ORIGIN)),
+        return web.Response(text=PAGE.replace("__EMBEDDERS__", json.dumps(EMBEDDERS)),
                             content_type="text/html", headers=HEADERS)
 
     def script(path):                     # the card scripts (SCRIPTS)
@@ -130,8 +141,33 @@ async def add_to_room(client, room_id: str) -> bool:
                                         "id": WIDGET_ID, "data": {}}, state_key=WIDGET_ID)
     if not hasattr(resp, "event_id"):
         return False
-    await client.room_put_state(room_id, LAYOUT_KIND,                       # pinned above the chat
-                                {"widgets": {WIDGET_ID: {"container": "top", "index": 0, "width": 100, "height": 40}}})
+    await client.room_put_state(room_id, LAYOUT_KIND, {"widgets": {WIDGET_ID: TOP}})   # pinned above the chat
+    return True
+
+
+async def lift_to_top(client, room_id: str) -> bool:
+    """Older rooms have the panel in Element's right-side Extensions list ({"container": "right"}),
+    where owners took it for missing (seen live): put it on top as in new rooms. Only a room with my
+    widget, only when it isn't on top already; other widgets keep their places. True when moved.
+    Raises RuntimeError when the room's state can't be read or written (the caller goes on)."""
+    widget = await client.room_get_state_event(room_id, WIDGET_KIND, WIDGET_ID)
+    if not isinstance(getattr(widget, "content", None), dict) or widget.content.get("url") != widget_url():
+        if getattr(widget, "status_code", None) not in (None, "M_NOT_FOUND"):
+            raise RuntimeError(f"couldn't read the panel widget: {widget}")
+        return False                          # not my panel (GPT review: never another page put under its key)
+    found = await client.room_get_state_event(room_id, LAYOUT_KIND, "")
+    content = getattr(found, "content", None)
+    if not isinstance(content, dict):
+        if getattr(found, "status_code", None) != "M_NOT_FOUND":
+            raise RuntimeError(f"couldn't read the widget layout: {found}")
+        content = {}
+    places = content.get("widgets") if isinstance(content.get("widgets"), dict) else {}
+    mine = places.get(WIDGET_ID)
+    if isinstance(mine, dict) and mine.get("container") == "top":
+        return False
+    new = {**content, "widgets": {**places, WIDGET_ID: TOP}}
+    if not hasattr(await client.room_put_state(room_id, LAYOUT_KIND, new), "event_id"):
+        raise RuntimeError("couldn't save the widget layout")
     return True
 
 

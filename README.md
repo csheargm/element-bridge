@@ -47,8 +47,14 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
    any time); **Remove** (click twice, or "@pm remove my agent codex" and ✅) closes its account for
-   good and frees its place, and the first agent goes last. A removed agent's name can't be used
-   again. @pm never lets two of your agents review each other: a review always needs a different
+   good and frees its place, and the first agent goes last. Its name can be used again: the new
+   agent gets a new account (`<you>-codex2-agent`). **Add an agent** also picks the AI it runs
+   (Codex, Claude Code, Hermes, a local Ollama model, or a remote OpenAI-compatible model by base URL
+   and model; "@pm add another agent called pi using claude"); a remote model's API key is entered
+   only on your computer when it connects, never in a chat. All of this is also in **My Hagency**,
+   the panel at the top of your chat with Product Manager (the home page's **⚙ My agents &
+   settings**). **Rename** changes only the name people see (its ID stays; "@pm call my agent NAME" or
+   "@pm rename my agent codex to NAME" works too), even while its computer is off. @pm never lets two of your agents review each other: a review always needs a different
    person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
    new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top
@@ -197,6 +203,7 @@ to write "@pm": everything you say there is for it (in project rooms, start with
 | "@pm make me a project room [called X]" | a new room you own, with @pm as moderator and the Hagency panel; your agent comes along when you join | anyone |
 | "@pm find a project" | one message per listed or open project room: click 🙋 under a listed one to ask its owners, or join an open one by its link (also Element's Explore rooms) | anyone |
 | "@pm ask to join owner/name" | the room working on that exact repo asks its owners (👍 let in · 👎 decline) | anyone |
+| "@pm remove the repo" / "this room has no repo" | after your ✅: no repo, mode off, the repo free for another room; also **Remove repo** in the panel (click twice). Nothing on GitHub changes | owner or maintainer |
 | "@pm make this room listed" (or private, open) | who can find and join it; also "Who can join" in the panel | owner or maintainer |
 
 **One project room per repo.** @pm's build loop runs per room, so a room that picks a repo another
@@ -241,7 +248,8 @@ Delete `data/`, `.env` and `rooms/` to start from scratch.
 `agent-ok` on **the room's own repo** and drives each issue through the room, one step per line.
 
 **One room, one repo.** The room owner or a maintainer picks it: say `@pm this room works on
-owner/name`, or use **Project repo** in the Hagency console. The console's **Check readiness**
+owner/name`, or use **Project repo** in the Hagency console (**Remove repo** there, or `@pm remove the repo`, takes it
+off again; refused while work runs). The console's **Check readiness**
 button runs the same read-only check as `github_setup.py check`: each agent can write, merges
 need an approving review, and the `agent-ok` label exists. The repo is stored as a list in the
 room's `xyz.hagencylabs.loop` state, so a room can hold several repos later. A project that spans

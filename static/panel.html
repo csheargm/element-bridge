@@ -25,7 +25,7 @@ button{font:inherit;padding:5px 12px;border:1px solid var(--line);border-radius:
 button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .field{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:8px;
-background:var(--bg);color:var(--ink);flex:1;min-width:12em}
+background:var(--bg);color:var(--ink);flex:1;min-width:12em}input.code{flex:0;min-width:0;font-family:ui-monospace,Menlo,monospace}
 #msg:empty{display:none}#msg{padding:8px 12px;border-radius:8px;background:var(--accent-soft);color:var(--accent);white-space:pre-line}
 .board{font-size:13.5px}.board p{margin:4px 0}.board ul{margin:4px 0;padding-left:18px}.board a{color:var(--accent)}
 .agents{list-style:none;margin:0;padding:0}.agents li{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 0}
@@ -38,7 +38,10 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:4px 0 8px}
 __SCRIPTS__
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
-const ELEMENT = __ELEMENT_ORIGIN__;
+// The Element apps allowed to frame the panel (panel.EMBEDDERS); ELEMENT: the one that does, from its
+// capabilities request (Element speaks first), and from then on only that one.
+const EMBEDDERS = __EMBEDDERS__;
+let ELEMENT = null;
 const embedded = window.parent !== window && !!wid;
 let session = null;
 try { session = sessionStorage.getItem("hagency-session"); } catch (e) { /* storage blocked: signs in on each load */ }
@@ -68,16 +71,28 @@ function signedIn(s) { session = s;       // the watchdog runs on until the firs
   refresh(); }
 // Inside Element only: the Matrix widget API, talking to Element's exact origin and our parent frame.
 let openidRequest = null, gotCredentials = false, capable = false, expired = 0;
+// "Your chat with Product Manager" is a link (pmChatLink): inside Element it opens that chat in place through
+// the widget API's navigate (MSC2931; pre-approved for our panel only: deploy/element_home.py), else (or
+// if Element refuses) a matrix.to link in a new tab.
+const NAVIGATE = "org.matrix.msc2931.navigate", NAV_WAIT_MS = 4000;
+let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
-  if (ev.origin !== ELEMENT || ev.source !== window.parent || m.widgetId !== wid) return;
+  if (!EMBEDDERS.includes(ev.origin) || ev.source !== window.parent || m.widgetId !== wid) return;
+  if (!ELEMENT && !(m.api === "toWidget" && m.action === "capabilities")) return;   // pinned by Element's first request
+  if (ELEMENT && ev.origin !== ELEMENT) return;
+  ELEMENT = ev.origin;
   if (m.api === "toWidget") {
     const ack = {api: "toWidget", widgetId: wid, requestId: m.requestId, action: m.action, data: {},
-                 response: m.action === "capabilities" ? {capabilities: []} : {}};   // never echo credentials
+                 response: m.action === "capabilities" ? {capabilities: [NAVIGATE]} : {}};   // never echo credentials
     window.parent.postMessage(ack, ELEMENT);
     if (m.action === "capabilities" && !capable) { capable = true; if (!session) setTimeout(askOpenId, 300); }
+    if (m.action === "notify_capabilities") canNavigate = ((m.data || {}).approved || []).includes(NAVIGATE);
     if (m.action === "openid_credentials" && openidRequest && m.data && m.data.original_request_id === openidRequest)
       m.data.state === "allowed" ? gotToken(m.data.access_token) : failed(REFUSED);   // after Element's prompt
+  } else if (m.api === "fromWidget" && navRequest && m.requestId === navRequest && m.response) {
+    navRequest = null;
+    if (m.response.error) navFallback();
   } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
     const r = m.response;
     if (r.state === "allowed") gotToken(r.access_token);
@@ -97,14 +112,32 @@ async function start() {
   if (!embedded) return void ($("me").innerHTML = 'Say <b>@pm send me my console link</b> in the room to sign in here.');
   capable ? askOpenId() : signingIn();      // a session that expired: ask Element again
 }
+let msgMark = "";                         // the line came from Connect GitHub: githubMsgAfter (panel_github.js)
 async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
-  $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
+  $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error);
+  msgMark = action === "github" && value === "connect" ? "pending" : "";
+  if (msgMark && pmChat) $("msg").innerHTML = esc($("msg").textContent) + " " + pmChatLink("Open our private chat");
+  refresh(); }
+function pmChatLink(text) {
+  if (!pmChat) return esc(text);           // no private chat with @pm yet: plain words
+  return `<a href="https://matrix.to/#/${esc(encodeURIComponent(pmChat))}" target="_blank" rel="noopener noreferrer" data-pmchat="1">${esc(text)}</a>`;
+}
+document.addEventListener("click", e => { const a = e.target.closest && e.target.closest("a[data-pmchat]");
+  if (!a || !embedded || !canNavigate) return;      // a new tab, by the link itself
+  e.preventDefault(); navHref = a.href; const sent = navRequest = "nav-" + crypto.randomUUID();
+  window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: sent, action: NAVIGATE, data: {uri: a.href}}, ELEMENT);
+  setTimeout(() => { if (navRequest === sent) { navRequest = null; navFallback(); } }, NAV_WAIT_MS); });
+// Refused, or no answer: a link to click (GPT review: a tab opened later, not by the click, is blocked).
+function navFallback() { $("msg").innerHTML = `Element didn't open the chat here: <a href="${esc(navHref)}" target="_blank"
+  rel="noopener noreferrer">open your chat with Product Manager</a>.`; }
 // A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
 const card = (name, s) => typeof window[name] === "function" ? window[name](s)
   : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;
-// Remove's two clicks (panel_agents.js); without that script, nothing can arm a Remove: refused.
-const ok = b => typeof window.confirmed === "function" ? window.confirmed(b) : b.dataset.a !== "remove";
+// Two-click buttons: Remove an agent (panel_agents.js), Remove repo (panel_project.js). Without its
+// script, nothing can arm one: refused.
+const ok = b => { const check = {remove: "confirmed", unrepo: "repoConfirmed"}[b.dataset.a];
+  return !check || (typeof window[check] === "function" && window[check](b)); };
 const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
   assist: "Agents build and review; a person merges each change.",
   autonomous: "Agents build, review and merge on their own."};
@@ -113,8 +146,8 @@ function buttons(name, values, current, enabled) {
   return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
     ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
-  if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
-    : b.dataset.v, b.dataset.g); });
+  if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? (typeof addValue === "function" ? addValue() : $("newagent").value.trim())
+    : b.dataset.a === "rename" ? $("rename-" + b.dataset.g).value.trim() : b.dataset.v, b.dataset.g); });
 let polling = false;                        // one view request at a time (GPT review: a late 401 of an old session)
 async function refresh() {
   if (!session || polling) return;
@@ -131,10 +164,15 @@ async function show() {
       return ++expired > 2 ? failed(NO_ANSWER) : start(); }
     s = await r.json(); } catch (e) { return failed(OFFLINE); }
   if (s.error) return failed(s.error);
-  expired = 0; clearTimeout(watchdog);
-  if (document.activeElement && ["repo", "newagent"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
+  expired = 0; clearTimeout(watchdog); pmChat = s.pm_chat || null;
+  if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
+  const typing = document.activeElement && document.activeElement.id;
+  const sameCode = typing === "ghcode" && s.github && s.github.code === $("ghcode").value;   // a code gone: redrawn
+  const fields = ["repo", "newagent", "newkind", "newmodel", "newbase"];
+  if (typing && (fields.includes(typing) || sameCode || typing.startsWith("rename-"))) return;   // don't wipe what's being typed
   $("me").textContent = "";
   $("title").textContent = s.room;
+  if (s.personal) return personal(s);       // My Hagency: their own cards only (console_personal.py)
   $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
   $("who").innerHTML = `<span class="chip">${esc(s.user)}</span> <span class="chip role">${s.moderator ? "Owner / maintainer" : "Contributor"}</span>`;
   let h = "";
@@ -143,11 +181,15 @@ async function show() {
     <button class="primary" data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div></section>`;
   h += `<div class="grid"><section class="card"><h2>Mode</h2>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}
     <div class="hint">${esc(MODES[s.mode] || "")}${s.moderator ? "" : " Only the owner or a maintainer can change it."}</div></section>
-    <section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
-    value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
-    ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
+    ${card("repoCard", s)}</div>`;
   h += card("projectCard", s) + card("githubCard", s) + card("agentCards", s);   // panel_project.js, panel_github.js, panel_agents.js
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
+}
+function personal(s) {
+  $("sub").innerHTML = '<span class="chip">Your agents and GitHub, the same in every room</span>';
+  $("who").innerHTML = `<span class="chip">${esc(s.user)}</span>`;
+  $("controls").innerHTML = card("agentCards", s) + card("githubCard", s);
+  $("p").innerHTML = "";
 }
 start(); setInterval(refresh, __REFRESH_MS__);
 </script>

@@ -40,11 +40,16 @@ class Registry(unittest.TestCase):
     def setUp(self):
         use_registry(self, PEOPLE)
 
-    def test_a_further_agent_frees_its_slot_and_its_name_is_never_reused(self):
+    def test_a_further_agent_frees_its_slot_and_its_name_can_be_used_again(self):
+        """Owner request: remove "codex", add "codex" again. Its closed account never comes back: the
+        new one gets a new account name, and keeps the name its person gave it."""
         registry_removal.forget_agent(CX, "cx-codex-agent")
         self.assertEqual([a["localpart"] for a in registry.agents_of(CX)], ["cx-agent"])
-        with self.assertRaisesRegex(ValueError, "removed an agent called codex"):
-            registry.add_agent(CX, "codex")                    # a deactivated account name can't come back
+        again = registry.add_agent(CX, "codex")
+        self.assertEqual((again["localpart"], again["label"], registry.name_of(again)), ("cx-codex2-agent", "codex2", "codex"))
+        self.assertEqual(registry.find(CX, "codex")["localpart"], "cx-codex2-agent")   # "remove my agent codex" finds it
+        with self.assertRaisesRegex(ValueError, "already have an agent called codex"):
+            registry.add_agent(CX, "codex")                    # unique among their agents now
         self.assertEqual(registry.add_agent(CX, "laptop")["localpart"], "cx-laptop-agent")
 
     def test_the_first_agent_goes_last_with_its_line(self):

@@ -47,6 +47,41 @@ class WhoCanJoin(unittest.TestCase):
         self.assertIn("Private: not listed anywhere", render("panel-project.js", "projectCard({moderator: false})"))
 
 
+@unittest.skipIf(NODE is None, "node not installed")
+class ProjectRepo(unittest.TestCase):
+    """The owner asked: a repo could be switched, never removed. Remove repo asks twice in the page."""
+    OWNER = {"repo": "a/x", "moderator": True}
+
+    def test_the_owner_sees_remove_repo_only_when_a_repo_is_set(self):
+        self.assertIn("Remove repo", text_of(render("panel-project.js", f"repoCard({json.dumps(self.OWNER)})")))
+        self.assertNotIn("Remove repo", render("panel-project.js", "repoCard({repo: null, moderator: true})"))
+        self.assertIn("Pick a project repo", render("panel-project.js", "repoCard({repo: null, moderator: true})"))
+        self.assertNotIn("Remove repo", render("panel-project.js", 'repoCard({repo: "a/x", moderator: false})'))
+
+    def test_the_first_click_only_arms_it_and_the_second_removes(self):
+        owner = json.dumps(self.OWNER)
+        clicks = ('(() => { const b = {dataset: {a: "unrepo", v: "", g: "a/x"}, textContent: ""}; const first = repoConfirmed(b);'
+                  f' const shown = repoCard({owner}); const second = repoConfirmed(b);'
+                  ' return [first, b.dataset.v, shown.includes("Click again to remove the repo"), second, '
+                  f'repoCard({owner}).includes("Click again")].join(","); }})()')
+        self.assertEqual(render("panel-project.js", clicks), "false,sure:a/x,true,true,false")
+
+    def test_a_repo_bound_after_the_first_click_is_never_armed(self):
+        """GPT re-check: the armed state followed a redraw onto a newer repo, whose click then counted."""
+        clicks = ('(() => { const b = {dataset: {a: "unrepo", v: "", g: "a/x"}, textContent: ""}; repoConfirmed(b);'
+                  ' const shown = repoCard({repo: "a/y", moderator: true});'
+                  ' const c = {dataset: {a: "unrepo", v: "", g: "a/y"}, textContent: ""};'
+                  ' return [shown.includes("Click again"), repoConfirmed(c)].join(","); })()')
+        self.assertEqual(render("panel-project.js", clicks), "false,false")
+
+    def test_the_page_never_sends_it_without_its_script(self):
+        ok = re.search(r"^const ok = .*?; };$", panel.PAGE, re.S | re.M).group(0)
+        done = subprocess.run([NODE, "-e", f"const window = {{}}; {ok}\nprocess.stdout.write(String("
+                               'ok({dataset: {a: "unrepo", v: "sure:a/x"}})) + String(ok({dataset: {a: "mode"}})))'],
+                              capture_output=True, text=True)
+        self.assertEqual(done.stdout, "falsetrue", done.stderr)
+
+
 NEVER = {"name": "newbie1-agent", "label": "main", "first": True, "follow": "always", "remote": True,
          "online": False, "connected": False, "here": False, "invited": True}
 
@@ -73,6 +108,15 @@ class MyAgents(unittest.TestCase):
         self.assertIn("Run the connect line again on its computer", card)
         self.assertIn("Offline", card)
         self.assertIn("in this room", card)
+
+    def test_each_agent_can_be_renamed_and_shows_its_name(self):
+        """pm_rename.py: the name people see, with its ID beside it; every value escaped."""
+        named = {**NEVER, "display": 'Night <b>"Shift"</b>'}
+        html = render("panel-agents.js", f"agentCards({json.dumps({'agents': [named], 'can_add': False})})")
+        self.assertIn('<input id="rename-newbie1-agent" maxlength="40"', html)
+        self.assertIn('value="Night &lt;b&gt;&quot;Shift&quot;&lt;/b&gt;"', html)
+        self.assertIn('data-a="rename" data-v="" data-g="newbie1-agent">Rename</button>', html)
+        self.assertIn('<b>Night &lt;b&gt;&quot;Shift&quot;&lt;/b&gt;</b> <span class="muted">· newbie1-agent</span>', html)
 
     def test_labels_show_when_there_are_several_and_a_custom_version_shows(self):
         codex = {**NEVER, "name": "newbie1-codex-agent", "label": "codex", "first": False}
