@@ -76,7 +76,16 @@ dc up -d --remove-orphans
 dc up -d --no-deps --force-recreate element synapse-admin >/dev/null 2>&1   # their configs are new files
 if [ "$loaded" != "$current" ]; then dc restart synapse; fi  # Synapse reads its config only at start
 echo "$current" > .synapse-loaded
-dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+# A single-file bind mount keeps the OLD file after git replaces it (new inode), so a reload alone
+# would load the old routes (seen live: /connect/start 404 after a deploy). Recreate Caddy when the
+# file it sees differs from the checked-out one; otherwise a reload is enough.
+host_sum=$(sha256sum Caddyfile | cut -d' ' -f1)
+seen_sum=$(dc exec -T caddy sha256sum /etc/caddy/Caddyfile </dev/null 2>/dev/null | cut -d' ' -f1)
+if [ "$host_sum" != "$seen_sum" ]; then
+  dc up -d --no-deps --force-recreate caddy >/dev/null 2>&1
+else
+  dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+fi
 
 # 7. The daily free-tier check (guard.py): a systemd timer, as root.
 unit="[Unit]

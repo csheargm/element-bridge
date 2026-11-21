@@ -192,3 +192,14 @@ class EnvUpgrade(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaddyPicksUpNewRoutes(unittest.TestCase):
+    """Seen live: after a deploy Caddy kept the old Caddyfile (a single-file bind mount keeps the old
+    inode when git replaces the file), so /connect/start was 404 until Caddy was restarted."""
+    def test_bootstrap_recreates_caddy_when_its_file_differs(self):
+        script = (Path(__file__).parent / "bootstrap.sh").read_text()
+        self.assertIn("sha256sum Caddyfile", script)
+        self.assertIn("sha256sum /etc/caddy/Caddyfile", script)
+        self.assertIn("--force-recreate caddy", script)
+        self.assertLess(script.index("--force-recreate caddy"), script.index("caddy reload --config"))
