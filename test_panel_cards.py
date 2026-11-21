@@ -81,7 +81,8 @@ class MyAgents(unittest.TestCase):
         self.assertIn("codex · newbie1-codex-agent", card)
         self.assertIn("Code it runs: your own version (abc1234)", card)
         self.assertIn('type "resend me the code" there for a fresh one', card)              # its first agent
-        self.assertIn('for a fresh code, type "add another agent called codex" there', card)   # GPT review
+        self.assertIn('follow its Connect message (for a fresh code, type "add another agent called codex" there)', card)
+        self.assertEqual(card.count("🔌"), 1)                          # GPT review: 🔌 sets up the first one only
         self.assertIn("Go back to official", card)
 
 

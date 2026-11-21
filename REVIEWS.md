@@ -994,3 +994,6 @@ Rejected, with reasons:
   intent: it is our panel either way, it gets no capabilities, and the console checks room
   membership on every request. A browser check of the deployed Element is left for the deploy (no
   VM access in this session).
+Re-check (GPT, the fix commit): one low point, adopted: a named agent's hint still began "follow the
+🔌 steps"; it now says "follow its Connect message", and only the first agent's hint names 🔌.
+test_panel_cards.MyAgents.
