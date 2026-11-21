@@ -48,8 +48,10 @@ def startable(name: str) -> bool:
 def unwrap(shim: Path) -> list[str]:
     """The program an npm .cmd wrapper starts, as an argv prefix: inside the wrapper's own folder,
     and a real program (an .exe, or node.exe with a script), never another wrapper."""
-    found = SHIM_TARGET.findall(shim.read_text(errors="replace"))
-    parts = re.split(r"[\\/]", found[-1]) if found else []   # the last line is the command (not a comment above)
+    lines = [ln.strip() for ln in shim.read_text(errors="replace").splitlines()]
+    lines = [ln for ln in lines if ln and not re.match(r"(?i)(@?rem\b|::)", ln)]   # comments never count
+    m = SHIM_TARGET.search(lines[-1]) if lines else None    # cmd-shim's command is its last line
+    parts = re.split(r"[\\/]", m.group(1)) if m else []
     if not parts or any(not p or p in (".", "..") or ":" in p for p in parts):
         raise FileNotFoundError(f"{shim.name} isn't an npm wrapper I can read; install the CLI's own program (.exe)")
     target = shim.parent.joinpath(*parts)

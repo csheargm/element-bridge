@@ -97,6 +97,13 @@ class Windows(unittest.TestCase):
                 cli_path.command("codex")
         (self.npm.dir / "codex.cmd").write_text('rem "%dp0%\\node_modules\\link.js" %*\r\n' + CODEX_SHIM)
         self.assertTrue(cli_path.command("codex")[1].endswith("codex.js"))   # the last command line counts
+        (self.npm.dir / "codex.cmd").write_text(CODEX_SHIM + 'rem "%dp0%\\node_modules\\link.js" %*\r\n')
+        self.assertTrue(cli_path.command("codex")[1].endswith("codex.js"))   # GPT re-check: nor a comment below
+        (self.npm.dir / "codex.cmd").write_text(':: "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n'
+                                                'start-something-else %*\r\n')
+        with self.assertRaises(FileNotFoundError):
+            cli_path.command("codex")                          # a comment never makes a wrapper look valid
+        (self.npm.dir / "codex.cmd").write_text(CODEX_SHIM)
         with mock.patch.object(cli_path.shutil, "which", lambda n: r"C:\nvm\node.CMD" if n == "node" else self.npm.which(n)), \
                 self.assertRaisesRegex(FileNotFoundError, "node.exe"):
             cli_path.command("codex")

@@ -875,3 +875,7 @@ Rejected or deferred, with reasons:
   deactivated list is read. Its last Online/Offline stays shown until then.
 - **3 (rest). An account reactivated after the snapshot.** Pruning needs the person AND every agent
   deactivated in one complete list; reactivation is a manual operator step (within 6 h).
+- (re-check, GPT) Adopted, with tests: a set-up whose registration failed (password saved, no
+  account) can still be removed: Synapse's admin API must say 404 M_NOT_FOUND, anything unclear keeps
+  everything; pairing codes are revoked only once the removal succeeded (a refused one keeps them);
+  a cmd-shim comment line, above or below, never counts: only the last non-comment line is read.

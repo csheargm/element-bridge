@@ -83,7 +83,6 @@ class Removal:
             await self.say(room_id, "That isn't one of your agents on your own computer.")
             return False
         localpart, first = found[0]["localpart"], found[0]["first"]
-        remote_agent.CODES.revoke(person, None if first else localpart)   # no code can sign it in again
         try:
             await asyncio.to_thread(agent_removal.remove, person, localpart)
         except AccountError as e:
@@ -93,6 +92,7 @@ class Removal:
             log.error("couldn't remove %s's agent %s: %s", person, localpart, e)
             await self.say(room_id, "⚠️ I couldn't remove it just now; please try again.")
             return False
+        remote_agent.CODES.revoke(person, None if first else localpart)   # only once it's gone (GPT re-check)
         self.seen().pop(localpart, None)       # pm_presence.py: no "offline" note for it ever again
         log.info("removed %s's agent %s for good", person, localpart)
         await self.say(room_id, REMOVED.format(agent=localpart))

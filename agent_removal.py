@@ -42,7 +42,7 @@ def remove(person: str, agent: str) -> bool:
             raise AccountError(f"{localpart} has an odd record here; ask this server's operator")   # GPT: never a stale name
         key = setup_accounts.password_key(localpart)
         ours = found["ready"] or (key in env and _signs_in(localpart, env[key]))   # never close an account we don't hold
-        if not ours and key in env:           # a password we can't confirm (or a server error): keep everything
+        if not ours and key in env and _exists(f"@{localpart}:{SERVER_NAME}"):   # a password we can't confirm
             raise AccountError(f"I couldn't confirm {localpart}'s account just now; please try again")
         if ours:
             _deactivate(f"@{localpart}:{SERVER_NAME}")
@@ -59,6 +59,17 @@ def prune(dead: set[str]) -> list[str]:
     """registry.prune under the same lock as set-ups and removals (GPT: no race with remove())."""
     with WRITING:
         return registry.prune(dead)
+
+
+def _exists(user_id: str) -> bool:
+    """False only when Synapse says no such account (a set-up whose registration failed); True when it
+    exists or the answer is unclear, so nothing is forgotten on a guess (GPT re-check)."""
+    try:
+        r = local_signup.admin_call("GET", f"/_synapse/admin/v2/users/{urllib.parse.quote(user_id)}", None)
+    except (SystemExit, OSError, ValueError) as e:   # unclear: treated as existing, so nothing is dropped
+        log.warning("couldn't ask whether %s exists: %s", user_id, str(e)[:200])
+        return True
+    return not (r.get("_status") == 404 and r.get("errcode") == "M_NOT_FOUND")
 
 
 def _deactivate(user_id: str) -> None:

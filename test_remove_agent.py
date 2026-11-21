@@ -120,8 +120,17 @@ class Remove(unittest.TestCase):
         with mock.patch.object(agent_removal, "_signs_in", return_value=False), \
                 self.assertRaisesRegex(setup_accounts.AccountError, "couldn't confirm"):
             agent_removal.remove(CX, "codex")                  # e.g. Synapse answered 500 to the login
-        self.assertEqual((self.calls, len(registry.agents_of(CX))), ([], 2))
+        self.assertEqual(len(registry.agents_of(CX)), 2)
+        self.assertEqual([c[0] for c in self.calls], ["GET"])    # only asked whether it exists: never closed
         self.assertIn("PW_CX_CODEX_AGENT", self.env)
+
+    def test_gpt_recheck_a_set_up_whose_registration_failed_can_still_be_removed(self):
+        use_registry(self, {CX: {"agent": "remote", "more": [{"label": "codex", "agent": "remote"}]}})
+        self.answer = {"_status": 404, "errcode": "M_NOT_FOUND"}  # Synapse: no such account
+        with mock.patch.object(agent_removal, "_signs_in", return_value=False):
+            self.assertFalse(agent_removal.remove(CX, "codex"))
+        self.assertEqual([c[0] for c in self.calls], ["GET"])    # no deactivation for an account that isn't there
+        self.assertEqual((len(registry.agents_of(CX)), self.env), (1, {"PW_OTHER": "keep"}))
 
     def test_gpt_review_a_leftover_password_is_not_a_failure_and_the_last_removal_stays_empty(self):
         use_registry(self, {BETTY: {"agent": "remote", "ready": True}})
@@ -194,6 +203,12 @@ class InChat(unittest.TestCase):
         next(iter(self.lp.removals().values()))["until"] = 0
         asyncio.run(self.lp.ask_removal("!dm", BETTY, None))
         self.assertEqual([a["person"] for a in self.lp.removals().values()], [BETTY])   # expired: evicted
+
+    def test_gpt_recheck_a_refused_removal_keeps_its_codes(self):
+        self.remove.side_effect = setup_accounts.AccountError("I couldn't confirm it")
+        self.assertFalse(asyncio.run(self.lp.remove_for_good("!dm", CX, "codex")))
+        self.revoke.assert_not_called()
+        self.assertIn("couldn't remove it", self.said[-1])
 
     def test_which_one_and_first_goes_last(self):
         asyncio.run(self.lp.ask_removal("!dm", CX, None))
