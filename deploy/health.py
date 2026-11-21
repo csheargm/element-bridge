@@ -6,7 +6,7 @@
 Checks Element (page and config), Synapse's client API, that sign-up needs an invite token, @pm's
 account, and @pm's console serving /connect.sh, the Connect page and /connect.ps1 (it starts only
 after @pm has signed in and synced).
-From outside also .well-known and federation on 8448. Prints ✓/✗ per check; exits 1 on any ✗.
+From outside also .well-known, federation on 8448 and Element's home page (Caddy serves it). Prints ✓/✗ per check; exits 1 on any ✗.
 """
 import json
 import sys
@@ -56,6 +56,8 @@ def checks(rooms: str, matrix: str, console: str, domain: str, server: str, publ
             ("federation on 8448 (/_matrix/key/v2/server)",
              lambda: json.loads(fetch(f"{matrix}:8448/_matrix/key/v2/server")[1])["server_name"] == server),
             ("admin API not public", lambda: fetch(f"{matrix}/_synapse/admin/v1/server_version")[0] == 404),
+            ("Element's home page links to @pm",
+             lambda: f"#/user/@pm:{server}?action=chat" in fetch(f"{rooms}/hagency/home.html")[1]),
         ]
     return items
 

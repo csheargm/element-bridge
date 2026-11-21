@@ -25,9 +25,9 @@ existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tun
 
 | Service  | What | Reachable |
 |----------|------|-----------|
-| caddy    | HTTPS (Let's Encrypt), routes below | 80, 443, 8448 (the only published ports) |
-| element  | Element Web, pointed at this homeserver | via Caddy |
-| synapse  | the homeserver: invite-token sign-up only, no guests, no URL previews | via Caddy; `/_synapse/admin` only on the admin host |
+| caddy    | HTTPS (Let's Encrypt), routes below; also serves Element's Hagency home page, logo and background at `/hagency/` (`deploy/element_home.py` writes them) | 80, 443, 8448 (the only published ports) |
+| element  | Element Web, pointed at this homeserver; its home page is Hagency's three steps (`embedded_pages.home_url`) | via Caddy |
+| synapse  | the homeserver: invite-token sign-up only, no guests, no URL previews; a person's private chats from @pm and from their own agent open already joined (`synapse_modules/hagency_auto_accept.py`) | via Caddy; `/_synapse/admin` only on the admin host |
 | synapse-admin | the admin web UI (static), `restrictBaseUrl` = the admin host | via Caddy, admin host only |
 | postgres | Synapse's database | an internal network only Synapse is on |
 | pm       | @pm (`loop.py`): welcomes newcomers, the console, `/connect`, the Connect page (`/connect/start`), `/connect.sh` and `/connect.ps1` | via Caddy |

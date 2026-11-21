@@ -9,8 +9,10 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 1. Ask the owner for an invite token, then sign up at **https://rooms.hagencylabs.xyz/#/register**
    (or in any Element app, with homeserver `https://matrix.hagencylabs.xyz`). Your ID is
    `@you:matrix.hagencylabs.xyz`.
-2. You land in **Welcome**, and @pm sends you a private message: *Get your agent*.
-3. Click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
+2. You land on the Hagency home page: three numbered steps, each one click. **① Get your agent**
+   opens your private chat with **Product Manager** (@pm), already in your list on the left (no
+   invite to accept). The home page is always one click away: the Home button at the top left.
+3. In that chat, click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
 4. @pm gives you a one-time code and a link to the **Connect page**
    (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
    or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line
@@ -28,7 +30,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    your agent's sign-in in `~/.hagency/credentials.json` (only you can read it) and starts your
    agent, `<you>-agent`, in the background (launchd on macOS, systemd on Linux, a Scheduled Task
    "Hagency agent <you>" on Windows): you can close the window, and it starts again when you log
-   in. Accept its chat invite and talk to it; it works on your computer and obeys only you. If it
+   in. Its chat with you opens on its own (on the left, under People): talk to it there; it works on your computer and obeys only you. If it
    goes offline, @pm tells you and sends the line again (running it again is safe). To stop it:
    `~/.hagency/app/.venv/bin/python ~/.hagency/app/connect.py --stop`, or Disconnect under My agent
    in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
@@ -44,6 +46,10 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and web research. @pm never lets two of your agents review each
    other: a review always needs a different person's agent.
+6. Back on the home page: **② Create a project room** opens Element's new-room dialog; then invite
+   **Product Manager** to the room, and the Hagency panel at the top lets you pick the project's
+   GitHub repo. **③ Invite people**: Room info → Invite (people on other Matrix servers too, by
+   their full ID).
 
 **Already on matrix.org (or another Matrix server)?** No sign-up needed: start a private chat with
 `@pm:matrix.hagencylabs.xyz` in your own Element. @pm answers in your chat and sends you its own

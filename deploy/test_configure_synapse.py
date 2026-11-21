@@ -3,7 +3,7 @@ import json
 import unittest
 
 import envfile
-from configure_synapse import configure, pm_moderator_settings, set_keys, welcome_settings
+from configure_synapse import configure, module_settings, set_keys, welcome_settings
 
 GENERATED = """server_name: "matrix.example.org"
 database:
@@ -56,9 +56,18 @@ class Configure(unittest.TestCase):
         out = configure(GENERATED, ENV)
         line = next(ln for ln in out.splitlines() if ln.startswith("modules:"))
         modules = json.loads(line.split(":", 1)[1])
-        self.assertEqual(modules, [{"module": "hagency_pm_moderator.PmModerator", "config": {"pm": f"@pm:{ENV['SERVER_NAME']}"}}])
+        self.assertEqual(modules[0], {"module": "hagency_pm_moderator.PmModerator", "config": {"pm": f"@pm:{ENV['SERVER_NAME']}"}})
         self.assertIn('default_room_version: "12"', out)                       # what the module relies on
-        self.assertEqual(pm_moderator_settings("x.org")["modules"].count("@pm:x.org"), 1)
+        self.assertEqual(out.count("\nmodules:"), 1)
+
+    def test_pm_and_agent_chats_open_joined_through_our_module_not_the_builtin(self):
+        """The built-in auto_accept_invites can't tell people from agents: anyone could pull an agent in."""
+        out = configure(GENERATED, ENV)
+        modules = json.loads(next(ln for ln in out.splitlines() if ln.startswith("modules:")).split(":", 1)[1])
+        self.assertIn({"module": "hagency_auto_accept.AutoAccept",
+                       "config": {"pm": "@pm:matrix.example.org", "server": "matrix.example.org"}}, modules)
+        self.assertNotIn("auto_accept_invites", out)
+        self.assertEqual(json.loads(module_settings("x.org")["modules"])[1]["config"], {"pm": "@pm:x.org", "server": "x.org"})
 
     def test_set_keys_replaces_in_place_and_appends_once(self):
         text = "a: 1\nb: 2"                                   # no final newline: the new key gets its own line

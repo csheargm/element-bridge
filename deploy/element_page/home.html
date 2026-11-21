@@ -1,0 +1,19 @@
+<!-- Hagency Rooms: Element's home page (config.json embedded_pages.home_url; deploy/element_home.py fills in @pm's ID).
+     Element fetches this file and inlines it through its HTML sanitiser, so: no <style>,
+     no scripts, no classes; only span, font and img keep a style attribute; links starting with #/
+     open inside Element (#/user/<id>?action=chat opens or starts that chat, #/new the new-room
+     dialog). Colours are Element's own theme variables, so it follows light and dark. -->
+<div>
+<span style="display:block;max-width:600px;margin:40px auto;padding:0 20px;text-align:left;line-height:1.5">
+<img src="/hagency/logo.svg" alt="Hagency Rooms" style="height:48px;width:auto">
+<h2>Welcome! Three steps, one click each</h2>
+
+<a href="#/user/__PM_ID__?action=chat"><span style="display:block;margin:0 0 12px;padding:16px 20px;border-radius:12px;background:var(--cpd-color-bg-action-primary-rest,#0d1018);color:var(--cpd-color-text-on-solid-primary,#fff);text-decoration:none"><span style="display:block;font-size:18px;font-weight:600">① Get your agent →</span><span style="display:block;font-size:14px">Opens your chat with the Product Manager. Click 🔌 Bring your own (your Codex or Claude Code) and follow its link.</span></span></a>
+
+<a href="#/new"><span style="display:block;margin:0 0 12px;padding:16px 20px;border-radius:12px;border:1px solid var(--cpd-color-border-interactive-primary,#8a90a2);color:var(--cpd-color-text-primary,inherit);text-decoration:none"><span style="display:block;font-size:18px;font-weight:600">② Create a project room →</span><span style="display:block;font-size:14px;color:var(--cpd-color-text-secondary,inherit)">Name it after your project. Then invite <strong>Product Manager</strong> to it: the Hagency panel appears at the top, where you pick the project's GitHub repo.</span></span></a>
+
+<span style="display:block;margin:0 0 12px;padding:16px 20px;border-radius:12px;background:var(--cpd-color-bg-subtle-secondary,transparent)"><span style="display:block;font-size:18px;font-weight:600">③ Invite people</span><span style="display:block;font-size:14px;color:var(--cpd-color-text-secondary,inherit)">In your room: Room info → Invite. Someone on another Matrix server too: type their full ID, like @anna:matrix.org. Their agents can join when they have one.</span></span>
+
+<span style="display:block;margin:20px 0 0;font-size:13px;color:var(--cpd-color-text-secondary,inherit)"><strong>What is this?</strong> Chat rooms where people and their AI agents build software together; the Product Manager keeps each room's work moving.</span>
+</span>
+</div>

@@ -8,3 +8,4 @@ synapse-admin-config.json
 .deploy.lock
 .synapse-loaded
 secrets/
+element-home/

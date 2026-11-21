@@ -5,7 +5,7 @@ Against the public server: HAGENCY_HOMESERVER=https://matrix.<domain> HAGENCY_SE
 E2E_CONSOLE=https://rooms.<domain> E2E_TOKEN=<invite token> E2E_NAME=pubtest2.
 
 1. sign up through the client API with an invite token, the way Element does;
-2. the new account is in #welcome, and @pm opens a private chat with 🏠 / 🔌 buttons;
+2. the new account is in #welcome, and @pm's private chat with 🏠 / 🔌 buttons is already joined;
 3. 🏠 says the house agent comes later; 🔌 creates <them>-agent and sends one install line with a code;
 4. connect.py (this checkout, a temporary ~/.hagency) trades the code; the code is then dead;
 5. their agent, running on "their computer", answers "who are you?" in its private chat.
@@ -62,18 +62,17 @@ def until(what, fn, timeout=STEP_S):
     raise AssertionError(f"timed out waiting for: {what}")
 
 
-def invite_from(token, sender, _since={}):
-    """A room `sender` invited me to. Incremental syncs: Synapse caches a repeated initial sync."""
-    since = _since.get(token)
-    url = "/_matrix/client/v3/sync?timeout=1000" + (f"&since={urllib.parse.quote(since)}" if since else "")
-    sync = api("GET", url, token)
-    _since[token] = sync["next_batch"]
-    seen = _since.setdefault((token, "invites"), {})
-    seen.update(sync.get("rooms", {}).get("invite", {}))
-    for room_id, info in seen.items():
-        if any(e.get("sender") == sender and e.get("type") == "m.room.member" for e in info["invite_state"]["events"]):
-            return room_id
-    return None
+def joined_chat_with(token, me, sender):
+    """My private chat with `sender`, already joined (no invite to accept: hagency_auto_accept.py) and
+    listed as a direct chat, which is what Element's People list and the home page's link use."""
+    try:
+        direct = api("GET", f"/_matrix/client/v3/user/{urllib.parse.quote(me)}/account_data/m.direct", token)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:                     # no direct chats yet: keep waiting
+            return None
+        raise
+    joined = set(api("GET", "/_matrix/client/v3/joined_rooms", token)["joined_rooms"])
+    return next((room for room in direct.get(sender, []) if room in joined), None)
 
 
 def messages(token, room_id):
@@ -89,18 +88,14 @@ def react(token, room_id, event_id, key):
         {"m.relates_to": {"rel_type": "m.annotation", "event_id": event_id, "key": key}})
 
 
-def join(token, room_id):
-    api("POST", f"/_matrix/client/v3/join/{urllib.parse.quote(room_id)}", token, {})
-
-
 def welcome_and_code(me, name):
     """Steps 1-3: returns (the agent's chat, the install line's code)."""
     welcome = api("GET", "/_matrix/client/v3/directory/room/" + urllib.parse.quote(local_signup.WELCOME_ALIAS), me)["room_id"]
     check("the new account is in #welcome", welcome in api("GET", "/_matrix/client/v3/joined_rooms", me)["joined_rooms"])
-    dm = until("@pm's private chat", lambda: invite_from(me, PM))
-    pointer = until("the pointer in Welcome", lambda: pm_message(me, welcome, "accept it under Invites"))
-    check("Welcome names me and points to the invite", f"@{name}:" in pointer["content"]["body"])
-    join(me, dm)
+    me_id = f"@{name}:{SERVER_NAME}"
+    dm = until("@pm's private chat, already joined", lambda: joined_chat_with(me, me_id, PM))
+    pointer = until("the pointer in Welcome", lambda: pm_message(me, welcome, "private message"))
+    check("Welcome names me and points to my chat with @pm", f"@{name}:" in pointer["content"]["body"])
     title = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(dm)}/state/m.room.name/", me).get("name")
     check("@pm's chat is named Product Manager", title == "Product Manager", title)
     offer = until("the welcome message", lambda: pm_message(me, dm, "Get your agent"))
@@ -113,8 +108,7 @@ def welcome_and_code(me, name):
     line = until("the install line", lambda: pm_message(me, dm, "connect.sh"))["content"]["body"]
     found = re.search(r"curl -fsSL (\S+)/connect\.sh \| sh -s -- ([A-Z2-9]{5}-[A-Z2-9]{5})", line)
     check("🔌 sends one install line with a code", found and found.group(1) == CONSOLE)   # the code is never printed
-    agent_dm = until("the agent's chat invite", lambda: invite_from(me, f"@{name}-agent:{SERVER_NAME}"))
-    join(me, agent_dm)
+    agent_dm = until("the agent's chat, already joined", lambda: joined_chat_with(me, me_id, f"@{name}-agent:{SERVER_NAME}"))
     members = api("GET", f"/_matrix/client/v3/rooms/{urllib.parse.quote(welcome)}/joined_members", me)["joined"]
     print(f"note: shared-secret accounts auto-joined to #welcome: {f'@{name}-agent:{SERVER_NAME}' in members}")
     return agent_dm, found.group(2)

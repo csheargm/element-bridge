@@ -11,6 +11,12 @@
 	handle @pm {
 		reverse_proxy pm:8650
 	}
+	# Hagency's home page for Element and its login logo and background (element_home.py writes them).
+	handle_path /hagency/* {
+		root * /srv/element-home
+		header Cache-Control no-cache
+		file_server
+	}
 	handle {
 		reverse_proxy element:80
 	}

@@ -65,7 +65,8 @@ chmod 700 "$PM_DIR" "$PM_DIR/data"
 mkdir -p secrets
 chmod 700 secrets
 
-# 5. Element points at our homeserver; Synapse Admin may only use the admin host.
+# 5. Element points at our homeserver and shows Hagency's home page (element_home.py, served by Caddy
+#    at /hagency/); Synapse Admin may only use the admin host.
 python3 hostfiles.py public
 
 # 6. Start or update (@pm starts on the new code), then load the current Caddyfile.
