@@ -208,6 +208,7 @@ NO_STORE = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 
 
 def routes(loop, panel_html_fn) -> list:
+    import connect_page                       # here, not at the top: it uses this module (an import cycle)
     global panel_html
     panel_html = panel_html_fn
 
@@ -246,7 +247,8 @@ def routes(loop, panel_html_fn) -> list:
         return reply({"result": await act(loop, str(body.get("room", "")), user, str(body.get("action", "")),
                                           str(body.get("value", "")))})
     return [web.post("/auth/openid", auth_openid), web.post("/auth/link", auth_link),
-            web.get("/console/state", state), web.post("/console/action", action)]
+            web.get("/console/state", state), web.post("/console/action", action),
+            *connect_page.routes()]                # the Connect page and the Windows installer
 
 
 panel_html = None                             # set by routes(): panel.render, kept out of an import cycle

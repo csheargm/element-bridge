@@ -4,7 +4,8 @@
   python3 deploy/health.py ROOMS_DOMAIN MATRIX_DOMAIN SERVER_NAME # deploy.sh, over HTTPS from outside
 
 Checks Element (page and config), Synapse's client API, that sign-up needs an invite token, @pm's
-account, and @pm's console serving /connect.sh (it starts only after @pm has signed in and synced).
+account, and @pm's console serving /connect.sh, the Connect page and /connect.ps1 (it starts only
+after @pm has signed in and synced).
 From outside also .well-known and federation on 8448. Prints ✓/✗ per check; exits 1 on any ✗.
 """
 import json
@@ -45,6 +46,8 @@ def checks(rooms: str, matrix: str, console: str, domain: str, server: str, publ
          == "Product Manager"),
         ("@pm online: /connect.sh served", lambda: "connect.py" in (t := fetch(f"{console}/connect.sh")[1])
          and "__HAGENCY_CONSOLE__" not in t),
+        ("the Connect page and /connect.ps1 served", lambda: "connect/start.js" in fetch(f"{console}/connect/start")[1]
+         and "connect_win.py" in (t := fetch(f"{console}/connect.ps1")[1]) and "__HAGENCY_CONSOLE__" not in t),
     ]
     if public:
         items += [

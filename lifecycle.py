@@ -118,7 +118,10 @@ async def first_sync(client: AsyncClient, name: str, point: SyncPoint, register:
                      set_cutoff: Callable[[int], None]) -> None:
     """Resume from a hand-off (callbacks see what was missed) or skip history (callbacks added after).
     set_cutoff(ms) is called BEFORE any callback runs: events older than it count as stale."""
-    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, point.stop.set)   # before any I/O
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, point.stop.set)   # before any I/O
+    except NotImplementedError:
+        pass   # Windows has no asyncio signal handlers; there connect_win.py stops the agent by ending it
     handoff = take_handoff(name)
     if handoff:
         point.handled.update(handoff.get("handled", []))

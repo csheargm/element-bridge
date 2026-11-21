@@ -36,7 +36,8 @@ SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "c
              "room_context.py", "room_state.py", "tasks.py", "registry.py", "saved_dict.py", "console.py",
              "pm_chat.py", "onboard.py", "setup_accounts.py", "panel.py", "hagency_mcp.py", "mcp_core.py",
              "mcp_custom.py", "hermes_profile.py", "bridge_config.py", "pairing.py", "remote_agent.py",
-             "pm_welcome.py", "connect.py", "connect.sh", "local_signup.py",
+             "pm_welcome.py", "connect.py", "connect.sh", "connect.ps1", "connect_win.py", "connect_page.py",
+             "connect.js", "connect.html", "local_signup.py",
              "requirements.txt", ".gitignore", "start.sh"}
 # Git-ignored things a live version shares with the official folder (passwords, sessions, state).
 SHARED = (".env", ".venv", ".gh", "data", "rooms", "logs", "agents.json")
