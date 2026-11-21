@@ -72,7 +72,7 @@
 		respond @no_access_token 403
 		reverse_proxy /_matrix* synapse:8008
 		reverse_proxy /_synapse/admin* synapse:8008
-		reverse_proxy synapse-admin:80
+		reverse_proxy synapse-admin:8080   # the etke image listens on 8080 (seen live: 502 on :80)
 	}
 	header {
 		Strict-Transport-Security "max-age=31536000"

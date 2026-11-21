@@ -180,7 +180,7 @@ class Deploy(unittest.TestCase):
             self.assertIn("handle /_synapse/admin* {\n\t\trespond 404", block)
         route = admin.split("route {")[1]
         order = [route.index(x) for x in ("respond @not_cloudflare 403", "respond @no_access_token 403",
-                                          "reverse_proxy /_synapse/admin*", "reverse_proxy synapse-admin:80")]
+                                          "reverse_proxy /_synapse/admin*", "reverse_proxy synapse-admin:8080")]
         self.assertEqual(order, sorted(order))                                     # refusals first, as written
         self.assertIn("not header Cf-Access-Jwt-Assertion *", admin)
         for net in ("173.245.48.0/20", "104.16.0.0/13", "2606:4700::/32", "2c0f:f248::/32"):
