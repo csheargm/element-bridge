@@ -79,6 +79,36 @@ class PageScript(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr[-500:])
 
 
+class CardScripts(unittest.TestCase):
+    """GPT review (batch 5+6): Caddy didn't route /panel-github.js to @pm, so Element's 404 page came
+    back, githubCard was undefined and the whole panel (mode, repo, Remove) stopped rendering."""
+    def test_every_card_script_the_page_loads_is_routed_to_pm_by_caddy(self):
+        import re
+        caddy = (Path(__file__).resolve().parent / "deploy" / "Caddyfile").read_text()
+        routed = re.search(r"@pm path ([^\n]+)", caddy).group(1).split()
+        loaded = re.findall(r'<script src="([^"]+)"></script>', panel.PAGE)
+        self.assertEqual(sorted(loaded), sorted(panel.SCRIPTS))
+        for name in loaded:
+            self.assertIn(f"/{name}", routed, f"{name} isn't in the Caddyfile's @pm route")
+            self.assertTrue(panel.SCRIPTS[name].is_file())
+
+    def test_a_card_whose_script_is_missing_degrades_and_the_rest_renders(self):
+        import re
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        card = re.search(r"^const card = .*?</section>`;$", panel.PAGE, re.S | re.M).group(0)
+        script = ("const window = {projectCard: s => 'P' + s.n};\n" + card +
+                  "\nprocess.stdout.write(card('projectCard', {n: 1}) + '|' + card('githubCard', {}));")
+        done = subprocess.run([node, "-e", script], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr[-500:])
+        shown, missing = done.stdout.split("|")
+        self.assertEqual(shown, "P1")
+        self.assertIn("didn't load", missing)
+
+
 class Widget(unittest.TestCase):
     def test_pinned_at_the_top_where_people_see_it(self):
         import asyncio

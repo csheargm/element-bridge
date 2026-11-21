@@ -24,9 +24,12 @@ import registry
 PORT = console.PORT
 HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
-AGENTS_JS = Path(__file__).resolve().parent / "static" / "panel_agents.js"
-PROJECT_JS = AGENTS_JS.with_name("panel_project.js")     # "Who can join", "Run from another room"
-GITHUB_JS = AGENTS_JS.with_name("panel_github.js")       # "Connect GitHub" (pm_github.py)
+STATIC = Path(__file__).resolve().parent / "static"
+# The panel's card scripts, by the URL the page loads them from. The one list: the page's <script>
+# tags and the routes come from it, and deploy/Caddyfile's @pm route must name every one (test_panel).
+SCRIPTS = {"panel-agents.js": STATIC / "panel_agents.js",      # "My agents"
+           "panel-project.js": STATIC / "panel_project.js",    # "Who can join", "Run from another room"
+           "panel-github.js": STATIC / "panel_github.js"}      # "Connect GitHub" (pm_github.py)
 REFRESH_MS = 3000
 HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
@@ -80,7 +83,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:4px 0 8px}
 <div class="wrap"><header><div><h1 id="title">Hagency</h1><div class="sub" id="sub"></div></div><div id="who"></div></header>
 <div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls" class="stack"></div><div id="p" class="stack"></div>
 <footer>Change anything here or by telling @pm in the chat.</footer></div>
-<script src="panel-agents.js"></script><script src="panel-project.js"></script><script src="panel-github.js"></script>
+__SCRIPTS__
 <script>
 const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
 const ELEMENT = __ELEMENT_ORIGIN__;
@@ -125,6 +128,9 @@ async function start() {
 async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
   $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
+// A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
+const card = (name, s) => typeof window[name] === "function" ? window[name](s)
+  : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;
 const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
   assist: "Agents build and review; a person merges each change.",
   autonomous: "Agents build, review and merge on their own."};
@@ -154,11 +160,12 @@ async function refresh() {
     <section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
     value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
     ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
-  h += projectCard(s) + githubCard(s) + agentCards(s);       // panel_project.js, panel_github.js, panel_agents.js
+  h += card("projectCard", s) + card("githubCard", s) + card("agentCards", s);   // panel_project.js, panel_github.js, panel_agents.js
   $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
 }
 start(); setInterval(refresh, %d);
 </script>""" % REFRESH_MS
+PAGE = PAGE.replace("__SCRIPTS__", "".join(f'<script src="{name}"></script>' for name in SCRIPTS))
 
 
 def no_html(text: str) -> str:
@@ -207,15 +214,15 @@ async def start(loop) -> web.AppRunner | None:
         return web.Response(text=PAGE.replace("__ELEMENT_ORIGIN__", json.dumps(ELEMENT_ORIGIN)),
                             content_type="text/html", headers=HEADERS)
 
-    def script(path):                     # "My agents", "Who can join" (static/panel_*.js)
+    def script(path):                     # the card scripts (SCRIPTS)
         async def serve(request):
             if not local_host(request):
                 return web.Response(status=403)
             return web.Response(text=path.read_text(encoding="utf-8"), content_type="application/javascript", headers=HEADERS)
         return serve
     app = web.Application()
-    app.add_routes([web.get("/panel", page), web.get("/console", page), web.get("/panel-agents.js", script(AGENTS_JS)),
-                    web.get("/panel-project.js", script(PROJECT_JS)), web.get("/panel-github.js", script(GITHUB_JS)),
+    app.add_routes([web.get("/panel", page), web.get("/console", page),
+                    *(web.get(f"/{name}", script(path)) for name, path in SCRIPTS.items()),
                     *console.routes(loop, render),
                     *remote_agent.routes()])     # bring-your-own pairing (remote_agent.py)
     runner = web.AppRunner(app, access_log=None)        # the widget polls every 3 s: don't flood the log

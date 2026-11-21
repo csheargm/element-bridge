@@ -25,7 +25,7 @@ class PanelCard(unittest.TestCase):
 
     def card(self, github_state):
         esc = """const esc = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));"""
-        script = f"{esc}\n{panel.GITHUB_JS.read_text()}\nprocess.stdout.write(githubCard({json.dumps({'github': github_state})}));"
+        script = f"{esc}\n{panel.SCRIPTS["panel-github.js"].read_text()}\nprocess.stdout.write(githubCard({json.dumps({'github': github_state})}));"
         done = subprocess.run([shutil.which("node"), "-e", script], capture_output=True, text=True, timeout=20)
         self.assertEqual(done.returncode, 0, done.stderr[-500:])
         return done.stdout
