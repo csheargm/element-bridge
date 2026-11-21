@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run ON the VM in ~/hagency/app/deploy, or from your computer: ssh hagency-vm ~/hagency/app/deploy/invite.sh token 5
+# Run ON the VM in ~/hagency/app/deploy, or from your computer: ssh hagency-vm '~/hagency/app/deploy/invite.sh token 5'
 #   ./invite.sh token [uses]     a new invite token (default: 1 use, valid 7 days), made by @pm's container
 #                                through Synapse's admin API inside Docker (never over the internet)
 #   ./invite.sh owner-password   set the password of @owner, the admin account for Synapse Admin

@@ -4,7 +4,7 @@
   python deploy/admin_user.py password owner    # the owner, in their own terminal: set the password
 
 `ensure` gives the new account a random password that is kept nowhere and never printed: nobody can
-sign in with it. The owner then runs `ssh -t hagency-vm ~/hagency/app/deploy/invite.sh owner-password`
+sign in with it. The owner then runs `ssh -t hagency-vm '~/hagency/app/deploy/invite.sh owner-password'`
 and types a password of their own (twice, not echoed); it goes straight to Synapse's admin API
 (as admin-bot, inside Docker) and every other session of that account is signed out.
 """

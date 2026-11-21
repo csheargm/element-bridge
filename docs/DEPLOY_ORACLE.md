@@ -59,7 +59,7 @@ policy in Access (or issue the certificate before Access is switched on), and do
 that is kept nowhere. Set yours (typed twice, never echoed or stored; other sessions are signed out):
 
 ```
-ssh -t hagency-vm ~/hagency/app/deploy/invite.sh owner-password
+ssh -t hagency-vm '~/hagency/app/deploy/invite.sh owner-password'
 ```
 
 Then sign in at https://admin.hagencylabs.xyz as `owner`. Run it again whenever you want a new password.
@@ -126,8 +126,8 @@ change it here, push to master, deploy the commit.
 ## Invites and the operator
 
 ```
-ssh hagency-vm ~/hagency/app/deploy/invite.sh token 5   # a token for 5 sign-ups, valid 7 days
-ssh -t hagency-vm ~/hagency/app/deploy/invite.sh admin  # another admin account (asks for a password)
+ssh hagency-vm '~/hagency/app/deploy/invite.sh token 5'   # a token for 5 sign-ups, valid 7 days
+ssh -t hagency-vm '~/hagency/app/deploy/invite.sh admin'  # another admin account (asks for a password)
 ```
 
 `token` runs in @pm's container: it signs in as `admin-bot` (a server admin @pm made with the
