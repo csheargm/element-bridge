@@ -6,7 +6,9 @@ Older files keyed by bare names ("anna") mean people on this server: load() read
 A person may have several agents (ADR 0005). The line's own fields are their FIRST agent, as they
 always were (so every older file and writer stays valid: nothing to migrate on disk); further ones
 are listed under "more", each {"label", "localpart", "agent" (kind), "created", "dm", "follow"}.
-agents_of() gives all of them as one list, the first first."""
+agents_of() gives all of them as one list, the first first. Once the first agent is removed for good,
+the line stays with "first_removed" (its derived account name can never be registered again), so
+further agents, with new names, are all the person can add."""
 import json
 import os
 import re
@@ -24,6 +26,7 @@ NAME_RE = identity.NAME_RE          # a person here who can have an agent (anna,
 REMOTE = "remote"                    # their agent runs on their own computer (connect.py), not here
 FIRST_LABEL = "main"                 # what the first agent is called when its person never named it
 MORE = "more"                        # a person's further agents, in their line
+FIRST_GONE = "first_removed"         # their first agent was removed for good: only named ones from now on
 PER_PERSON_DEFAULT = 3
 LOCALPART_RE = re.compile(r"[a-z0-9._=-]{1,120}")   # a recorded agent account name (Matrix localpart characters)
 LOCK = threading.RLock()             # @pm's read-modify-writes of this file (its loop and set-up threads)
@@ -147,7 +150,7 @@ def _agents(person: str, info: dict) -> list[dict]:
              "ready": info.get("ready") is True,
              "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
              "disconnected": info.get("disconnected")}
-    found, labels = [first], {first["label"]}
+    found, labels = ([], set()) if info.get(FIRST_GONE) is True else ([first], {first["label"]})
     for e in info.get(MORE) if isinstance(info.get(MORE), list) else []:
         label = e.get("label") if isinstance(e, dict) else None
         if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label) or label in labels:
@@ -165,6 +168,19 @@ def agents_of(person: str, people: dict | None = None) -> list[dict]:
     person = person_id(person)
     people = load() if people is None else people
     return _agents(person, people[person]) if person in people else []
+
+
+def first_removed(person: str, people: dict | None = None) -> bool:
+    """Their first agent was removed for good: a new one gets a new name (a further agent's)."""
+    people = load() if people is None else people
+    return (people.get(person_id(person)) or {}).get(FIRST_GONE) is True
+
+
+def may_add_more(person: str) -> bool:
+    """`person` may add a named agent: their first one is theirs, or it was removed for good."""
+    person, people = person_id(person), load()
+    have = agents_of(person, people)
+    return first_removed(person, people) or bool(have) and owns(person, have[0]["localpart"])
 
 
 def find(person: str, agent: str | None) -> dict | None:
@@ -206,7 +222,7 @@ def add_agent(person: str, label: str, kind: str = REMOTE) -> dict:
 def _add_agent(person: str, label: str, kind: str) -> dict:
     data = load()
     have = agents_of(person, data)
-    if not have:
+    if not have and not first_removed(person, data):
         raise ValueError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
     if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label):
         raise ValueError("an agent's name is one short word: letters and digits, up to 9, starting with a letter")
@@ -232,7 +248,8 @@ REMOVED = "removed"                  # labels of further agents removed for good
 
 def forget_agent(person: str, localpart: str) -> None:
     """Drop one agent of the person's from agents.json, freeing its slot: a further one leaves "more"
-    (its label is kept in "removed"); the first one only when it is their last, with their line."""
+    (its label is kept in "removed"); the first one only when it is their last, leaving their line
+    marked FIRST_GONE (GPT review, batch 5+6: else "bring my own" re-registered its closed name)."""
     with LOCK:
         person, data = person_id(person), load()
         have = agents_of(person, data)
@@ -242,7 +259,7 @@ def forget_agent(person: str, localpart: str) -> None:
         if found["first"] and len(have) > 1:
             raise ValueError("remove the other agents first")
         if found["first"]:
-            del data[person]
+            data[person] = _tombstone(data[person], have)
         else:
             info = data[person]
             info[MORE] = [e for e in info[MORE] if not (isinstance(e, dict) and e.get("label") == found["label"])]
@@ -251,14 +268,31 @@ def forget_agent(person: str, localpart: str) -> None:
         save(data)
 
 
+def _tombstone(info: dict, agents: list[dict]) -> dict:
+    """What stays of a person whose agents are all gone: the names that can't come back. "remote":
+    so the supervisor and setup_accounts never start or make a server-run agent for the line."""
+    old = info.get(REMOVED) if isinstance(info.get(REMOVED), list) else []
+    return {"agent": REMOTE, FIRST_GONE: True, REMOVED: sorted({*old, *(a["label"] for a in agents if not a["first"])})}
+
+
 def prune(dead: set[str]) -> list[str]:
     """Forget the people whose every account here is deactivated (`dead`: full IDs, from Synapse's own
-    list): all their agents, and the person too when they are from this server. Anyone with one account
-    that isn't explicitly deactivated stays as they are. Returns whom it forgot."""
+    list): all their agents, and the person too when they are from this server. Someone from another
+    server (whose own account may be live) keeps a FIRST_GONE line, so they can add a new agent. Anyone
+    with one account that isn't explicitly deactivated stays as they are. Returns whom it forgot."""
     with LOCK:
-        data = load()
-        gone = [p for p in data if (p in dead or not is_local(p))
-                and all(f"@{a['localpart']}:{SERVER_NAME}" in dead for a in _agents(p, data[p]))]
+        data, gone = load(), []
+        for p in list(data):
+            agents = _agents(p, data[p])
+            if not all(f"@{a['localpart']}:{SERVER_NAME}" in dead for a in agents):
+                continue
+            if p in dead:
+                del data[p]
+            elif is_local(p) or not agents:   # a live person here, or nothing left to forget
+                continue
+            else:
+                data[p] = _tombstone(data[p], agents)
+            gone.append(p)
         if gone:
-            save({p: v for p, v in data.items() if p not in gone})
+            save(data)
         return gone

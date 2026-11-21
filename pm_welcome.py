@@ -278,6 +278,9 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
         busy = self.__dict__.setdefault("_provisioning", set())
         if person in busy or not self.may_have_agent(person):
             return                            # one at a time per person; never an agent, a bot or a refused server
+        if registry.first_removed(person):    # its name can't come back: ask for a new one (pm_agents.py)
+            await self.start_add(dm, person)
+            return
         busy.add(person)
         job = asyncio.create_task(self.bring_own(dm, person))   # creating the account takes a moment
         job.add_done_callback(lambda _: busy.discard(person))

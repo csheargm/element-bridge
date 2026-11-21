@@ -130,6 +130,11 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
     return found
 
 
+def can_add(user: str, mine: list) -> bool:
+    """"Add an agent" shows: they have one, or removed their last (a new name then), and room for more."""
+    return (bool(mine) or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
+
+
 async def view(loop, room_id: str, user: str) -> dict:
     """What this user may see and change in this room."""
     room = loop.client.rooms.get(room_id)
@@ -139,7 +144,7 @@ async def view(loop, room_id: str, user: str) -> dict:
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
     mine = my_agents(loop, room, room_id, user)
-    return {"user": local, "agents": mine, "can_add": bool(mine) and len(registry.agents_of(user)) < registry.per_person(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),

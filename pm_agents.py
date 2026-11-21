@@ -110,7 +110,7 @@ class MoreAgents:
         """Ask for a name, or set the agent up (in the background). Returns what was said, for the console."""
         naming = self.__dict__.setdefault("_naming", {})
         have = registry.agents_of(person)
-        if not have or not registry.owns(person, have[0]["localpart"]):
+        if not registry.may_add_more(person):     # their first agent removed for good: a named one is next
             return await self._tell(dm, "You don't have an agent here yet: type \"bring my own\" to get your first one.")
         label = registry.clean_label(typed) if typed else None
         if label != (typed or "").strip().lower():

@@ -50,7 +50,8 @@ class Registry(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "other agents first"):
             registry.forget_agent(CX, "cx-agent")
         registry.forget_agent(BETTY, "betty-agent")
-        self.assertNotIn(BETTY, registry.load())
+        self.assertEqual(registry.agents_of(BETTY), [])          # her line stays: betty-agent can't come back
+        self.assertTrue(registry.first_removed(BETTY))
         self.assertIn(CX, registry.load())
 
     def test_prune_forgets_only_people_whose_every_account_is_deactivated(self):
@@ -61,7 +62,8 @@ class Registry(unittest.TestCase):
                 CXC, f"@betty-agent:{S}"}                      # betty herself and cx-agent are live
         self.assertEqual(sorted(registry.prune(dead)), ["@eve:other.example", f"@pubtest1:{S}"])
         left = registry.load()
-        self.assertEqual(sorted(left), sorted([CX, BETTY, f"@anna:{S}"]))   # never a live person
+        self.assertEqual(sorted(left), sorted([CX, BETTY, f"@anna:{S}", "@eve:other.example"]))   # never a live person
+        self.assertEqual(registry.agents_of("@eve:other.example"), [])   # eve's own account may be live: she may add one
         self.assertEqual(len(registry.agents_of(CX)), 2)
         self.assertEqual(registry.prune(set()), [])
 
@@ -138,7 +140,8 @@ class Remove(unittest.TestCase):
         with mock.patch.object(agent_removal.setup_accounts, "save_env", side_effect=OSError("disk full")), \
                 self.assertLogs("loop", "ERROR"):
             self.assertTrue(agent_removal.remove(BETTY, "betty-agent"))
-        self.assertEqual(registry.load(), {})                 # never the demo anna and betty again
+        self.assertEqual(list(registry.load()), [BETTY])      # never the demo anna and betty again
+        self.assertEqual(registry.agents_of(BETTY), [])        # only the names that can't come back
 
     def test_gpt_review_prune_waits_for_removals_and_set_ups(self):
         held = []
