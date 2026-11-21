@@ -37,6 +37,15 @@ class Names(unittest.TestCase):
         self.assertEqual(identity.agent_localpart("anna", S), "anna-agent")
         self.assertEqual(identity.agent_localpart(ANNA, S), "anna-agent")
 
+    def test_a_persons_name_is_shown_as_they_wrote_it(self):
+        """Seen live: "cx" was shown as "Cx". The display name as set, else the localpart unchanged."""
+        room = SimpleNamespace(users={f"@cx:{S}": SimpleNamespace(display_name=None), ALICE: SimpleNamespace(
+            display_name="  alice  van\nDijk "), ANNA: 0})
+        self.assertEqual(identity.shown_name(room, f"@cx:{S}"), "cx")
+        self.assertEqual(identity.shown_name(room, ALICE), "alice van Dijk")
+        self.assertEqual(identity.shown_name(room, ANNA), "anna")                       # no profile known
+        self.assertEqual(identity.shown_name(None, f"@iPhoneUser:{S}"), "iPhoneUser")  # not re-cased
+
     def test_another_servers_person_gets_a_distinct_valid_name(self):
         name = identity.agent_localpart(ALICE, S)
         self.assertTrue(name.startswith("alice-at-matrix-org-") and name.endswith("-agent"), name)

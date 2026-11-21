@@ -17,6 +17,7 @@ import console
 from bridge_config import ELEMENT_ORIGIN
 import remote_agent
 import github
+import identity
 import ownership
 import registry
 
@@ -192,7 +193,7 @@ def render(loop, room_id: str) -> str:
             follow = registry.follow(owner, user.split(":")[0][1:])
             caps = ", ".join(sorted(grants.get(user, {}))) or "project only"
             agents.append(f"<li><div><b>{html.escape(user.split(':')[0][1:])}</b> <span class=muted>· "
-                          f"{html.escape(owner.split(':')[0][1:].capitalize())}'s agent{here}</span></div>"
+                          f"{html.escape(identity.shown_name(room, owner))}'s agent{here}</span></div>"
                           f"<div><span class=chip>comes along: {html.escape(follow)}</span> "
                           f"<span class=chip>uses: {html.escape(caps)}</span></div></li>")
     parts.append("<section class=card><h2>Agents in this room</h2><ul class=agents>"

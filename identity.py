@@ -35,6 +35,22 @@ def is_local(user_id: str, home: str) -> bool:
     return split(user_id)[1] == home
 
 
+def shown_name(room, user_id: str) -> str:
+    """How a person is called in what we write: their display name exactly as they set it in the room,
+    else their localpart unchanged ("cx" stays "cx", never "Cx"). One line, at most 80 characters."""
+    user = (getattr(room, "users", None) or {}).get(user_id)
+    name = getattr(user, "display_name", None)
+    flat = " ".join(name.split())[:80] if isinstance(name, str) else ""
+    return flat or split(user_id)[0]
+
+
+def plain(text: str) -> str:
+    """A name someone chose (a room's, a person's), shown as text in markdown messages: no links,
+    emphasis or line breaks that could pass for our own instructions (GPT review)."""
+    flat = " ".join(str(text).split())[:80]
+    return re.sub(r"([\\`*_{}\[\]()<>+!|~-])", r"\\\1", flat)   # "#": github.linkify links issues
+
+
 def _clean(text: str, limit: int) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit].strip("-") or "x"
 
