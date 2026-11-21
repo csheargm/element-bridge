@@ -20,7 +20,8 @@ function removeButton(a) {
     armed ? "Click again to remove it for good" : "Remove"}</button>`;
 }
 function confirmed(b) {                // panel.py's click handler: false = this click only armed Remove
-  if (b.dataset.a !== "remove" || b.dataset.v === "sure") return true;
+  if (b.dataset.a !== "remove") return true;
+  if (b.dataset.v === "sure" && removeArmed.agent === b.dataset.g && Date.now() < removeArmed.until) return true;
   removeArmed = {agent: b.dataset.g, until: Date.now() + 8000};
   b.dataset.v = "sure";
   b.textContent = "Click again to remove it for good";

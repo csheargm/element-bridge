@@ -46,13 +46,14 @@ def startable(name: str) -> bool:
 
 
 def unwrap(shim: Path) -> list[str]:
-    """The program an npm .cmd wrapper starts, as an argv prefix."""
-    m = SHIM_TARGET.search(shim.read_text(errors="replace"))
-    parts = re.split(r"[\\/]", m.group(1)) if m else []
-    if not parts or ".." in parts:
+    """The program an npm .cmd wrapper starts, as an argv prefix: inside the wrapper's own folder,
+    and a real program (an .exe, or node.exe with a script), never another wrapper."""
+    found = SHIM_TARGET.findall(shim.read_text(errors="replace"))
+    parts = re.split(r"[\\/]", found[-1]) if found else []   # the last line is the command (not a comment above)
+    if not parts or any(not p or p in (".", "..") or ":" in p for p in parts):
         raise FileNotFoundError(f"{shim.name} isn't an npm wrapper I can read; install the CLI's own program (.exe)")
     target = shim.parent.joinpath(*parts)
-    if not target.is_file():
+    if not target.is_file() or not target.resolve().is_relative_to(shim.parent.resolve()):   # links: no escape
         raise FileNotFoundError(f"{shim.name} starts {target}, which isn't there; reinstall the CLI")
     if target.suffix.lower() == ".exe":
         return [str(target)]
@@ -60,6 +61,6 @@ def unwrap(shim: Path) -> list[str]:
         raise FileNotFoundError(f"{shim.name} starts {target.name}, which I can't start without a shell")
     local = shim.parent / "node.exe"        # what the wrapper itself prefers
     node = str(local) if local.is_file() else shutil.which("node")
-    if node is None:
-        raise FileNotFoundError(f"{shim.name} needs Node.js, which isn't on PATH")
+    if node is None or Path(node).suffix.lower() != ".exe":   # PATHEXT may find a node.cmd: that needs a shell
+        raise FileNotFoundError(f"{shim.name} needs Node.js (node.exe), which isn't on PATH")
     return [node, str(target)]

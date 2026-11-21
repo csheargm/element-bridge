@@ -54,7 +54,10 @@ class Removal:
             await self.say(room_id, f"Remove your other agents first ({', '.join(others)}); {agent['localpart']} goes last.")
             return
         event_id = await self.say(room_id, ASK.format(agent=agent["localpart"], label=agent["label"]))
-        self.removals()[event_id] = {"person": person, "agent": agent["localpart"], "dm": room_id,
+        now, asked = time.time(), self.removals()
+        for old in [e for e, a in asked.items() if a["until"] < now or (a["person"], a["agent"]) == (person, agent["localpart"])]:
+            del asked[old]                    # GPT: expired or replaced questions don't pile up
+        asked[event_id] = {"person": person, "agent": agent["localpart"], "dm": room_id,
                                      "until": time.time() + CONFIRM_S}
         await self.offer_thumb(room_id, event_id, "✅")
 
@@ -105,7 +108,7 @@ class Removal:
         if dead is None:
             return                            # agent_removal logged why; the dead set stays as it was
         self._dead = dead
-        for person in await asyncio.to_thread(registry.prune, dead):
+        for person in await asyncio.to_thread(agent_removal.prune, dead):
             log.warning("forgot %s in agents.json: every account of theirs here is deactivated", person)
 
     def is_deactivated(self, localpart: str) -> bool:

@@ -12,6 +12,7 @@ every account is on it. If the list can't be read in full, nothing is pruned.
 import logging
 import urllib.parse
 
+import identity
 import local_signup
 import registry
 import setup_accounts
@@ -37,14 +38,27 @@ def remove(person: str, agent: str) -> bool:
         if found["first"] and others:
             raise AccountError(f"remove your other agents first ({', '.join(others)}); this one goes last")
         localpart, env = found["localpart"], load_env()
+        if localpart != identity.agent_localpart(person, SERVER_NAME, None if found["first"] else found["label"]):
+            raise AccountError(f"{localpart} has an odd record here; ask this server's operator")   # GPT: never a stale name
         key = setup_accounts.password_key(localpart)
         ours = found["ready"] or (key in env and _signs_in(localpart, env[key]))   # never close an account we don't hold
+        if not ours and key in env:           # a password we can't confirm (or a server error): keep everything
+            raise AccountError(f"I couldn't confirm {localpart}'s account just now; please try again")
         if ours:
             _deactivate(f"@{localpart}:{SERVER_NAME}")
         registry.forget_agent(person, localpart)
         if key in env:
-            setup_accounts.save_env({k: v for k, v in load_env().items() if k != key})   # a fresh read: others' lines stay
+            try:
+                setup_accounts.save_env({k: v for k, v in load_env().items() if k != key})   # a fresh read: others stay
+            except OSError as e:              # the account is closed already: a leftover password is harmless
+                log.error("removed %s, but couldn't drop its password from .env: %s", localpart, e)
         return ours
+
+
+def prune(dead: set[str]) -> list[str]:
+    """registry.prune under the same lock as set-ups and removals (GPT: no race with remove())."""
+    with WRITING:
+        return registry.prune(dead)
 
 
 def _deactivate(user_id: str) -> None:

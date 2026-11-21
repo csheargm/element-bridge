@@ -86,6 +86,21 @@ class Windows(unittest.TestCase):
                 cli_path.command("codex")
             self.assertFalse(cli_path.startable("codex"))
 
+    def test_no_way_out_of_the_wrappers_folder_and_never_another_wrapper(self):
+        """GPT review: a drive-qualified part, a link out, a node.cmd, or a decoy line above."""
+        outside = Path(tempfile.mkdtemp()) / "evil.js"
+        outside.write_text("")
+        (self.npm.dir / "node_modules" / "link.js").symlink_to(outside)
+        for text in ('"%dp0%\\C:\\evil.js" %*', '"%dp0%\\node_modules\\link.js" %*'):
+            (self.npm.dir / "codex.cmd").write_text(text)
+            with self.assertRaises(FileNotFoundError, msg=text):
+                cli_path.command("codex")
+        (self.npm.dir / "codex.cmd").write_text('rem "%dp0%\\node_modules\\link.js" %*\r\n' + CODEX_SHIM)
+        self.assertTrue(cli_path.command("codex")[1].endswith("codex.js"))   # the last command line counts
+        with mock.patch.object(cli_path.shutil, "which", lambda n: r"C:\nvm\node.CMD" if n == "node" else self.npm.which(n)), \
+                self.assertRaisesRegex(FileNotFoundError, "node.exe"):
+            cli_path.command("codex")
+
     def test_a_turn_starts_the_wrapped_program_with_no_shell_and_the_prompt_on_stdin(self):
         """Windows: `codex` by bare name isn't found and a .cmd would run through cmd.exe."""
         seen = {}

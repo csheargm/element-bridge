@@ -34,8 +34,8 @@ def load() -> dict:
         data = json.loads(PATH.read_text())
     except (OSError, ValueError):
         data = DEFAULT                    # not onboarded yet (or a damaged file): the two demo people
-    if not isinstance(data, dict) or not data:
-        data = DEFAULT
+    if not isinstance(data, dict):
+        data = DEFAULT                    # a saved {} (everyone removed or pruned) stays empty (GPT review)
     # Keep only well-formed entries: a damaged line must never crash @pm or confuse ownership. An old
     # bare key and its full ID together: merged, the full ID's fields winning.
     people = {}

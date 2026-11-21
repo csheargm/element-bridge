@@ -27,9 +27,10 @@ async def get_json(client: AsyncClient, path: str) -> tuple[int, dict]:
 
 
 async def room_of_alias(client: AsyncClient, alias: str) -> str | None:
-    """The room `alias` points to; None if no room has it (404). Anything else raises RuntimeError."""
+    """The room `alias` points to; None if no room has it (404 M_NOT_FOUND: never a proxy's 404 page,
+    which would make @pm create a second room). Anything else raises RuntimeError."""
     status, body = await get_json(client, f"/_matrix/client/v3/directory/room/{urllib.parse.quote(alias)}")
-    if status == 404:
+    if status == 404 and body.get("errcode") == "M_NOT_FOUND":
         return None
     if status == 200 and isinstance(body.get("room_id"), str):
         return body["room_id"]

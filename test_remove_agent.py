@@ -111,6 +111,32 @@ class Remove(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(len(registry.agents_of(CX)), 1)
 
+    def test_gpt_review_never_on_a_stale_name_or_an_unconfirmed_password(self):
+        """GPT review: a stale agent_user, or a login that failed for any reason, must change nothing."""
+        use_registry(self, {BETTY: {"agent": "remote", "ready": True, "agent_user": "anna"}})
+        with self.assertRaisesRegex(setup_accounts.AccountError, "odd record"):
+            agent_removal.remove(BETTY, "anna")
+        use_registry(self, {CX: {"agent": "remote", "more": [{"label": "codex", "agent": "remote"}]}})
+        with mock.patch.object(agent_removal, "_signs_in", return_value=False), \
+                self.assertRaisesRegex(setup_accounts.AccountError, "couldn't confirm"):
+            agent_removal.remove(CX, "codex")                  # e.g. Synapse answered 500 to the login
+        self.assertEqual((self.calls, len(registry.agents_of(CX))), ([], 2))
+        self.assertIn("PW_CX_CODEX_AGENT", self.env)
+
+    def test_gpt_review_a_leftover_password_is_not_a_failure_and_the_last_removal_stays_empty(self):
+        use_registry(self, {BETTY: {"agent": "remote", "ready": True}})
+        self.env = {"PW_BETTY_AGENT": "pw"}
+        with mock.patch.object(agent_removal.setup_accounts, "save_env", side_effect=OSError("disk full")), \
+                self.assertLogs("loop", "ERROR"):
+            self.assertTrue(agent_removal.remove(BETTY, "betty-agent"))
+        self.assertEqual(registry.load(), {})                 # never the demo anna and betty again
+
+    def test_gpt_review_prune_waits_for_removals_and_set_ups(self):
+        held = []
+        with mock.patch.object(registry, "prune", lambda dead: held.append(agent_removal.WRITING.locked()) or []):
+            agent_removal.prune(set())
+        self.assertEqual(held, [True])
+
     def test_the_deactivated_list_is_read_in_full_or_not_at_all(self):
         pages = iter([{"users": [{"name": "@a:x", "deactivated": True}, {"name": "@b:x", "deactivated": False}],
                        "next_token": "500"}, {"users": [{"name": "@c:x", "deactivated": True}]}])
@@ -160,6 +186,14 @@ class InChat(unittest.TestCase):
         self.revoke.assert_called_once_with(CX, "cx-codex-agent")
         self.assertIn("gone for good", self.said[-1])
         self.assertNotIn("cx-codex-agent", self.lp._seen)       # never an "offline" note for it again
+
+    def test_gpt_review_unanswered_questions_dont_pile_up(self):
+        asyncio.run(self.lp.ask_removal("!dm", CX, "codex"))
+        asyncio.run(self.lp.ask_removal("!dm", CX, "codex"))
+        self.assertEqual(len(self.lp.removals()), 1)           # the newer question replaces the older
+        next(iter(self.lp.removals().values()))["until"] = 0
+        asyncio.run(self.lp.ask_removal("!dm", BETTY, None))
+        self.assertEqual([a["person"] for a in self.lp.removals().values()], [BETTY])   # expired: evicted
 
     def test_which_one_and_first_goes_last(self):
         asyncio.run(self.lp.ask_removal("!dm", CX, None))

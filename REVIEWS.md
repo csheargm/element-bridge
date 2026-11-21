@@ -837,3 +837,41 @@ Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and w
 - (last re-check) Adopted: a network error while opening is handled like a refusal, and a listing
   that couldn't be taken back down is said ("set it to private again"). Not adopted: follow-me's
   room-name check for my chats (pre-existing, not part of this branch's addressing).
+
+## GPT review of fix/small-bundle (names, retired web grants, Windows .cmd, Remove, quiet log)
+
+Codex reviewed master..fix/small-bundle (5 commits). Adopted, each verified in the code, with tests
+in test_remove_agent, test_cli_path and test_matrix_calls:
+- **1. A stale record could close a live account.** remove() now also requires the agent's
+  localpart to be the derived name (as credentials_for does), so a stale `agent_user` never reaches
+  the deactivate call.
+- **2. An inconclusive login dropped a live agent's entry and password.** A saved password we can't
+  confirm (wrong, or Synapse erroring) now changes nothing and asks to try again; only an agent with
+  no password and no "ready" (never set up) is forgotten without a deactivation.
+- **3. Prune raced removal.** agent_removal.prune runs registry.prune under the same WRITING lock as
+  set-ups and removals.
+- **4. Removing the last person brought the demo anna/betty back.** A saved `{}` stays empty; only a
+  missing or damaged file means the demo people.
+- **5 (part). A failed .env clean-up after the deactivation reported failure.** It is logged and the
+  removal counts (the password of a closed account is harmless).
+- **6. cmd-shim parsing.** Parts with a drive (":"), "." or empty are refused, the target must
+  resolve inside the wrapper's folder (no link out), the wrapper's last command line counts (not a
+  decoy above it), and node must be a node.exe (PATHEXT could find a node.cmd).
+- **7 (part). A stale armed Remove button.** The second click counts only for the same agent within
+  the 8 s window.
+- **8 (part). A proxy's 404 page made "the alias doesn't exist".** Only 404 M_NOT_FOUND does; any
+  other 404 is an error and no second Lobby/Welcome is created.
+- **9. Unanswered removal questions piled up.** Expired ones are evicted, and a new question for the
+  same agent replaces the old one.
+Rejected or deferred, with reasons:
+- **5 (rest). onboard.py writes agents.json/.env from another process.** Pre-existing (WRITING is
+  process-local everywhere); onboard runs by hand on the server. Deferred to a file lock.
+- **7 (rest). A server-side, single-use confirm token for the panel's Remove.** The console session
+  is a bearer token (no cookies, so no CSRF), so a request saying "sure" is the person's own; the
+  two clicks guard against a misclick, which the page does. The chat accepts every "OK" emoji
+  (intents.is_confirm_reaction), as every other @pm confirmation does.
+- **8 (rest). A 200 presence answer without "presence" is read as "can't say".** That is Synapse's
+  answer for a deactivated account (the case seen live); the agent is skipped once the
+  deactivated list is read. Its last Online/Offline stays shown until then.
+- **3 (rest). An account reactivated after the snapshot.** Pruning needs the person AND every agent
+  deactivated in one complete list; reactivation is a manual operator step (within 6 h).

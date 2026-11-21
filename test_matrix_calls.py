@@ -63,7 +63,10 @@ class Quiet(unittest.TestCase):
 
     def test_real_errors_are_raised_for_the_caller_to_log(self):
         for fn, arg in ((matrix_calls.room_of_alias, "#lobby:x"), (matrix_calls.presence, "@a-agent:x")):
-            for status, body in ((500, {"errcode": "M_UNKNOWN"}), (502, "<html>bad gateway</html>"), (200, {"odd": 1})):
+            for status, body in ((500, {"errcode": "M_UNKNOWN"}), (502, "<html>bad gateway</html>"), (200, {"odd": 1}),
+                                 (404, "<html>no route</html>")):   # GPT: a proxy's 404 never means "create it"
+                if fn is matrix_calls.presence and status == 404:
+                    continue                  # presence: any 404 means no such account
                 if fn is matrix_calls.presence and status == 200:
                     continue                  # an answer without "presence": the deactivated case above
                 client, resp = client_answering(status, body)
