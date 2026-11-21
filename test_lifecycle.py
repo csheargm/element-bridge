@@ -42,7 +42,9 @@ class HandOff(unittest.TestCase):
         client = FakeClient()
         point = lifecycle.SyncPoint(client)
         busy = SyncResponse.from_dict({"errcode": "M_LIMIT_EXCEEDED", "error": "slow down"})
-        asyncio.run(client.callbacks[1](busy))
+        soft = SyncResponse.from_dict({"errcode": "M_UNKNOWN_TOKEN", "error": "x", "soft_logout": True})
+        for other in (busy, soft):                                          # GPT: a soft logout is recoverable
+            asyncio.run(client.callbacks[1](other))
         self.assertFalse(point.stop.is_set())                               # other errors: nio retries
         gone = SyncResponse.from_dict({"errcode": "M_UNKNOWN_TOKEN", "error": "Invalid access token passed."})
         asyncio.run(client.callbacks[1](gone))

@@ -74,7 +74,7 @@ class SyncPoint:
     async def _sync_failed(self, response: SyncError) -> None:
         """Signed out by the server (Disconnect gave the agent a new password): stop for good, a clean
         exit, instead of retrying the dead sign-in many times a second (seen live)."""
-        if response.status_code == "M_UNKNOWN_TOKEN":
+        if response.status_code == "M_UNKNOWN_TOKEN" and not getattr(response, "soft_logout", False):   # soft: recoverable
             log.error("signed out by the server (disconnected): stopping; connect again with a new code")
             self.stop.set()
 

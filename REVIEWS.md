@@ -675,6 +675,12 @@ GPT re-check of those fixes, adopted with tests:
 - ➕ in our existing private chat asks there, never in a second chat.
 - connect.py's fallback for a missing saved CLI is reverted: re-pairing the first agent silently
   changed its backend. `--agent` chooses.
+Live test finding, fixed with a test and GPT-reviewed: after Disconnect the bridge re-synced its
+dead sign-in ~45 times a second (pre-existing): it now stops cleanly on M_UNKNOWN_TOKEN, except a
+soft logout (GPT). Deferred from that review: a dead token on the very first sync after a restart
+drops the hand-off (each start signs in afresh, so it isn't reached); a hand-off that can't be
+written makes the exit non-zero (Windows' keeper then retries); @pm's container restarts after any
+exit and signs in again with its password (wanted).
 Rejected after checking: "codex-" being taken as "codex" (the regexes capture the hyphen and the
 exact-name check refuses it; tested).
 Rejected or deferred:
