@@ -161,3 +161,7 @@ carry, besides `homeserver`, `user_id`, `password`, `owner` and `label`:
   and `room_safe` as every other reply. Its quality and its tool use are the provider's.
 - **Turn sessions:** these are kept per kind (`ollama`, `remote`), so switching kinds starts a fresh
   conversation in each room.
+- **The first agent too (screen test 4):** a newcomer chooses the AI of their first agent with
+  "bring my own using …" or My Hagency's picker (`pm_first.py`, `console_agents.first_pick`), the
+  same fields on the first agent's own record. They may change it until it has ever connected;
+  after that its AI stays, and another AI is another agent.

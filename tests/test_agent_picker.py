@@ -116,7 +116,7 @@ class PanelPicker(unittest.TestCase):
                                    rf'{re.escape(k["name"] + only)}</option>')
             self.assertIn(k["needs"][0].split(" (")[0].replace("'", "&#39;"), html)                       # what it needs, from the one list
         self.assertIn('<span class="chip">Remote: m at openrouter.ai</span>', html)
-        self.assertIn("API key is asked\n    for on your computer", html)
+        self.assertIn("API key is asked for on your computer", html)
 
     def test_on_windows_hermes_is_greyed_out_and_says_mac_linux_only(self):
         state = {"agents": [], "can_add": True, "kinds": agent_kinds.kinds()}
@@ -139,7 +139,8 @@ class PanelPicker(unittest.TestCase):
                         "process.stdout.write(addValue() + '|'); f.newkind = ''; process.stdout.write(addValue());")
         picked, plain = out.split("|")
         self.assertEqual(json.loads(picked), {"name": "lo", "agent_kind": "ollama", "model": "llama3.2", "base_url": ""})
-        self.assertEqual(plain, "lo")                                          # no kind: as before
+        self.assertEqual(json.loads(plain), {"name": "lo", "agent_kind": "", "model": "", "base_url": ""})   # GPT review
+        self.assertEqual(pm_kinds.from_panel(plain), ("lo", None))             # no kind: as before
         self.assertEqual(pm_kinds.from_panel(picked), ("lo", {"agent_kind": "ollama", "model": "llama3.2"}))
 
 

@@ -9,7 +9,10 @@ function agentSeg(name, agent, values, current) {
 function agentStatus(a) {
   if (!a.remote) return `<span class="chip">Runs on this server</span>`;
   const word = a.online === true ? "Online" : !a.connected ? "Not connected yet" : "Offline";
-  return `<span class="chip">${word}</span> <button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>
+  // Screen test: one that never connected had a Disconnect button (nothing to disconnect); Remove and Rename stay.
+  const disconnect = a.online === true || a.connected
+    ? `<button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>` : "";
+  return `<span class="chip">${word}</span> ${disconnect}
     ${removeButton(a)}`;
 }
 // Remove is for good, so it asks twice in the page (Element's widget frame may block confirm()).
@@ -31,45 +34,57 @@ function confirmed(b) {                // panel.py's click handler: false = this
 const chatLink = text => typeof pmChatLink === "function" ? pmChatLink(text) : esc(text);
 // A screen test found newcomer jargon here: the label "main" for their only agent, "run the connect
 // line again" for one that never connected, and "the official version" nobody had changed.
-function agentHint(a) {
+// In My Hagency (personal: @pm's private chat itself) it says "here", never "open your chat" (screen test).
+function agentHint(a, personal) {
   if (!a.remote || a.online === true) return "";
+  personal = personal === true;            // never an index (rows.map(agentHint))
   if (a.connected) return '<div class="hint">Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁).</div>';
   // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
   // A further one: @pm resends by the name its person calls it (pm_agents.start_add), never its slot
   // ("codex2" for one renamed or called "codex" again: GPT review, batch 12-14); a name of several words
   // (or longer than 9) can't be typed in that line, so then: rename it to one word first (GPT re-check).
-  const called = a.display || a.label;
-  const steps = a.first ? 'follow the 🔌 steps (type "resend me the code" there for a fresh one)'
+  const called = a.display || a.label, there = personal ? "here" : "there";
+  const steps = a.first ? `follow the 🔌 steps (type "resend me the code" ${there} for a fresh one)`
     : /^[A-Za-z][A-Za-z0-9]{0,8}$/.test(called)   // identity.LABEL_RE, any case
-      ? `follow its Connect message (for a fresh code, type "add another agent called ${esc(called)}" there)`
-      : 'follow its Connect message (for a fresh code, Rename it here to one short word, then type "add another agent called" that word there)';
-  return `<div class="hint">Not connected yet: open ${chatLink("your chat with Product Manager")} and ${steps}.</div>`;
+      ? `follow its Connect message (for a fresh code, type "add another agent called ${esc(called)}" ${there})`
+      : `follow its Connect message (for a fresh code, Rename it ${personal ? "below" : "here"} to one short word, then type "add another agent called" that word ${there})`;
+  if (personal && a.first) return '<div class="hint">Not connected yet: type "resend me the code" here for a fresh Connect message and code.</div>';
+  return `<div class="hint">Not connected yet: ${personal ? "" : `open ${chatLink("your chat with Product Manager")} and `}${steps}.</div>`;
 }
 // Rename: only the name people see (pm_rename.py); its Matrix ID stays. Plain text, up to 40 characters.
 function renameRow(a) {
   return `<li><div class="field"><input id="rename-${esc(a.name)}" maxlength="40" placeholder="Name people see"
     value="${esc(a.display || "")}"><button data-a="rename" data-v="" data-g="${esc(a.name)}">Rename</button></div></li>`;
 }
-function agentRow(a, version, several) {
+function agentRow(a, version, several, personal) {
   const called = a.display || (several ? a.label : "");     // the name its person gave it, then its account
   const title = (called ? `<b>${esc(called)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`)
     + (a.runs ? ` <span class="chip">${esc(a.runs)}</span>` : "");   // the AI it runs (pm_kinds.describe)
   const where = a.here ? ' <span class="chip">in this room</span>'
     : a.invited ? ' <span class="chip">invited to this room</span>' : "";
-  return `<li><div>${title}${where}${agentHint(a)}</div>
+  return `<li><div>${title}${where}${agentHint(a, personal)}</div>
     <div>${agentStatus(a)}</div></li>${renameRow(a)}
     <li><div class="hint">Comes along when I join a project room${a.first ? "" : " (or invite it yourself)"}</div>${agentSeg("follow", a.name, ["always", "ask", "never"], a.follow)}</li>
     ${a.first && version ? `<li><div class="hint">Code it runs: your own version (${esc(version)})</div>
       <button data-a="goback" data-v="">Go back to official</button></li>` : ""}`;
 }
+// The picker for their FIRST agent too (console_agents.first_pick: none yet, or none has connected; screen
+// test: a newcomer could only get Codex or Claude Code). No name: the first agent has its own.
+function firstPick(s) {
+  const again = s.agents.length > 0;
+  return `<div class="set"><div class="field">${kindPicker(s.kinds)}<button data-a="add" data-v="">${
+    again ? "Use this AI" : "Get my agent"}</button></div>
+    <div class="hint">${again ? "Not connected yet, so you can still choose the AI it runs" : "Choose the AI your agent runs"}:
+    @pm sends its Connect page ${s.personal ? "here, in this chat" : "in " + chatLink("your private chat")}. ${KEY_NOTE}</div></div>`;
+}
+const KEY_NOTE = "A remote model's API key is asked for on your computer when it connects, never here.";
 function agentCards(s) {
-  if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
-  const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
+  if (!s.agents || (!s.agents.length && !s.can_add && !s.first_pick)) return "";   // none, and none to add
+  const add = s.first_pick ? firstPick(s) : s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
     ${kindPicker(s.kinds)}<button data-a="add" data-v="">Add an agent</button></div>
-    <div class="hint">@pm sends its Connect page in ${chatLink("your private chat")}. A remote model's API key is asked
-    for on your computer when it connects, never here.</div></div>` : "";
+    <div class="hint">@pm sends its Connect page ${s.personal ? "here, in this chat" : "in " + chatLink("your private chat")}. ${KEY_NOTE}</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
-    <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
+    <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1, s.personal)).join("")}</ul>${add}</section>`;
 }
 // The AI a new agent runs: s.kinds is agent_kinds.kinds() (the one list: kind, name, needs, windows);
 // "" = the one its computer finds, as before. A kind that can't run on Windows says so, and is greyed
@@ -100,5 +115,6 @@ function kindPicker(kinds) {
 function addValue() {                    // panel.html's Add an agent click: what goes to console.act
   const v = id => (document.getElementById(id) || {value: ""}).value.trim();
   const name = v("newagent"), kind = v("newkind");
-  return kind ? JSON.stringify({name, agent_kind: kind, model: v("newmodel"), base_url: v("newbase")}) : name;
+  // Always the picker's JSON (GPT review): "the one on my computer" for a first agent then clears an earlier choice.
+  return JSON.stringify({name, agent_kind: kind, model: kind ? v("newmodel") : "", base_url: kind ? v("newbase") : ""});
 }

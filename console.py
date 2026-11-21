@@ -3,7 +3,7 @@
 
 Who is looking:
   - in Element: the widget asks Element for an OpenID token (Matrix widget API, one-time "allow"),
-    and we verify it with the homeserver (/_matrix/federation/v1/openid/userinfo);
+    and we verify it with the server that issued it, ours or another over federation (fed_openid.py);
   - anywhere else: "@pm send me my console link" → @pm DMs a one-time link (10 min, single use).
 Either way the page gets a short-lived session bound to that Matrix user.
 
@@ -23,10 +23,10 @@ import urllib.request
 from aiohttp import web
 
 import agent_kinds
-import pm_kinds
 import console_personal
 import console_repo
 import customize
+import fed_openid
 import github
 import github_link
 import ownership
@@ -34,18 +34,16 @@ import project_rooms
 import registry
 import room_state
 from bridge_config import ELEMENT_ORIGIN
+from console_agents import add_agent, can_add, first_pick, my_agents   # My agents: kept apart (file size)
 from setup_accounts import HS, SERVER_NAME
 
-SESSION_S = 12 * 3600
+SESSION_S, MAX_SESSIONS = 12 * 3600, 1000
 LINK_S = 600
 _sessions: dict[str, tuple[str, float, str | None]] = {}   # session → (user, expires, room scope or None)
 _links: dict[str, tuple[str, float, str]] = {}             # one-time code → (user, expires, room)
 USER_RE = re.compile(r"^@[a-z0-9._=/+-]+:" + re.escape(SERVER_NAME) + "$")
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
-# Element's sign-in token is checked with OUR homeserver, which knows only its own people. Someone
-# from another server signs in with a one-time link instead (checking their server's token over
-# federation is future work: it means fetching a URL their server names).
-NOT_VERIFIED = "couldn't verify you here; from another server? Say \"@pm send me my console link\" in the room"
+NOT_VERIFIED = "couldn't verify you with your server; say \"@pm send me my console link\" in the room to sign in"
 PORT = int(os.environ.get("PANEL_PORT", "8650"))
 # Also safe inside sh: it goes into the install line and connect.sh (GPT review 21).
 URL_RE = re.compile(r"^(https://[A-Za-z0-9.-]+|http://(localhost|127\.0\.0\.1))(:\d{1,5})?$")
@@ -71,6 +69,9 @@ def allowed_origins() -> set[str]:
 
 
 def new_session(user_id: str, room: str | None = None) -> str:
+    if len(_sessions) > MAX_SESSIONS:         # GPT review: expired ones were kept for good
+        for gone in [t for t, (_, until, _) in _sessions.items() if until < time.time()]:
+            del _sessions[gone]
     token = secrets.token_urlsafe(32)
     _sessions[token] = (user_id, time.time() + SESSION_S, room)
     return token
@@ -96,7 +97,7 @@ def openid_user(access_token: str) -> str | None:
         return None
     url = f"{HS}/_matrix/federation/v1/openid/userinfo?access_token={urllib.parse.quote(access_token, safe='')}"
     try:
-        with urllib.request.build_opener(_NoRedirect).open(url, timeout=10) as r:
+        with urllib.request.build_opener(_NoRedirect, urllib.request.ProxyHandler({})).open(url, timeout=10) as r:   # no env proxy
             data = json.loads(r.read())
     except (OSError, ValueError):
         return None
@@ -116,27 +117,6 @@ def redeem(code: str) -> tuple[str, str] | None:
     return (user, room) if user and time.time() < expires else None
 
 
-def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
-    """"My agents": each agent registered to exactly `user` (by full ID), the first first."""
-    found = []
-    for a in registry.agents_of(user):
-        if registry.owns(user, a["localpart"]):
-            aid = f"@{a['localpart']}:{SERVER_NAME}"
-            found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
-                          "display": a.get("display") or "", "runs": pm_kinds.describe(a),   # pm_rename, pm_kinds
-                          "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
-                          "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
-                          "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
-    return found
-
-
-def can_add(user: str, mine: list) -> bool:
-    """"Add an agent" shows: one of theirs has connected (as ➕ in @pm's chat: pm_agents.send_code), or they
-    removed their last (a new name then), and there's room for more."""
-    working = any(a["connected"] or not a["remote"] for a in mine)
-    return (working or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
-
-
 async def view(loop, room_id: str, user: str) -> dict:
     """What this user may see and change in this room."""
     room = loop.client.rooms.get(room_id)
@@ -150,9 +130,9 @@ async def view(loop, room_id: str, user: str) -> dict:
     mine = my_agents(loop, room, room_id, user)
     if console_personal.is_dm(loop, room):   # My Hagency: their personal cards only (or refused)
         return console_personal.view(loop, room, user, mine, can_add(user, mine),
-                                     {"kinds": agent_kinds.kinds(), "github": github_link.status(user),
+                                     {"kinds": agent_kinds.kinds(), "github": github_link.status(user), "first_pick": first_pick(loop, user),
                                       "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None})
-    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "kinds": agent_kinds.kinds(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "first_pick": first_pick(loop, user), "kinds": agent_kinds.kinds(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
@@ -228,15 +208,6 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     return "unknown action"
 
 
-async def add_agent(loop, user: str, value: str) -> str:
-    """Add an agent: a name, or the picker's JSON with the AI it runs (pm_kinds.from_panel)."""
-    name, picked = pm_kinds.from_panel(value)
-    if isinstance(picked, str):
-        return picked
-    dm = await loop.private_room(user)
-    return await loop.start_add(dm, user, name or None, picked) if dm else "I couldn't open a private chat with you"
-
-
 def allowed(request, post: bool) -> bool:
     """Only requests addressed to this machine; POSTs must be JSON from our own page."""
     hosts = allowed_hosts()
@@ -263,7 +234,11 @@ def routes(loop, panel_html_fn) -> list:
     async def auth_openid(request):
         if not allowed(request, True):
             return reply({"error": "refused"}, 403)
-        user = await asyncio.to_thread(openid_user, (await request.json()).get("access_token", ""))
+        import remote_agent                   # here: it imports this module; client_of: the proxy-aware address
+        body = await request.json()
+        body = body if isinstance(body, dict) else {}   # client_of may resolve the proxy's name: in the thread
+        user = await asyncio.to_thread(lambda: fed_openid.user_of(body.get("access_token"), body.get("matrix_server_name"),
+                                                                  remote_agent.client_of(request), SERVER_NAME, openid_user))
         return reply({"session": new_session(user)} if user else {"error": NOT_VERIFIED})
 
     async def auth_link(request):

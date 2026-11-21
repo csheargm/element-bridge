@@ -75,7 +75,7 @@ let openidRequest = null, gotCredentials = false, capable = false, expired = 0;
 // the widget API's navigate (MSC2931; pre-approved for our panel only: deploy/element_home.py), else (or
 // if Element refuses) a matrix.to link in a new tab.
 const NAVIGATE = "org.matrix.msc2931.navigate", NAV_WAIT_MS = 4000;
-let canNavigate = false, navRequest = null, navHref = "", pmChat = null;
+let canNavigate = false, navRequest = null, navHref = "", pmChat = null, inPmChat = false;   // inPmChat: My Hagency
 if (embedded) window.addEventListener("message", ev => {
   const m = ev.data || {};
   if (!EMBEDDERS.includes(ev.origin) || ev.source !== window.parent || m.widgetId !== wid) return;
@@ -89,21 +89,22 @@ if (embedded) window.addEventListener("message", ev => {
     if (m.action === "capabilities" && !capable) { capable = true; if (!session) setTimeout(askOpenId, 300); }
     if (m.action === "notify_capabilities") canNavigate = ((m.data || {}).approved || []).includes(NAVIGATE);
     if (m.action === "openid_credentials" && openidRequest && m.data && m.data.original_request_id === openidRequest)
-      m.data.state === "allowed" ? gotToken(m.data.access_token) : failed(REFUSED);   // after Element's prompt
+      m.data.state === "allowed" ? gotToken(m.data) : failed(REFUSED);   // after Element's prompt
   } else if (m.api === "fromWidget" && navRequest && m.requestId === navRequest && m.response) {
     navRequest = null;
     if (m.response.error) navFallback();
   } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
     const r = m.response;
-    if (r.state === "allowed") gotToken(r.access_token);
+    if (r.state === "allowed") gotToken(r);
     else if (r.state === "request") failed("Allow Hagency in Element's prompt to sign in.");   // a person's answer: no timeout
     else failed(r.state === "blocked" ? REFUSED : NO_ANSWER);   // an error reply ({error}) included
   }
 });
 function askOpenId() { gotCredentials = false; openidRequest = "openid-" + crypto.randomUUID(); signingIn();
   window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: openidRequest, action: "get_openid", data: {}}, ELEMENT); }
-async function gotToken(t) { if (gotCredentials) return; gotCredentials = true; signingIn();
-  const r = await post("/auth/openid", {access_token: t}); r.session ? signedIn(r.session) : failed(r.error || NO_ANSWER); }
+// The server that issued the token checks it (ours, or theirs over federation: fed_openid.py).
+async function gotToken(c) { if (gotCredentials) return; gotCredentials = true; signingIn();
+  const r = await post("/auth/openid", {access_token: c.access_token, matrix_server_name: c.matrix_server_name}); r.session ? signedIn(r.session) : failed(r.error || NO_ANSWER); }
 async function start() {
   if (linkCode) { const code = linkCode; linkCode = null; signingIn();   // used once: never replayed (GPT review)
     const r = await post("/auth/link", {code});
@@ -117,7 +118,7 @@ async function act(action, value, agent) { $("msg").textContent = "…";
   const r = await post("/console/action", {room, action, value, agent: agent || ""});
   $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error);
   msgMark = action === "github" && value === "connect" ? "pending" : "";
-  if (msgMark && pmChat) $("msg").innerHTML = esc($("msg").textContent) + " " + pmChatLink("Open our private chat");
+  if (msgMark && pmChat && !inPmChat) $("msg").innerHTML = esc($("msg").textContent) + " " + pmChatLink("Open our private chat");
   refresh(); }
 function pmChatLink(text) {
   if (!pmChat) return esc(text);           // no private chat with @pm yet: plain words
@@ -162,7 +163,7 @@ async function show() {
       return ++expired > 2 ? failed(NO_ANSWER) : start(); }
     s = await r.json(); } catch (e) { return failed(OFFLINE); }
   if (s.error) return failed(s.error);
-  expired = 0; clearTimeout(watchdog); pmChat = s.pm_chat || null;
+  expired = 0; clearTimeout(watchdog); pmChat = s.pm_chat || null; inPmChat = !!s.personal;
   if (msgMark && typeof githubMsgAfter === "function" && !(msgMark = githubMsgAfter(msgMark, s))) $("msg").textContent = "";
   const typing = document.activeElement && document.activeElement.id;
   const sameCode = typing === "ghcode" && s.github && s.github.code === $("ghcode").value;   // a code gone: redrawn

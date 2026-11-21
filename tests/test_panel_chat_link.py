@@ -109,6 +109,22 @@ class Cards(unittest.TestCase):
         github = self.render("panel-github.js", "githubCard({github: {code: 'AB-1', url: 'https://github.com/login/device'}})", "!dm:x")
         self.assertIn('data-pmchat="1">your chat with Product Manager</a>', github)
 
+    def test_inside_my_hagency_it_says_here_and_links_nowhere(self):
+        """Screen test 4: in @pm's chat itself the hints said "open your chat with Product Manager"."""
+        never = {"name": "a-agent", "label": "main", "first": True, "follow": "always", "remote": True,
+                 "online": False, "connected": False}
+        codex = {**never, "name": "a-codex-agent", "label": "codex", "first": False}
+        state = {"agents": [never, codex], "can_add": True, "personal": True}
+        agents = self.render("panel-agents.js", f"agentCards({json.dumps(state)})", "!dm:x")
+        self.assertIn('Not connected yet: type "resend me the code" here', agents)
+        self.assertIn('type "add another agent called codex" here', agents)
+        self.assertIn("Connect page here, in this chat", agents)
+        self.assertNotIn("your chat with Product Manager", agents)
+        self.assertNotIn("data-pmchat", agents)
+        github = self.render("panel-github.js", "githubCard({personal: true, github: {code: 'AB-1', url: 'u'}})", "!dm:x")
+        self.assertIn("also in\n    this chat.", github)
+        self.assertNotIn("data-pmchat", github)
+
     def test_no_chat_yet_reads_as_plain_words(self):
         github = self.render("panel-github.js", "githubCard({github: {code: 'AB-1', url: 'u'}})", None)
         self.assertIn("also in\n    your chat with Product Manager.", github)

@@ -32,11 +32,19 @@ def name(kind: str) -> str:
 
 
 def where(kind: str | None) -> str:
-    """What the Connect message says must be on their computer: the program the kind runs (ollama and
-    remote run through Codex; the Connect page lists the rest), or (no kind) either CLI, as before."""
+    """"On the computer where …": what that kind needs installed there (agent_kinds.ABOUT, e.g. "Ollama
+    and Codex are installed"; the Connect page lists every need), or (no kind) either CLI, as before.
+    Screen test: an Ollama agent's message said only "where Codex is installed"."""
     if kind not in agent_kinds.KINDS:
-        return " or ".join(name(k) for k in agent_kinds.LEGACY)
-    return name(agent_kinds.program(kind))
+        return " or ".join(name(k) for k in agent_kinds.LEGACY) + " is installed"
+    about = agent_kinds.ABOUT[kind]
+    said = " and ".join(about["installed"]) + (" are" if len(about["installed"]) > 1 else " is") + " installed"
+    return said + (f" ({about['also']})" if about.get("also") else "")
+
+
+def systems(kind: str | None) -> str:
+    """Where the Connect page's line runs (GPT review: Hermes's message said Windows too)."""
+    return "Mac or Linux; on Windows only inside WSL" if kind in agent_kinds.NOT_ON_WINDOWS else "Mac, Windows or Linux"
 
 
 LONG_RUN = 20                                 # a key-like piece: this long, letters and digits mixed,

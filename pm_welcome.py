@@ -1,7 +1,7 @@
 """@pm welcomes newcomers. Synapse puts every new account in the private Welcome room (#welcome,
 created and owned by @pm: deploy/configure_synapse.py, local_signup.py). When a person without an
 agent joins it, @pm opens a private chat with them, once, and offers one button:
-  🔌 Bring your own: their Codex or Claude Code on their own computer (remote_agent.py, connect.py).
+  🔌 Bring your own: an AI on their own computer (agent_kinds.IN_WORDS; remote_agent.py, connect.py).
 The house agent (run by this server) isn't built yet, so it is not offered; anyone who types "house
 agent" is told so (old offers still carry a 🏠 button: its click gets that answer too).
 Only that person's click on that message counts, each button once. Typing "bring my own" in that
@@ -17,27 +17,25 @@ import time
 from aiohttp import ClientError
 from nio import InviteMemberEvent, JoinResponse, MatrixRoom, ReactionEvent, RoomMemberEvent, RoomMessageText, RoomPreset
 
+import agent_kinds
 import identity
 import matrix_calls
 import project_rooms
 import registry
-import remote_agent
 import remote_people
 import server_admins
 from bridge import ROOT, SERVER_NAME, is_stale
 from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
 from pm_address import unaddressed
+from pm_first import BRING, HOUSE, FirstAgent, picked_from
 from pm_github import GitHubLink
 from pm_lobby import WELCOME_NAME, WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
 from pm_remove import REMOVE_RE
-from redact import room_safe
 from saved_dict import SavedDict
-from setup_accounts import AccountError
 
 log = logging.getLogger("loop")
-HOUSE, BRING = "🏠", "🔌"
 HOUSE_RE = re.compile(r"\bhouse agent\b", re.I)
 BRING_RE = re.compile(r"\bbring (my|your) own\b", re.I)
 # The whole message, so "@pm I need an agent to review #7" stays a project request (GPT review 21).
@@ -48,15 +46,14 @@ RESEND_RE = re.compile(r"\b(re-?send|send( me)?|give me|get me|need)\b.{0,20}\b(
                        r"|\bconnect my agent\b|\bcode again\b", re.I)
 CODES_PER_HOUR = 5
 WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their AI agents build software "
-           "together.\n\nGet your agent: 🔌 **Bring your own**, your Codex or Claude Code on your own computer.\n\n"
-           "Click 🔌 below, or type \"bring my own\".")
+           f"together.\n\nGet your agent: 🔌 **Bring your own**, on your own computer: {agent_kinds.IN_WORDS}.\n\n"
+           "Click 🔌 below, or type \"bring my own\" (to choose the AI, for example \"bring my own using ollama "
+           "llama3.2\").")
 POINTER = ("Welcome, {person}! I've sent you a private message: it's open on the left as **Product Manager**. "
            "Click 🔌 there to get your agent.")
 # Other servers don't open my chat for them (deploy/synapse_modules/hagency_auto_accept.py is ours only).
 POINTER_REMOTE = ("Welcome, {person}! I've sent you a private message: accept it under Invites (top left), then "
                   "click 🔌 there to get your agent.")
-HOUSE_REPLY = ("The house agent comes with the public server; it isn't here yet. For now you can bring your "
-               "own: type \"bring my own\" (you need Codex or Claude Code on your computer).")
 
 
 def pointer(person: str) -> str:
@@ -64,7 +61,7 @@ def pointer(person: str) -> str:
     return (POINTER if identity.split(person)[1] == SERVER_NAME else POINTER_REMOTE).format(person=person)
 
 
-class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answered first
+class Welcome(Lobby, GitHubLink, FirstAgent):   # pm_github.py: Connect GitHub, answered first; pm_first.py: 🔌
     def welcomes(self) -> dict:
         """person → {"dm", "offer" (event id), "done" (buttons used)}, on disk: welcomed once."""
         if "_welcomes" not in self.__dict__:
@@ -195,8 +192,9 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             return False                      # "I don't want to bring my own": not a choice
         if in_dm and HOUSE_RE.search(text):
             await self.choose(room.room_id, event.sender, HOUSE)
-        elif in_dm and BRING_RE.search(text):
-            await self.choose(room.room_id, event.sender, BRING)
+        elif in_dm and BRING_RE.search(text):         # "... using ollama llama3.2": the AI it runs (pm_first.py)
+            picked = picked_from(text)
+            await (self.say(room.room_id, picked) if isinstance(picked, str) else self.choose(room.room_id, event.sender, BRING, picked))
         elif m := REMOVE_RE.search(text):
             await self.ask_removal(room.room_id, event.sender, m.group("name") or m.group("label"))   # pm_remove.py
         elif m := DISCONNECT_RE.search(text):
@@ -271,30 +269,3 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
         members = {e.get("state_key") for e in getattr(resp, "events", None) or []
                    if e.get("type") == "m.room.member" and e.get("content", {}).get("membership") in ("join", "invite")}
         return bool(getattr(resp, "events", None)) and members <= {self.user_id, person}
-
-    async def choose(self, dm: str, person: str, key: str) -> None:
-        if key == HOUSE:
-            await self.say(dm, HOUSE_REPLY)
-            return
-        busy = self.__dict__.setdefault("_provisioning", set())
-        if person in busy or not self.may_have_agent(person):
-            return                            # one at a time per person; never an agent, a bot or a refused server
-        if registry.first_removed(person):    # its name can't come back: ask for a new one (pm_agents.py)
-            await self.start_add(dm, person)
-            return
-        busy.add(person)
-        job = asyncio.create_task(self.bring_own(dm, person))   # creating the account takes a moment
-        job.add_done_callback(lambda _: busy.discard(person))
-        self.busy.add(job)
-        job.add_done_callback(self.busy.discard)
-
-    async def bring_own(self, dm: str, person: str) -> None:
-        try:
-            await asyncio.to_thread(remote_agent.provision, person)
-            await self.send_code(person, None)            # pm_agents.py: re-checks it's just the two of us
-        except (AccountError, OSError, RuntimeError) as e:   # homeserver refused, .env unwritable, send failed, bad URL
-            log.error("bring-your-own failed for %s: %s", person, e)
-            try:
-                await self.say(dm, f"⚠️ I couldn't set up your agent: {room_safe(e)}. Type \"bring my own\" to try again.")
-            except RuntimeError as e2:        # Matrix refuses too: the log line above is all that's left
-                log.error("couldn't tell %s: %s", person, e2)

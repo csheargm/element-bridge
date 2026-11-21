@@ -22,24 +22,32 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")   # qwen3:8b, h
 MAX_URL = 300
 URL_CHARS_RE = re.compile(r"^[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$")   # no quotes, spaces or backslashes
 
-# What each kind is and needs on the person's computer: the Connect page's checklist, @pm's picker.
+# What each kind is and needs on the person's computer: the Connect page's checklist, @pm's picker;
+# "installed" (and "also") for @pm's Connect message: "On the computer where Ollama and Codex are installed".
 ABOUT = {
-    "codex": {"name": "Codex", "program": "codex",
+    "codex": {"name": "Codex", "program": "codex", "installed": ["Codex"],
               "needs": ["Codex, installed and signed in (npm i -g @openai/codex)"]},
-    "claude": {"name": "Claude Code", "program": "claude",
+    "claude": {"name": "Claude Code", "program": "claude", "installed": ["Claude Code"],
                "needs": ["Claude Code, installed and signed in (npm i -g @anthropic-ai/claude-code)"]},
-    "hermes": {"name": "Hermes", "program": "hermes",
+    "hermes": {"name": "Hermes", "program": "hermes", "installed": ["Hermes"],
+               "also": "with Hagency's Matrix invite patch applied: the Connect page lists it",
                "needs": ["Hermes Agent, with a model set up (hermes model)",
                          "Hagency's Matrix invite patch applied to Hermes (docs/hermes-matrix-invite-allowlist.patch)",
                          "macOS or Linux (on Windows: inside WSL)"]},
-    "ollama": {"name": "Ollama (a model on your computer)", "program": "codex",
+    "ollama": {"name": "Ollama (a model on your computer)", "program": "codex", "installed": ["Ollama", "Codex"],
                "needs": ["Ollama, open and running, with a model downloaded that can use tools (ollama.com)",
                          "Codex (npm i -g @openai/codex): it runs the model as your agent; no OpenAI account needed"]},
-    "remote": {"name": "Any OpenAI-compatible service", "program": "codex",
+    "remote": {"name": "Any OpenAI-compatible service", "program": "codex", "installed": ["Codex"],
+               "also": "have the service's API key at hand: you type it there, never in a chat",
                "needs": ["The service's address and your API key for it (you type the key on this computer only)",
                          "A service that supports the OpenAI Responses API (/v1/responses)",
                          "Codex (npm i -g @openai/codex): it runs the model as your agent; no OpenAI account needed"]},
 }
+
+
+# Every kind in a few words, for welcome texts (pm_welcome, pm_first, Element's home page: a test keeps
+# deploy/element_page/home.html saying exactly this).
+IN_WORDS = "Codex, Claude Code, Hermes, a local Ollama model or a remote model"
 
 
 class BadConnectInfo(ValueError):

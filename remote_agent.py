@@ -84,14 +84,15 @@ def open_dm(agent: str, password: str, person: str) -> str:
 WRITING = threading.Lock()                    # .env and agents.json are read-modify-write: one set-up at a time
 
 
-def provision(person: str) -> str:
+def provision(person: str, picked: dict | None = None) -> str:
     """Create (or reuse) the agent of `person` (a full Matrix ID) as a remote agent; returns its
-    localpart. Blocking I/O."""
+    localpart. picked: the AI it runs (pm_kinds.choice; pm_first.py passes one only while it has
+    never connected), recorded as a further agent's is. Blocking I/O."""
     with WRITING:
-        return _provision(registry.person_id(person))
+        return _provision(registry.person_id(person), picked)
 
 
-def _provision(person: str) -> str:
+def _provision(person: str, picked: dict | None = None) -> str:
     local = registry.local_name(person)
     if local is not None and not registry.NAME_RE.match(local):
         raise AccountError("for now an agent needs an account name of lowercase letters and digits")
@@ -110,6 +111,8 @@ def _provision(person: str) -> str:
             registry.update(person, None, agent=registry.REMOTE, created=remote_people.now())   # chat can't dodge the cap
     password, _ = setup_accounts.ensure_user(load_env(), agent, setup_accounts.shared_secret(), verify=True)
     registry.update(person, None, ready=True)  # made or signed in with our password: ours (disconnect checks)
+    if picked is not None:                    # every field, so an earlier choice's model or URL can't linger ({}: none)
+        registry.update(person, None, **{k: picked.get(k, "") for k in agent_kinds.OFFER_KEYS})
     dm = info.get("dm") or open_dm(agent, password, person)
     registry.update(person, None, agent=registry.REMOTE, dm=dm)   # a fresh read under its lock: keeps the rest
     return agent
