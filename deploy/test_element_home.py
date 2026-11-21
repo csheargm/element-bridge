@@ -57,6 +57,12 @@ class ElementConfig(unittest.TestCase):
                                               "welcome_background_url": "https://rooms.example.org/hagency/background.svg"})
         self.assertEqual(json.loads(element_home.config_text(VALUES)), config)
 
+    def test_a_listed_room_offers_ask_to_join(self):
+        """Screen test: Element gates knocking behind a labs feature, so a listed room only offered
+        Join (403 "You are not invited"). The written config turns it on for everyone, as a boolean."""
+        config = json.loads(element_home.config_text(VALUES))
+        self.assertIs(config["features"]["feature_ask_to_join"], True)
+
     def test_every_url_element_loads_is_on_this_server(self):
         """No outside assets: the page, the logo and the background are all ours, under /hagency/."""
         config = element_home.element_config(VALUES)
