@@ -19,6 +19,13 @@ PREFIX = "/hagency"                           # where Caddy serves OUT's three f
 PM_PLACEHOLDER = "__PM_ID__"
 STATIC = ("logo.svg", "background.svg")
 BRAND = "Hagency Rooms"
+# Our own panel's widget URL as @pm adds it (panel.widget_url; test_panel checks they agree). Element
+# matches it exactly against the widget's template URL: no other widget is pre-approved.
+PANEL_TEMPLATE = "/panel?room=$matrix_room_id"
+# Element's own widget-lifecycle module (in the element-web/modules image, docker-compose.yml) skips
+# the "may share data" and "verify your identity" prompts for that one URL. Screen test: a newcomer
+# saw both before the panel appeared in every new room.
+WIDGET_LIFECYCLE = "io.element.element-web-modules.widget-lifecycle"
 
 
 def pm_id(server_name: str) -> str:
@@ -26,13 +33,19 @@ def pm_id(server_name: str) -> str:
 
 
 def element_config(values: dict) -> dict:
-    """Element points at this homeserver, shows Hagency's home page and branding."""
+    """Element points at this homeserver, shows Hagency's home page and branding, and trusts our panel."""
     rooms = f"https://{values['ROOMS_DOMAIN']}{PREFIX}"
     return {"default_server_config": {"m.homeserver": {"base_url": f"https://{values['MATRIX_DOMAIN']}",
                                                        "server_name": values["SERVER_NAME"]}},
             "disable_custom_urls": False, "disable_guests": True, "brand": BRAND,
             "embedded_pages": {"home_url": f"{rooms}/home.html"},
-            "branding": {"auth_header_logo_url": f"{rooms}/logo.svg", "welcome_background_url": f"{rooms}/background.svg"}}
+            "branding": {"auth_header_logo_url": f"{rooms}/logo.svg", "welcome_background_url": f"{rooms}/background.svg"},
+            WIDGET_LIFECYCLE: {"widget_permissions": {panel_url(values): {"preload_approved": True, "identity_approved": True}}}}
+
+
+def panel_url(values: dict) -> str:
+    """The panel's widget URL as Element sees it before filling in the room."""
+    return f"https://{values['ROOMS_DOMAIN']}{PANEL_TEMPLATE}"
 
 
 def home_page(server_name: str) -> str:

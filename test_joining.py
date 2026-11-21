@@ -201,9 +201,15 @@ class LobbyGreeting(Base):
         with self.assertLogs("loop", "WARNING"):
             run(self.lp.ensure_lobby())
         self.lp.client.room_create.assert_not_called()
-        self.lp.client.rooms = {"!w": SimpleNamespace(topic="Everyone starts here.")}
+        self.lp.client.rooms = {"!w": SimpleNamespace(topic="Everyone starts here.", name=None)}
         run(self.lp.ensure_welcome_topic("!w"))
         self.assertEqual(self.state["!w"]["m.room.topic"][0], {"topic": pm_lobby.WELCOME_TOPIC})
+        self.assertEqual(self.state["!w"]["m.room.name"][0], {"name": "Welcome"})   # not its raw #welcome:… address
+
+    def test_a_named_welcome_room_is_left_alone(self):
+        self.lp.client.rooms = {"!w": SimpleNamespace(topic=pm_lobby.WELCOME_TOPIC, name="Welcome")}
+        run(self.lp.ensure_welcome_topic("!w"))
+        self.assertNotIn("!w", self.state)
 
     def test_the_pointer_names_the_next_step_for_each_server(self):
         self.assertIn("open on the left as **Product Manager**", pm_welcome.pointer(NEW))

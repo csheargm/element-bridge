@@ -199,6 +199,9 @@ def render(loop, room_id: str) -> str:
         owner = ownership.owner_id(user)
         if owner:
             here = "" if ownership.joined(room, owner) else " <span class=muted>(owner not here: idle)</span>"
+            if not ownership.joined(room, user):          # screen test: an invite read as if it had joined
+                online = getattr(loop, "agent_online", lambda agent: None)(user.split(":")[0][1:])   # pm_presence.py
+                here += f" <span class=chip>invited — {'joining' if online else 'not connected yet'}</span>"
             follow = registry.follow(owner, user.split(":")[0][1:])
             agents.append(f"<li><div><b>{html.escape(user.split(':')[0][1:])}</b> <span class=muted>· "
                           f"{html.escape(identity.shown_name(room, owner))}'s agent{here}</span></div>"

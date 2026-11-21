@@ -126,13 +126,16 @@ def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
             aid = f"@{a['localpart']}:{SERVER_NAME}"
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
-                          "here": aid in room.users})
+                          "connected": loop.ever_connected(a["localpart"]),   # pm_presence.py: online at least once
+                          "here": ownership.joined(room, aid), "invited": aid in getattr(room, "invited_users", {})})
     return found
 
 
 def can_add(user: str, mine: list) -> bool:
-    """"Add an agent" shows: they have one, or removed their last (a new name then), and room for more."""
-    return (bool(mine) or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
+    """"Add an agent" shows: one of theirs has connected (as ➕ in @pm's chat: pm_agents.send_code), or they
+    removed their last (a new name then), and there's room for more."""
+    working = any(a["connected"] or not a["remote"] for a in mine)
+    return (working or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
 
 
 async def view(loop, room_id: str, user: str) -> dict:

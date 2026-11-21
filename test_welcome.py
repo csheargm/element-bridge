@@ -1,4 +1,5 @@
 """Unit tests: @pm welcomes a newcomer and offers them an agent. Run: .venv/bin/python -m unittest test_welcome"""
+# TODO(R4, 375 lines): split on its classes: Greeting / Buttons (and what follows) into test_welcome_buttons.py.
 import asyncio
 import json
 import re
@@ -43,7 +44,7 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
         self.lp = Loop.__new__(Loop)
         self.lp.user_id, self.lp.started_ms, self.lp.busy, self.lp._welcomes = PM, 0, set(), {}
-        self.lp._add_offers = {}                      # pm_agents.py: never the real data folder
+        self.lp._add_offers, self.lp._seen = {}, {}   # pm_agents.py, pm_presence.py: never the real data folder
         self.lp._lobby_greeted, self.lp._join_requests = {}, {}   # pm_lobby.py, pm_joining.py: the same
         self.said, self.buttons = [], []
 
@@ -65,12 +66,12 @@ class Base(unittest.TestCase):
 
 
 class Greeting(Base):
-    def test_a_newcomer_joining_welcome_gets_one_private_offer_with_two_buttons(self):
+    def test_a_newcomer_joining_welcome_gets_one_private_offer_with_one_button(self):
         self.run_(self.lp.on_welcome_member(WELCOME_ROOM, member(NEW)))
         self.lp.private_room.assert_awaited_once_with(NEW)
         self.assertEqual(self.said[0][0], "!dm")
         self.assertIn("Get your agent", self.said[0][1])
-        self.assertEqual([b[2] for b in self.buttons], ["🏠", "🔌"])
+        self.assertEqual([b[2] for b in self.buttons], ["🔌"])
         self.assertEqual(self.lp._welcomes[NEW], {"dm": "!dm", "offer": "$offer", "done": [], "pointed": True})
 
     def test_my_private_chat_is_named_product_manager_and_direct(self):
@@ -224,7 +225,18 @@ class Buttons(Base):
             return handled
         return self.run_(go())
 
-    def test_house_agent_is_coming_and_offers_bring_your_own(self):
+    def test_the_offer_never_promises_the_house_agent(self):
+        """Screen test: the offer listed a 🏠 House agent "with free daily credit", and typing "house
+        agent" said it isn't here yet. Not offered until it exists; typing it still gets an answer."""
+        self.run_(self.lp.greet(NEW))
+        offer = self.said[0][1]
+        self.assertNotIn("🏠", offer)
+        self.assertNotIn("house agent", offer.lower())
+        self.assertNotIn("🏠", [b[2] for b in self.buttons])
+        self.run_(self.lp.on_welcome_text(DM, text(NEW, "house agent please")))
+        self.assertIn("isn't here yet", self.said[-1][1])
+
+    def test_an_old_offers_house_button_still_gets_the_answer(self):
         self.assertTrue(self.click("🏠"))
         self.assertIn("comes with the public server", self.said[0][1])
         self.assertIn("bring my own", self.said[0][1])
@@ -245,6 +257,22 @@ class Buttons(Base):
         self.assertIn(f"Your code: `{code}`", body)
         self.assertIn(f"sh -s -- {code}`", body)
         self.assertLess(body.index("/connect/start#"), body.index("curl -fsSL"))
+
+    def test_no_second_agent_offer_before_the_first_one_connected(self):
+        """Screen test: a newcomer's very first Connect message ended with "Want another agent too? Click
+        ➕ below." Only once one of their agents has connected; then "resend me the code" offers ➕."""
+        self.click("🔌")
+        self.assertNotIn("Want another agent", self.said[-1][1])
+        self.assertNotIn("➕", [b[2] for b in self.buttons])
+        registry.update(NEW, None, agent=registry.REMOTE, ready=True)           # what provision writes
+        self.lp._seen[registry.agent_of(NEW)] = {"online": False, "ever": True}   # it connected once
+
+        async def resend():
+            await self.lp.on_welcome_text(DM, text(NEW, "resend me the code"))
+            await asyncio.gather(*self.lp.busy)
+        self.run_(resend())
+        self.assertIn("Want another agent", self.said[-1][1])
+        self.assertEqual(self.buttons[-1][2], "➕")
 
     def test_each_button_counts_once(self):
         self.click("🔌")

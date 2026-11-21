@@ -46,6 +46,14 @@ def module_settings(server_name: str) -> dict:
     return {"modules": json.dumps(modules), "default_room_version": '"12"'}
 
 
+def directory_settings(server_name: str) -> dict:
+    """Only @pm lists rooms in the room directory (the Lobby, and rooms their owners set to Listed or
+    Open through @pm). Synapse's default lets only server admins publish, so "Listed" failed with
+    403 "Not allowed to publish room" (seen live in the screen test); everyone else is still refused."""
+    pm = f"@{PM_LOCALPART}:{server_name}"
+    return {"room_list_publication_rules": json.dumps([{"user_id": pm, "action": "allow"}, {"action": "deny"}])}
+
+
 def set_keys(text: str, values: dict) -> str:
     """Set top-level `key: value` lines (replace, or append once): running again changes nothing."""
     for key, value in values.items():
@@ -81,6 +89,7 @@ def configure(text: str, e: dict) -> str:
         "url_preview_enabled": "false",              # previews would fetch arbitrary URLs from the server
         **welcome_settings(e["SERVER_NAME"]),
         **module_settings(e["SERVER_NAME"]),
+        **directory_settings(e["SERVER_NAME"]),
     }
     return set_keys(text, extra)
 

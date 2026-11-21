@@ -2,9 +2,10 @@
 // where this room's repo is run from when it only discusses it (one project room per repo:
 // pm_projects.py). Values come from /console/state and are escaped here; changes go through @pm's
 // own checks (console.act → set_visibility: owners and maintainers only, never "open" on a private repo).
-const VISIBILITY = {private: "Unlisted: people join by invite, or by asking @pm with the exact repo name.",
-  listed: "In Find a project and the room directory: people ask to join, and an owner lets them in.",
-  open: "Listed, and anyone can join directly."};
+// Each help text starts with its button's own label (a screen test saw "Private" selected over "Unlisted: ...").
+const VISIBILITY = {private: "Private: not listed anywhere. People join when invited, or by asking @pm with the exact repo name.",
+  listed: "Listed: shown in Find a project and the room directory. People ask to join, and an owner lets them in.",
+  open: "Open: listed, and anyone can join right away."};
 function projectCard(s) {
   let h = "";
   if (s.runs_in) h += `<section class="card attn"><h2>Run from another room</h2><div>This repo is run from

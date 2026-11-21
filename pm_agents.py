@@ -1,13 +1,13 @@
 """A person can have several agents (ADR 0005): @pm adds one more, in its private chat.
 
-"➕" under @pm's Connect message (or under "You already have an agent"), typing "add another agent"
-(optionally "... called codex"), or "Add an agent" in the console. Without a name @pm asks ONE
-plain question ("What should I call it?") and takes the next short answer in that chat. Then the
-same as the first agent: remote_agent.provision_more makes the account (counted against
+"➕" under @pm's Connect message (once one of their agents has connected) or under "You already have
+an agent", typing "add another agent" (optionally "... called codex"), or "Add an agent" in the
+console. Without a name @pm asks ONE plain question ("What should I call it?") and takes the next
+short answer in that chat. Then the same as the first agent: remote_agent.provision_more makes the account (counted against
 HAGENCY_AGENTS_PER_PERSON before it exists), a fresh one-time code for THAT agent, and the Connect
 page link. Codes go only to @pm's private chat with that person.
 Mixed into loop.Loop (client, user_id, say, offer_thumb, private_room, only_us, busy, dm_rooms,
-welcomes, addressed_text: pm_welcome.py, pm_chat.py, pm_settings.py).
+welcomes, addressed_text, has_connected_agent: pm_welcome.py, pm_chat.py, pm_settings.py, pm_presence.py).
 """
 import asyncio
 import logging
@@ -159,7 +159,9 @@ class MoreAgents:
         if chat is None or not await self.only_us(chat, person):
             raise RuntimeError("I couldn't open a private chat with just you")
         code = remote_agent.CODES.issue(person, agent=agent)
+        more = self.has_connected_agent(person)   # pm_presence.py: "another agent" only once one is connected
         event_id = await self.say(chat, BRING_REPLY.format(
             agent=agent or registry.agent_of(person), link=connect_page.page_link(code), code=code,
-            line=remote_agent.install_line(code)) + ADD_HINT)
-        await self.offer_add(chat, event_id, person)
+            line=remote_agent.install_line(code)) + (ADD_HINT if more else ""))
+        if more:
+            await self.offer_add(chat, event_id, person)

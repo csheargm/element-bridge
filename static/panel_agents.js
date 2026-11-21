@@ -8,7 +8,7 @@ function agentSeg(name, agent, values, current) {
 }
 function agentStatus(a) {
   if (!a.remote) return `<span class="chip">Runs on this server</span>`;
-  const word = a.online === true ? "Online" : a.online === false ? "Offline" : "Not seen yet";
+  const word = a.online === true ? "Online" : !a.connected ? "Not connected yet" : "Offline";
   return `<span class="chip">${word}</span> <button data-a="disconnect" data-v="" data-g="${esc(a.name)}">Disconnect</button>
     ${removeButton(a)}`;
 }
@@ -27,18 +27,30 @@ function confirmed(b) {                // panel.py's click handler: false = this
   b.textContent = "Click again to remove it for good";
   return false;
 }
-function agentRow(a, version) {
-  return `<li><div><b>${esc(a.label)}</b> <span class="muted">· ${esc(a.name)}</span>${a.here ? ' <span class="chip">in this room</span>' : ""}
-    ${a.remote && a.online === false ? '<div class="hint">Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁).</div>' : ""}</div>
+// A screen test found newcomer jargon here: the label "main" for their only agent, "run the connect
+// line again" for one that never connected, and "the official version" nobody had changed.
+function agentHint(a) {
+  if (!a.remote || a.online === true) return "";
+  if (a.connected) return '<div class="hint">Run the connect line again on its computer; @pm sends its Connect page with a fresh code (🔁).</div>';
+  // A code lasts 30 minutes, and the 🔌 button only ever sets up the first agent (GPT review): say how to get a fresh one.
+  const steps = a.first ? 'follow the 🔌 steps (type "resend me the code" there for a fresh one)'
+    : `follow its Connect message (for a fresh code, type "add another agent called ${esc(a.label)}" there)`;
+  return `<div class="hint">Not connected yet: open your chat with Product Manager and ${steps}.</div>`;
+}
+function agentRow(a, version, several) {
+  const title = several ? `<b>${esc(a.label)}</b> <span class="muted">· ${esc(a.name)}</span>` : `<b>${esc(a.name)}</b>`;
+  const where = a.here ? ' <span class="chip">in this room</span>'
+    : a.invited ? ' <span class="chip">invited to this room</span>' : "";
+  return `<li><div>${title}${where}${agentHint(a)}</div>
     <div>${agentStatus(a)}</div></li>
     <li><div class="hint">Comes along when I join a project room${a.first ? "" : " (or invite it yourself)"}</div>${agentSeg("follow", a.name, ["always", "ask", "never"], a.follow)}</li>
-    ${a.first && version !== undefined ? `<li><div class="hint">Code it runs: ${version ? `your own version (${esc(version)})` : "the official version"}</div>${
-      version ? '<button data-a="goback" data-v="">Go back to official</button>' : ""}</li>` : ""}`;
+    ${a.first && version ? `<li><div class="hint">Code it runs: your own version (${esc(version)})</div>
+      <button data-a="goback" data-v="">Go back to official</button></li>` : ""}`;
 }
 function agentCards(s) {
   if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
   const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
     <button data-a="add" data-v="">Add an agent</button></div><div class="hint">@pm sends its Connect page in your private chat.</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>
-    <ul class="agents">${s.agents.map(a => agentRow(a, s.version)).join("")}</ul>${add}</section>`;
+    <ul class="agents">${s.agents.map(a => agentRow(a, s.version, s.agents.length > 1)).join("")}</ul>${add}</section>`;
 }

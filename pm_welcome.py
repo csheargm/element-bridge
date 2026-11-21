@@ -1,10 +1,11 @@
 """@pm welcomes newcomers. Synapse puts every new account in the private Welcome room (#welcome,
 created and owned by @pm: deploy/configure_synapse.py, local_signup.py). When a person without an
-agent joins it, @pm opens a private chat with them, once, and offers two buttons:
-  🏠 House agent: run by this server (not built yet: it comes with the public server);
+agent joins it, @pm opens a private chat with them, once, and offers one button:
   🔌 Bring your own: their Codex or Claude Code on their own computer (remote_agent.py, connect.py).
-Only that person's click on that message counts, each button once. Typing "house agent" or "bring
-my own" in that chat works too, and "@pm I want an agent" anywhere offers it again. People from
+The house agent (run by this server) isn't built yet, so it is not offered; anyone who types "house
+agent" is told so (old offers still carry a 🏠 button: its click gets that answer too).
+Only that person's click on that message counts, each button once. Typing "bring my own" in that
+chat works too, and "@pm I want an agent" anywhere offers it again. People from
 other servers (remote_people.py) start by opening a private chat with @pm, or with that sentence.
 Mixed into loop.Loop (client, user_id, say, offer_thumb, private_room, addressed_text, busy, started_ms).
 """
@@ -27,7 +28,7 @@ from local_signup import WELCOME_ALIAS, WELCOME_LOCALPART
 import intents
 from pm_chat import without_quote
 from pm_github import GitHubLink
-from pm_lobby import WELCOME_TOPIC, Lobby
+from pm_lobby import WELCOME_NAME, WELCOME_TOPIC, Lobby
 from pm_presence import DISCONNECT_RE
 from pm_remove import REMOVE_RE
 from redact import room_safe
@@ -46,10 +47,8 @@ RESEND_RE = re.compile(r"\b(re-?send|send( me)?|give me|get me|need)\b.{0,20}\b(
                        r"|\bconnect my agent\b|\bcode again\b", re.I)
 CODES_PER_HOUR = 5
 WELCOME = ("Welcome to Hagency Rooms, {name}: chat rooms where people and their AI agents build software "
-           "together.\n\nGet your agent:\n\n"
-           "- 🏠 **House agent**: runs on this server, with free daily credit\n"
-           "- 🔌 **Bring your own**: your Codex or Claude Code, on your own computer\n\n"
-           "Click one below, or type \"house agent\" or \"bring my own\".")
+           "together.\n\nGet your agent: 🔌 **Bring your own**, your Codex or Claude Code on your own computer.\n\n"
+           "Click 🔌 below, or type \"bring my own\".")
 POINTER = ("Welcome, {person}! I've sent you a private message: it's open on the left as **Product Manager**. "
            "Click 🔌 there to get your agent.")
 # Other servers don't open my chat for them (deploy/synapse_modules/hagency_auto_accept.py is ours only).
@@ -94,7 +93,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             log.warning("couldn't check for the Welcome room: %s", e)
             return
         if welcome is None:
-            made = await self.client.room_create(alias=WELCOME_LOCALPART, name="Welcome", preset=RoomPreset.private_chat,
+            made = await self.client.room_create(alias=WELCOME_LOCALPART, name=WELCOME_NAME, preset=RoomPreset.private_chat,
                                                  topic=WELCOME_TOPIC)
             if not hasattr(made, "room_id"):
                 log.warning("couldn't create %s: %s (newcomers won't be greeted)", WELCOME_ALIAS, made)
@@ -140,7 +139,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             pointing.discard(person)
 
     async def greet(self, person: str) -> str | None:
-        """My private chat with them, with the two buttons; returns that chat's room id. Remembered only
+        """My private chat with them, with the 🔌 button; returns that chat's room id. Remembered only
         once it worked (a failure is retried at my next start, or with "I want an agent")."""
         greeting = self.__dict__.setdefault("_greeting", set())
         if person in greeting:                # a second join while the first greeting is underway
@@ -158,8 +157,7 @@ class Welcome(Lobby, GitHubLink):        # pm_github.py: Connect GitHub, answere
             greeting.discard(person)
         pointed = {"pointed": True} if self.welcomes().get(person, {}).get("pointed") else {}   # said once, ever
         self.welcomes()[person] = {"dm": dm, "offer": offer, "done": [], **pointed}
-        for key in (HOUSE, BRING):
-            await self.offer_thumb(dm, offer, key)
+        await self.offer_thumb(dm, offer, BRING)   # no 🏠 until the house agent exists (R1)
         return dm
 
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:

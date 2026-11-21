@@ -88,6 +88,7 @@ class AddInChat(Base):
 
     def test_plus_asks_one_question_then_sends_that_agents_connect_page(self):
         self.lp._add_offers = {"$plus": {"person": CX, "dm": "!dm"}}
+        self.lp._seen = {"cx-agent": {"online": True, "ever": True}}   # ➕ is only offered once one connected
         room = SimpleNamespace(room_id="!dm")
         self.assertTrue(self.run_(self.lp.on_welcome_reaction(room, click(CX, "➕", "$plus"))))
         self.assertEqual(self.said[-1], ("!dm", pm_agents.ASK_NAME))

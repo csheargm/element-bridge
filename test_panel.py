@@ -36,6 +36,16 @@ class Render(unittest.TestCase):
         self.assertNotIn("uses:", page)                                # ADR 0006: no per-room web grant
         self.assertIn("<b>betty-agent</b> <span class=muted>· betty's agent <span class=muted>(owner not here: idle)", page)
 
+    def test_an_agent_only_invited_is_marked_so(self):
+        """Screen test: "Agents in this room" listed an agent that was only invited (never connected)
+        as if it were there."""
+        self.loop.client.rooms["!r"].invited_users = {f"@anna-agent:{S}": 0}
+        page = panel.render(self.loop, "!r")
+        self.assertIn("anna's agent <span class=chip>invited — not connected yet</span>", page)
+        self.assertEqual(page.count("not connected yet"), 1)              # betty-agent has joined
+        self.loop.agent_online = lambda agent: agent == "anna-agent"       # GPT review: online, its join pending
+        self.assertIn("anna's agent <span class=chip>invited — joining</span>", panel.render(self.loop, "!r"))
+
     def test_owner_names_are_shown_as_written(self):
         """Seen live: the owner "cx" showed as "Cx". A display name is used as set, escaped."""
         room = self.loop.client.rooms["!r"]
@@ -125,6 +135,15 @@ class Widget(unittest.TestCase):
         with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": "https://rooms.example.org"}):
             self.assertEqual(panel.widget_url(), "https://rooms.example.org/panel?room=$matrix_room_id")
         self.assertEqual(layout["widgets"]["hagency"]["container"], "top")
+
+    def test_element_pre_approves_exactly_the_url_pm_adds(self):
+        """deploy/element_home.py trusts one widget URL: it must be the one @pm puts in each room."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "deploy"))
+        self.addCleanup(sys.path.remove, sys.path[0])
+        import element_home
+        with mock.patch.dict("os.environ", {"HAGENCY_PUBLIC_CONSOLE": "https://rooms.example.org"}):
+            self.assertEqual(panel.widget_url(), element_home.panel_url({"ROOMS_DOMAIN": "rooms.example.org"}))
 
 
 if __name__ == "__main__":

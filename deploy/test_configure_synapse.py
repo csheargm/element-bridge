@@ -3,7 +3,7 @@ import json
 import unittest
 
 import envfile
-from configure_synapse import configure, module_settings, set_keys, welcome_settings
+from configure_synapse import configure, directory_settings, module_settings, set_keys, welcome_settings
 
 GENERATED = """server_name: "matrix.example.org"
 database:
@@ -106,6 +106,14 @@ class EnvFile(unittest.TestCase):
     def test_the_operator_is_optional(self):
         self.assertEqual(envfile.validate({**self.GOOD, "OPERATOR": ""}), [])
         self.assertEqual(envfile.validate({**self.GOOD, "OPERATOR": "anna"}), [])
+
+
+
+class RoomDirectory(unittest.TestCase):
+    def test_only_pm_may_list_rooms_in_the_directory(self):
+        """Screen test: "Listed" got 403 "Not allowed to publish room" with Synapse's admin-only default."""
+        rules = json.loads(directory_settings("x.org")["room_list_publication_rules"])
+        self.assertEqual(rules, [{"user_id": "@pm:x.org", "action": "allow"}, {"action": "deny"}])
 
 
 if __name__ == "__main__":

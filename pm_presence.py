@@ -49,6 +49,15 @@ class Presence(Removal):                # pm_remove.py: Remove, and forgetting d
         entry = self.seen().get(agent)
         return entry.get("online") if isinstance(entry, dict) else None
 
+    def ever_connected(self, agent: str) -> bool:
+        """This agent (localpart) has been online at least once: its computer really connected."""
+        entry = self.seen().get(agent)
+        return isinstance(entry, dict) and bool(entry.get("ever") or entry.get("online"))
+
+    def has_connected_agent(self, person: str) -> bool:
+        """At least one of this person's agents has ever connected (pm_agents.py: ➕ only then)."""
+        return any(self.ever_connected(a["localpart"]) for a in registry.agents_of(person))
+
     async def check_agents(self, now: float | None = None) -> None:
         """At most every CHECK_S (called from each tick)."""
         now = time.time() if now is None else now

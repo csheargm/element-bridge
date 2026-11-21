@@ -123,6 +123,7 @@ class Actions(unittest.TestCase):
                                     set_follow=set_follow, confirm=confirm, pending={},
                                     level=lambda rid: asyncio.sleep(0, "off"),
                                     agent_online=lambda agent: True if agent == "alice-at-matrix-org-a5829e99c7-agent" else None,
+                                    ever_connected=lambda agent: agent == "alice-at-matrix-org-a5829e99c7-agent",
                                     user_id="@pm:" + BETTY.partition(":")[2])
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
                          ("repo_of", lambda c, rid: asyncio.sleep(0, "your-name/hagency-hello")),
@@ -185,6 +186,13 @@ class Actions(unittest.TestCase):
         self.assertEqual((v["user"], v["moderator"], v["agent"], v["follow"]),
                          ("betty", False, "betty-agent", "always"))
 
+    def test_add_an_agent_waits_until_the_first_one_connected(self):
+        """GPT review: the chat offers ➕ only once an agent has connected; the panel must agree."""
+        registry.PATH.write_text(json.dumps({"betty": {"agent": "remote"}}))
+        never = [{"name": "betty-agent", "remote": True, "connected": False}]
+        self.assertFalse(console.can_add("betty", never))
+        self.assertTrue(console.can_add("betty", [{**never[0], "connected": True}]))
+
     def test_someone_from_another_server_sees_their_own_agent_never_a_namesakes(self):
         """GPT review 23: people from other servers sign in with a link and see their own agent."""
         alice, namesake = "@alice:matrix.org", "@betty:elsewhere.example"
@@ -194,6 +202,7 @@ class Actions(unittest.TestCase):
         self.assertEqual((v["agent"], v["follow"]), (registry.agent_of(alice), "ask"))
         self.assertTrue(v["agent"].startswith("alice-at-matrix-org-"))
         self.assertEqual((v["remote"], v["online"]), (True, True))             # "My agent": Online
+        self.assertEqual((v["agents"][0]["connected"], v["agents"][0]["invited"]), (True, False))   # My agents' card
         self.assertIsNone(asyncio.run(console.view(self.loop, "!r", namesake))["agent"])
 
 

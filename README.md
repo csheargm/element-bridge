@@ -12,7 +12,7 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
 2. You land on the Hagency home page: three numbered steps, each one click. **① Get your agent**
    opens your private chat with **Product Manager** (@pm), already in your list on the left (no
    invite to accept). The home page is always one click away: the Home button at the top left.
-3. In that chat, click 🔌 **Bring your own** (🏠 House agent, run by the server, isn't built yet).
+3. In that chat, click 🔌 **Bring your own** (a house agent, run by the server, isn't built yet).
 4. @pm gives you a one-time code and a link to the **Connect page**
    (`https://rooms.hagencylabs.xyz/connect/start#ABCDE-FGHJK`). Open it on the computer where Codex
    or Claude Code is installed: it sees whether that's a Mac, Windows or Linux, shows the one line
@@ -39,10 +39,10 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
    the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
    the wrapper names (`cli_path.py`).
-5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): click ➕ under @pm's Connect
-   message (or type "add another agent called codex" in @pm's chat, or **Add an agent** under My
-   agents in the panel). @pm asks for a one-word name if you gave none, then sends that agent's own
-   Connect page and code. It runs beside the first one (`<you>-codex-agent`, its files in
+5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): type "add another agent
+   called codex" in @pm's chat. Once your first one has connected, @pm's Connect messages also
+   carry a ➕ and the panel shows **Add an agent** under My agents. @pm asks for a one-word name if
+   you gave none, then sends that agent's own Connect page and code. It runs beside the first one (`<you>-codex-agent`, its files in
    `~/.hagency/<its name>/`; stop it with `connect.py --name <its name> --stop`). The panel's My
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
    first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
@@ -205,7 +205,7 @@ may discuss the repo but never runs its loop (its mode stays off; its panel says
 run from).
 
 **Who can join a project room** (owners and maintainers choose; joining never gives a say in how it runs):
-- **Private** (default): unlisted; by invite, or by asking @pm with the exact repo name.
+- **Private** (default): not listed; by invite, or by asking @pm with the exact repo name.
 - **Listed**: in Find a project and the server's room directory (other Matrix servers see it too).
   Element shows "Ask to join"; @pm asks the room's owners and invites on 👍. A private repo's name is
   never shown in a listing.
