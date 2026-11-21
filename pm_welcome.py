@@ -2,8 +2,9 @@
 created and owned by @pm: deploy/configure_synapse.py, local_signup.py). When a person without an
 agent joins it, @pm opens a private chat with them, once, and offers one button:
   🔌 Bring your own: an AI on their own computer (agent_kinds.IN_WORDS; remote_agent.py, connect.py).
-The house agent (run by this server) isn't built yet, so it is not offered; anyone who types "house
-agent" is told so (old offers still carry a 🏠 button: its click gets that answer too).
+The server agent (one run by this server) isn't built yet, so it is not offered; anyone who types
+"server agent" (or its old name, "house agent") is told so (old offers still carry a 🏠 button: its
+click gets that answer too).
 Only that person's click on that message counts, each button once. Typing "bring my own" in that
 chat works too, and "@pm I want an agent" anywhere offers it again. People from
 other servers (remote_people.py) start by opening a private chat with @pm, or with that sentence.
@@ -36,7 +37,7 @@ from pm_remove import REMOVE_RE
 from saved_dict import SavedDict
 
 log = logging.getLogger("loop")
-HOUSE_RE = re.compile(r"\bhouse agent\b", re.I)
+SERVER_RE = re.compile(r"\b(server|house) agent\b", re.I)   # "house agent": its old name
 BRING_RE = re.compile(r"\bbring (my|your) own\b", re.I)
 # The whole message, so "@pm I need an agent to review #7" stays a project request (GPT review 21).
 WANT_RE = re.compile(r"^\W*(please\W+)?(i (want|need|would like)|i'?d like|get me|give me|can i (have|get)|how (do|can) i get)"
@@ -157,7 +158,7 @@ class Welcome(Lobby, GitHubLink, FirstAgent):   # pm_github.py: Connect GitHub, 
             greeting.discard(person)
         pointed = {"pointed": True} if self.welcomes().get(person, {}).get("pointed") else {}   # said once, ever
         self.welcomes()[person] = {"dm": dm, "offer": offer, "done": [], **pointed}
-        await self.offer_thumb(dm, offer, BRING)   # no 🏠 until the house agent exists (R1)
+        await self.offer_thumb(dm, offer, BRING)   # no 🏠 until the server agent exists (R1)
         return dm
 
     async def on_welcome_reaction(self, room: MatrixRoom, event: ReactionEvent) -> bool:
@@ -188,9 +189,9 @@ class Welcome(Lobby, GitHubLink, FirstAgent):   # pm_github.py: Connect GitHub, 
         if RESEND_RE.search(text) and not intents.NEGATED.search(text):
             await self.resend_code(room, event.sender)
             return True
-        if in_dm and intents.NEGATED.search(text) and (HOUSE_RE.search(text) or BRING_RE.search(text)):
+        if in_dm and intents.NEGATED.search(text) and (SERVER_RE.search(text) or BRING_RE.search(text)):
             return False                      # "I don't want to bring my own": not a choice
-        if in_dm and HOUSE_RE.search(text):
+        if in_dm and SERVER_RE.search(text):
             await self.choose(room.room_id, event.sender, HOUSE)
         elif in_dm and BRING_RE.search(text):         # "... using ollama llama3.2": the AI it runs (pm_first.py)
             picked = picked_from(text)

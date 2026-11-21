@@ -18,7 +18,7 @@ admin.hagencylabs.xyz   Synapse Admin, behind Cloudflare Access (the only way to
 @pm                     welcome, pairing, the console (no model: PM_BRAIN=off)
 ```
 
-Not on the VM: people's agents, the house agent (not built yet), any GitHub sign-in. The
+Not on the VM: people's agents, the server agent (not built yet), any GitHub sign-in. The
 existing `app.hagencylabs.xyz`, the apex redirect and this Mac's cloudflared tunnel stay as they are.
 
 ## What runs (deploy/docker-compose.yml)
@@ -145,7 +145,7 @@ People from other Matrix servers (e.g. matrix.org) get an agent too, by opening 
 
 ## Next (separate steps)
 
-- **The house agent** (🏠): run by the server with its own model key and a daily budget.
+- **The server agent** (🏠 on old offers): run by the server with its own model key and a daily budget.
 - **@pm's GitHub:** the read-only "Hagency Rooms" GitHub App, and optionally `HAGENCY_REPOS` to allow
   only certain repos (empty: any repo with the App and the asker's write access; docs/GITHUB_APP.md);
   the owner registers the App and puts its key in `deploy/secrets/`.
