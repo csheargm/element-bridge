@@ -131,7 +131,12 @@ class ButtonHelper(unittest.TestCase):
 
 class Supervisor(unittest.TestCase):
     def test_hermes_owners_get_a_button_helper_and_their_chosen_tools(self):
+        home = Path(tempfile.mkdtemp())                    # both profiles set up (never this machine's ~/.hermes)
+        for name in supervise.hermes_profile.profile_names("anna"):
+            (home / "profiles" / name).mkdir(parents=True)
+            (home / "profiles" / name / "config.yaml").write_text("model: {}\n")
         with mock.patch.object(supervise.registry, "load", return_value={"anna": {"agent": "hermes"}}), \
+                mock.patch.object(supervise.hermes_profile, "HERMES_HOME", home), \
                 mock.patch.object(supervise.hermes_profile, "set_repos"):
             kids = {k.name: k for k in supervise.children("codex", False)}
         self.assertEqual(kids["anna-buttons"].argv[-2:], ["anna", "--buttons-only"])
