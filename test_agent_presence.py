@@ -38,6 +38,8 @@ class Service(unittest.TestCase):
         self.assertIn("<key>SuccessfulExit</key><false/>", plist)   # a clean exit (disconnected) stays stopped
         self.assertIn("@a&amp;b:x.org", plist)                         # escaped
         self.assertIn("Restart=on-failure", agent_service.unit(Path("/app"), NEW, "codex", AGENT, CREDS, Path("/l")))
+        odd = agent_service.unit(Path("/app"), "@a%h$" + "{HOME}:x.org", "codex", AGENT, CREDS, Path("/l"))
+        self.assertIn('"@a%%h$$' + '{HOME}:x.org"', odd)               # GPT review 23: systemd leaves it as sent
 
     def test_install_replaces_and_starts_stop_removes(self):
         home = Path(tempfile.mkdtemp())
@@ -160,6 +162,11 @@ class Offline(unittest.TestCase):
         self.at(4001 + pm_presence.ALERT_EVERY_S + 1)
         self.assertEqual(len(self.said), 2)
 
+    def test_a_network_blip_never_stops_the_tick(self):
+        self.lp.client.get_presence = mock.AsyncMock(side_effect=asyncio.TimeoutError())
+        self.at(1000)
+        self.assertEqual(self.said, [])
+
     def test_the_button_sends_a_fresh_line_only_for_the_owner(self):
         self.lp._seen = {AGENT: {"owner": NEW, "offer": "$off", "dm": "!dm"}}
         self.lp.choose = mock.AsyncMock()
@@ -182,20 +189,28 @@ class Disconnect(unittest.TestCase):
         remote_agent.CODES.codes = {}
         self.addCleanup(mock.patch.stopall)
 
-    def test_a_new_password_everywhere_and_old_codes_die(self):
+    def test_a_new_password_everywhere_and_old_codes_die_first(self):
         code = remote_agent.CODES.issue(NEW)
-        with mock.patch.object(remote_agent.local_signup, "admin_call", return_value={}) as call:
-            remote_agent.disconnect(NEW)
+        lp = Loop.__new__(Loop)
+        lp.say = mock.AsyncMock()
+
+        def reset(*a):
+            self.assertEqual(remote_agent.CODES.codes, {})     # GPT review 23: revoked before the new password
+            return {}
+        with mock.patch.object(remote_agent.local_signup, "admin_call", side_effect=reset) as call:
+            self.assertTrue(asyncio.run(lp.disconnect("!dm", NEW)))
         self.assertNotEqual(self.env["PW_NEWBIE1_AGENT"], "old")
         self.assertEqual(call.call_args.args[2]["new_password"], self.env["PW_NEWBIE1_AGENT"])
         self.assertTrue(call.call_args.args[2]["logout_devices"])
         self.assertIsNone(remote_agent.CODES.redeem(code))
 
-    def test_if_synapse_refuses_the_old_password_stays(self):
-        with mock.patch.object(remote_agent.local_signup, "admin_call", return_value={"_status": 403, "errcode": "M_FORBIDDEN"}):
-            with self.assertRaises(setup_accounts.AccountError):
-                remote_agent.disconnect(NEW)
-        self.assertEqual(self.env["PW_NEWBIE1_AGENT"], "old")
+    def test_if_synapse_refuses_or_cant_be_asked_the_old_password_stays(self):
+        for answer in (mock.Mock(return_value={"_status": 403, "errcode": "M_FORBIDDEN"}),
+                       mock.Mock(side_effect=SystemExit("login failed for admin-bot"))):
+            with mock.patch.object(remote_agent.local_signup, "admin_call", answer):
+                with self.assertRaises(setup_accounts.AccountError):
+                    remote_agent.disconnect(NEW)
+            self.assertEqual(self.env["PW_NEWBIE1_AGENT"], "old")
 
     def test_from_chat_only_for_their_own_remote_agent(self):
         lp = Loop.__new__(Loop)
@@ -205,7 +220,7 @@ class Disconnect(unittest.TestCase):
             said.append(body)
         lp.say = say
         with mock.patch.object(remote_agent, "disconnect") as d:
-            asyncio.run(lp.disconnect("!dm", f"@anna:{S}"))
+            self.assertFalse(asyncio.run(lp.disconnect("!dm", f"@anna:{S}")))
             asyncio.run(lp.disconnect("!dm", NEW))
         d.assert_called_once_with(NEW)
         self.assertIn("no agent connected", said[0])

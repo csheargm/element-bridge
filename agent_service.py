@@ -46,7 +46,8 @@ def plist(app: Path, owner: str, backend: str, agent: str, creds: Path, logs: Pa
 
 
 def unit(app: Path, owner: str, backend: str, agent: str, creds: Path, logs: Path) -> str:
-    quote = lambda a: '"' + a.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    # systemd expands %specifiers and $VARIABLES even inside quotes: both are doubled to stay literal
+    quote = lambda a: '"' + a.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$") + '"'
     return ("[Unit]\nDescription=Hagency Rooms agent " + agent + "\nAfter=network-online.target\n\n[Service]\n"
             f"ExecStart={' '.join(quote(a) for a in command(app, owner, backend))}\n"
             f"WorkingDirectory={app}\nEnvironment={quote('HAGENCY_CREDENTIALS=' + str(creds))}\n"
@@ -95,9 +96,10 @@ def install(app: Path, owner: str, backend: str, agent: str, creds: Path, run=su
         r = run(["launchctl", "bootstrap", domain, str(path)], capture_output=True, text=True)
     else:
         _write(path, unit(app, owner, backend, agent, creds, logs))
-        run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-        r = run(["systemctl", "--user", "enable", "--now", "--", path.name], capture_output=True, text=True)
-        run(["systemctl", "--user", "restart", "--", path.name], capture_output=True)   # new sign-in or CLI
+        r = run(["systemctl", "--user", "daemon-reload"], capture_output=True, text=True)
+        for step in (["enable", "--now"], ["restart"]):   # restart: a new sign-in or CLI in a running one
+            if r.returncode == 0:
+                r = run(["systemctl", "--user", *step, "--", path.name], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"{how} wouldn't start it: {(r.stderr or r.stdout or '').strip()[:200]}")
     return how

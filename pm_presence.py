@@ -13,6 +13,7 @@ import logging
 import re
 import time
 
+from aiohttp import ClientError
 from nio import MatrixRoom, PresenceGetResponse, ReactionEvent
 
 import registry
@@ -55,7 +56,11 @@ class Presence:
                 await self.check_agent(person, registry.agent_of(person), now)
 
     async def check_agent(self, person: str, agent: str, now: float) -> None:
-        resp = await self.client.get_presence(f"@{agent}:{SERVER_NAME}")
+        try:
+            resp = await self.client.get_presence(f"@{agent}:{SERVER_NAME}")
+        except (OSError, asyncio.TimeoutError, ClientError) as e:   # a network blip must never stop @pm's tick
+            log.warning("couldn't ask for %s's presence: %s", agent, e)
+            return
         if not isinstance(resp, PresenceGetResponse):
             return                            # Synapse can't say now: no news is no alert
         old = self.seen().get(agent) or {}
@@ -87,16 +92,18 @@ class Presence:
             await self.choose(room.room_id, event.sender, "🔌")    # pm_welcome.py: a fresh code, its own checks
         return True
 
-    async def disconnect(self, room_id: str, person: str) -> None:
+    async def disconnect(self, room_id: str, person: str) -> bool:
         """The person's own remote agent gets a new password: its computer is signed out for good."""
         agent = registry.agent_of(person)
         if registry.load().get(person, {}).get("agent") != registry.REMOTE or not registry.owns(person, agent):
             await self.say(room_id, "You have no agent connected from your own computer here.")
-            return
+            return False
+        remote_agent.CODES.revoke(person)    # first, here on my own thread: no code can pick up the new password
         try:
             await asyncio.to_thread(remote_agent.disconnect, person)
-        except (AccountError, OSError, SystemExit) as e:   # Synapse refused, .env unwritable, admin-bot can't sign in
+        except (AccountError, OSError) as e:   # Synapse refused or can't be asked, .env unwritable
             log.error("couldn't disconnect %s's agent: %s", person, e)
             await self.say(room_id, "⚠️ I couldn't disconnect your agent just now; please try again.")
-            return
+            return False
         await self.say(room_id, DISCONNECTED.format(agent=agent))
+        return True

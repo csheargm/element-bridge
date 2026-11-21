@@ -7,6 +7,7 @@ agent open a private chat with its person. remote_people.py limits people from o
 computer fetch the agent's sign-in once, from POST /connect on the console server; GET /connect.sh
 serves the installer. The password is never logged; only the code's hash is stored.
 """
+import asyncio
 import os
 import secrets
 import socket
@@ -109,23 +110,30 @@ def _provision(person: str) -> str:
 
 
 def disconnect(person: str) -> None:
-    """A new password for `person`'s remote agent (saved first, put back if Synapse refuses) and every
-    session signed out: the copy on their computer stops working until a new code. Blocking I/O."""
+    """A new password for `person`'s remote agent (saved first, put back if Synapse refuses or can't
+    be asked) and every session signed out: the copy on their computer stops working until a new
+    code. The caller revokes their codes first. Blocking I/O."""
     with WRITING:
         person, env = registry.person_id(person), load_env()
         agent = registry.agent_of(person)
         key = setup_accounts.password_key(agent)
-        old = env.get(key)
-        env[key] = secrets.token_urlsafe(18)
-        setup_accounts.save_env(env)
-        r = local_signup.admin_call("POST", f"/_synapse/admin/v1/reset_password/{urllib.parse.quote(f'@{agent}:{SERVER_NAME}')}",
-                                    {"new_password": env[key], "logout_devices": True})
+        old, new = env.get(key), secrets.token_urlsafe(18)
+        setup_accounts.save_env({**env, key: new})
+        try:
+            r = local_signup.admin_call("POST", f"/_synapse/admin/v1/reset_password/{urllib.parse.quote(f'@{agent}:{SERVER_NAME}')}",
+                                        {"new_password": new, "logout_devices": True})
+        except (SystemExit, OSError, ValueError) as e:   # admin-bot can't sign in, Synapse away: as a refusal
+            r = {"_status": 0, "errcode": str(e)[:80]}
         if "_status" in r:
-            if old is not None:
-                env[key] = old
-                setup_accounts.save_env(env)
+            if old is not None:                 # only our line, on a fresh read: other writers' lines stay
+                setup_accounts.save_env({**load_env(), key: old})
             raise AccountError(f"couldn't give @{agent} a new password: {r.get('errcode')}")
-        CODES.revoke(person)
+
+
+def locked_credentials(person: str) -> dict | None:
+    """credentials_for, never in the middle of a set-up or a disconnect (.env read-modify-write)."""
+    with WRITING:
+        return credentials_for(person)
 
 
 def credentials_for(person: str) -> dict | None:
@@ -157,7 +165,7 @@ def routes() -> list:
         except ValueError:                    # not JSON: the same answer as a wrong code
             body = {}
         person = CODES.redeem(body.get("code") if isinstance(body, dict) else None)
-        creds = credentials_for(person) if person else None
+        creds = await asyncio.to_thread(locked_credentials, person) if person else None
         if not creds:
             LIMIT.failed(client)
             return web.json_response({"error": "that code is wrong, used or expired: ask @pm for a new one"},

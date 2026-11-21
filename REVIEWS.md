@@ -564,3 +564,16 @@ Rejected or deferred:
 - The widget layout write replaces other widgets' placements and isn't retried on failure;
   replacing a pre-existing multi-line `modules:` block; `.synapse-loaded` written before Synapse
   is healthy: all pre-existing or not present on this server's generated config.
+
+Background agent, offline notice, Disconnect (GPT, the feature commit), adopted with tests:
+- A code redeemed during a Disconnect could pick up the new password: codes are revoked first (on
+  @pm's own thread, no SavedDict race), and /connect reads .env under the set-up lock.
+- Disconnect when admin-bot can't sign in left .env ahead of Synapse: treated as a refusal, and
+  only that one line is put back, on a fresh read.
+- systemd expands % and $ inside quotes: doubled in the unit, so a federated owner ID arrives as sent.
+- daemon-reload / restart failures are errors, not silence. A presence timeout or network error
+  never stops @pm's tick. The panel says when Disconnect failed.
+Rejected or deferred:
+- `connect.py --stop` reports removal even if launchctl/systemctl couldn't stop a running process
+  (it then stops at the next login); the 🔁 button isn't retried if its reaction send fails (the
+  message still says what to run, and "bring my own" works).
