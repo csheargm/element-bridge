@@ -51,10 +51,12 @@ class Codes:
         return f"{raw[:5]}-{raw[5:]}"
 
     def revoke(self, person: str, agent: str | None = None) -> None:
-        """Every code of this agent of `person` stops working (it was disconnected)."""
+        """Every code of this agent of `person` stops working (it was disconnected): all of them in
+        memory first, then one save, so a full disk can't leave some live (raises OSError then)."""
         for h, entry in list(self.codes.items()):
             if not isinstance(entry, dict) or _same(entry, person, agent):
-                self.codes.pop(h, None)
+                dict.pop(self.codes, h, None)
+        self.codes._save()
 
     def redeem(self, code: str, now: float | None = None) -> str | None:
         """The person a fresh code was issued to, or None. The code is gone after this either way."""

@@ -81,9 +81,8 @@ class RemoveLastThenAdd(RemovalCase):
         self.assertTrue(console.can_add(BETTY, mine))               # the panel's "Add an agent" stays
 
 
-class PruneDropsGitHub(LinkCase):
-    """#4: pruning a deactivated person here left their GitHub link, and a sign-in still waiting could
-    save one after; a reactivated account would then bind repos on that old proof."""
+class PruneCase(LinkCase):
+    """Anna (deactivated, as Synapse's list says: self.dead) and Betty, both with agents here."""
 
     def setUp(self):
         super().setUp()
@@ -92,6 +91,12 @@ class PruneDropsGitHub(LinkCase):
         p = mock.patch.object(agent_removal, "deactivated", lambda: self.dead)
         p.start()
         self.addCleanup(p.stop)
+
+
+
+class PruneDropsGitHub(PruneCase):
+    """#4: pruning a deactivated person here left their GitHub link, and a sign-in still waiting could
+    save one after; a reactivated account would then bind repos on that old proof."""
 
     def prune(self):
         with self.assertLogs("loop", "WARNING") as logs:
@@ -166,7 +171,7 @@ class SaveFails(RemovalCase):
 
     def test_nothing_closed_and_unsaved_is_a_plain_retry(self):
         registry.update(BETTY, "codex", ready=False)
-        with mock.patch.object(agent_removal, "_exists", return_value=False), \
+        with mock.patch.object(agent_removal, "_account", return_value=agent_removal.MISSING), \
                 mock.patch.object(registry, "save", side_effect=OSError("disk full")), self.assertLogs("loop", "ERROR"):
             self.assertFalse(self.run_(self.lp.remove_for_good("!dm", BETTY, "codex")))
         self.assertEqual((self.closed, self.revoked), ([], []))

@@ -19,6 +19,7 @@ import registry
 import remote_agent
 import setup_accounts
 from loop import Loop
+from saved_dict import SavedDict
 
 S = "bridge.localhost"
 NEW, PM, AGENT = f"@newbie1:{S}", f"@pm:{S}", "newbie1-agent"
@@ -244,7 +245,7 @@ class Disconnect(unittest.TestCase):
         self.env = {"PW_NEWBIE1_AGENT": "old"}
         mock.patch.object(remote_agent, "load_env", side_effect=lambda: dict(self.env)).start()
         self.saved = mock.patch.object(setup_accounts, "save_env", side_effect=lambda e: self.env.update(e)).start()
-        remote_agent.CODES.codes = {}
+        mock.patch.object(remote_agent.CODES, "codes", SavedDict(Path(tempfile.mkdtemp()) / "pairing.json")).start()
         self.signs_in = mock.patch.object(remote_agent, "_signs_in", return_value=True).start()   # an older record: checked
         self.addCleanup(mock.patch.stopall)
 

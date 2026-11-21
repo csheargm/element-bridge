@@ -77,8 +77,10 @@ FOLLOW = ("always", "ask", "never")
 
 def agent_of(person: str) -> str:
     """The localpart of `person`'s agent on this server (identity.agent_localpart unless recorded)."""
-    person = person_id(person)
-    return load().get(person, {}).get("agent_user") or identity.agent_localpart(person, SERVER_NAME)
+    person, people = person_id(person), load()
+    if first_removed(person, people) and agents_of(person, people):   # their first was removed: their first live one
+        return agents_of(person, people)[0]["localpart"]
+    return people.get(person, {}).get("agent_user") or identity.agent_localpart(person, SERVER_NAME)
 
 
 def owner_of(agent: str) -> str | None:

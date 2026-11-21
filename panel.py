@@ -131,6 +131,8 @@ async function act(action, value, agent) { $("msg").textContent = "…";
 // A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
 const card = (name, s) => typeof window[name] === "function" ? window[name](s)
   : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;
+// Remove's two clicks (panel_agents.js); without that script, nothing can arm a Remove: refused.
+const ok = b => typeof window.confirmed === "function" ? window.confirmed(b) : b.dataset.a !== "remove";
 const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
   assist: "Agents build and review; a person merges each change.",
   autonomous: "Agents build, review and merge on their own."};
@@ -139,7 +141,7 @@ function buttons(name, values, current, enabled) {
   return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
     ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
 document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
-  if (b && confirmed(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
+  if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
     : b.dataset.v, b.dataset.g); });
 async function refresh() {
   if (!session) return;

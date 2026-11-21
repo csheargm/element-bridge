@@ -98,7 +98,10 @@ class Removal:
             log.error("couldn't remove %s's agent %s: %s", person, localpart, e)
             await self.say(room_id, "⚠️ I couldn't remove it just now; please try again.")
             return False
-        remote_agent.CODES.revoke(person, None if first else localpart)   # only once it's gone (GPT re-check)
+        try:
+            remote_agent.CODES.revoke(person, None if first else localpart)   # only once it's gone (GPT re-check)
+        except OSError as e:                   # revoked in memory; the account is closed, so a code is useless anyway
+            log.error("removed %s's agent %s, but couldn't save its revoked codes: %s", person, localpart, e)
         self.seen().pop(localpart, None)       # pm_presence.py: no "offline" note for it ever again
         log.info("removed %s's agent %s for good", person, localpart)
         await self.say(room_id, said)
@@ -114,7 +117,8 @@ class Removal:
         if dead is None:
             return                            # agent_removal logged why; the dead set stays as it was
         self._dead = dead
-        self.forget_github_of(dead)           # pm_github.py: a deactivated account's GitHub link goes too
+        if self.forget_github_of(dead):       # pm_github.py: a deactivated account's GitHub link goes too
+            self._pruned = now - PRUNE_EVERY_S + PRUNE_RETRY_S   # one couldn't be saved: again soon
         try:
             gone = await asyncio.to_thread(agent_removal.prune, dead)
         except OSError as e:                  # agents.json unwritable: logged, the poll goes on; next time again

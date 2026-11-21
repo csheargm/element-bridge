@@ -15,6 +15,7 @@ Limits, since anyone on any server can ask:
 import os
 import time
 
+from registry_removal import GONE_CREATED
 from setup_accounts import AccountError
 
 HOUR_S = 3600
@@ -40,11 +41,13 @@ def now() -> float:
 
 
 def created_times(people: dict) -> list[float]:
-    """When each agent in `people` (registry.load()) was made, first agents and further ones alike."""
+    """When each agent in `people` (registry.load()) was made, first agents and further ones alike,
+    and the removed ones too (registry_removal.GONE_CREATED)."""
     times = []
     for v in people.values():
         more = v.get("more") if isinstance(v.get("more"), list) else []
         times += [e.get("created") for e in [v, *more] if isinstance(e, dict)]
+        times += v.get(GONE_CREATED) if isinstance(v.get(GONE_CREATED), list) else []
     return [t for t in times if isinstance(t, (int, float))]
 
 

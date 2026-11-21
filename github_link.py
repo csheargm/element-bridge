@@ -89,6 +89,17 @@ def unlink(user: str) -> bool:
     return _change(user, None)
 
 
+def forget(user: str) -> None:
+    """A deactivated account's link: out of memory at once (every check fails closed from now on),
+    then off the disk; GitHubError if the disk refuses (the caller tries again: GPT re-check)."""
+    saved = links()
+    dict.pop(saved, user, None)
+    try:
+        saved._save()
+    except OSError as e:
+        raise github.GitHubError(f"I couldn't save the GitHub links ({type(e).__name__})") from None
+
+
 def status(user: str) -> dict | None:
     """What the panel shows this person (only them): None when Connect GitHub is off here."""
     if not configured():

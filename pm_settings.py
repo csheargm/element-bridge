@@ -101,8 +101,9 @@ class Settings(Projects):
             return "I couldn't check the other rooms on this repo just now; please try again in a minute."
         if other and other != separate_from:
             return self.conflict_answer(rid, sender, repo, other)
-        if github_app.configured() and github_link.link_of(sender) != proof:
-            return refusal(repo)
+        problem = await self.requester_problem(rid, (sender, proof), repo)   # before the privacy writes too
+        if problem:
+            return problem
         refused, note = await self.close_for_private(rid, repo)
         return refused or (await self.bind(rid, repo, other, (sender, proof))) + note
 

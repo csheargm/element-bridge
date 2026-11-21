@@ -8,6 +8,7 @@ which program npm's wrapper (cmd-shim) would start, either node with the package
 package's own .exe, and start that directly. No shell either way; the prompt goes on stdin, never
 in argv.
 """
+import ntpath
 import os
 import re
 import shutil
@@ -54,11 +55,11 @@ def unwrap(shim: Path) -> list[str]:
     parts = re.split(r"[\\/]", m.group(1)) if m else []
     if not parts or any(not p or p in (".", "..") or ":" in p for p in parts):
         raise FileNotFoundError(f"{shim.name} isn't an npm wrapper I can read; install the CLI's own program (.exe)")
-    target = shim.parent.joinpath(*parts)
-    if not target.is_file() or not target.resolve().is_relative_to(shim.parent.resolve()):   # links: no escape
+    # Resolved once, and that absolute path is the one checked and started: a relative PATH entry would
+    # else be read from the turn's cwd, the checkout (GPT review and re-check, batch 5+6).
+    target = shim.parent.joinpath(*parts).resolve()
+    if not target.is_file() or not target.is_relative_to(shim.parent.resolve()):   # links: no escape
         raise FileNotFoundError(f"{shim.name} starts {target}, which isn't there; reinstall the CLI")
-    target = target.resolve()               # the path that was checked, absolute: a relative PATH entry would
-                                            # else be read from the turn's cwd, the checkout (GPT review, batch 5+6)
     if target.suffix.lower() == ".exe":
         return [str(target)]
     if target.suffix.lower() not in SCRIPTS:
@@ -67,4 +68,4 @@ def unwrap(shim: Path) -> list[str]:
     node = str(local.resolve()) if local.is_file() else shutil.which("node")
     if node is None or Path(node).suffix.lower() != ".exe":   # PATHEXT may find a node.cmd: that needs a shell
         raise FileNotFoundError(f"{shim.name} needs Node.js (node.exe), which isn't on PATH")
-    return [node, str(target)]
+    return [node if ntpath.isabs(node) else os.path.abspath(node), str(target)]   # (a Windows path: ntpath)

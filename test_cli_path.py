@@ -79,6 +79,8 @@ class Windows(unittest.TestCase):
             exe = cli_path.command("claude")[0]
         self.assertEqual(found, str(script))
         self.assertTrue(Path(exe).is_absolute(), exe)
+        with mock.patch.object(cli_path.shutil, "which", lambda n: r"bin\node.exe" if n == "node" else self.npm.which(n)):
+            self.assertEqual(cli_path.command("codex")[0], os.path.abspath(r"bin\node.exe"))   # GPT re-check: node too
 
     def test_the_wrappers_own_node_wins(self):
         (self.npm.dir / "node.exe").write_text("")

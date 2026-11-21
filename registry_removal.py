@@ -1,8 +1,21 @@
 """Removing agents from agents.json (registry.py's format): one agent at a time when its person
 removes it (agent_removal.remove), and everyone whose accounts here are all deactivated (prune).
 Split from registry.py (R4: its size budget); behaviour unchanged."""
+import time
+
 import registry
 from bridge_config import SERVER_NAME
+
+# When removed agents were made, kept a while: remote_people's hourly cap counts them, so removing and
+# adding again never makes more accounts an hour than it allows (GPT re-check, batch 5+6).
+GONE_CREATED = "gone_created"
+KEEP_CREATED_S = 24 * 3600           # longer than any quota window (remote_people: one hour)
+
+
+def _gone_created(info: dict, agents: list[dict]) -> list[float]:
+    old = info.get(GONE_CREATED) if isinstance(info.get(GONE_CREATED), list) else []
+    times = [*old, *(a.get("created") for a in agents)]
+    return [t for t in times if isinstance(t, (int, float)) and t > time.time() - KEEP_CREATED_S]
 
 
 def forget_agent(person: str, localpart: str) -> None:
@@ -24,6 +37,7 @@ def forget_agent(person: str, localpart: str) -> None:
             info[registry.MORE] = [e for e in info[registry.MORE] if not (isinstance(e, dict) and e.get("label") == found["label"])]
             old = info.get(registry.REMOVED) if isinstance(info.get(registry.REMOVED), list) else []
             info[registry.REMOVED] = sorted({*old, found["label"]})
+            info[GONE_CREATED] = _gone_created(info, [found])
         registry.save(data)
 
 
@@ -31,7 +45,8 @@ def _tombstone(info: dict, agents: list[dict]) -> dict:
     """What stays of a person whose agents are all gone: the names that can't come back. "remote":
     so the supervisor and setup_accounts never start or make a server-run agent for the line."""
     old = info.get(registry.REMOVED) if isinstance(info.get(registry.REMOVED), list) else []
-    return {"agent": registry.REMOTE, registry.FIRST_GONE: True, registry.REMOVED: sorted({*old, *(a["label"] for a in agents if not a["first"])})}
+    return {"agent": registry.REMOTE, registry.FIRST_GONE: True, GONE_CREATED: _gone_created(info, agents),
+            registry.REMOVED: sorted({*old, *(a["label"] for a in agents if not a["first"])})}
 
 
 def prune(dead: set[str]) -> list[str]:

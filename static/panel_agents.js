@@ -36,7 +36,7 @@ function agentRow(a, version) {
       version ? '<button data-a="goback" data-v="">Go back to official</button>' : ""}</li>` : ""}`;
 }
 function agentCards(s) {
-  if (!s.agents || !s.agents.length) return "";
+  if (!s.agents || (!s.agents.length && !s.can_add)) return "";   // none, and none to add (removed the last: can_add)
   const add = s.can_add ? `<div class="set"><div class="field"><input id="newagent" maxlength="9" placeholder="name, e.g. codex">
     <button data-a="add" data-v="">Add an agent</button></div><div class="hint">@pm sends its Connect page in your private chat.</div></div>` : "";
   return `<section class="card"><h2>My agents · ${s.agents.length}</h2><div class="hint">The same in every room.</div>

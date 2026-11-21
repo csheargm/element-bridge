@@ -33,8 +33,8 @@ class NotForgotten(OSError):
 
 def remove(person: str, agent: str) -> bool:
     """Remove this remote agent of `person` (localpart or label). Their first agent goes only when it
-    is their last one. True if its account was deactivated (False: it never existed, so only its
-    entry went). Raises AccountError with a sentence for them."""
+    is their last one. True if its account is closed (now, or already: a retry after NotForgotten),
+    False when it never existed, so only its entry went. Raises AccountError with a sentence for them."""
     with WRITING:
         person = registry.person_id(person)
         found = registry.find(person, agent)
@@ -48,14 +48,16 @@ def remove(person: str, agent: str) -> bool:
             raise AccountError(f"{localpart} has an odd record here; ask this server's operator")   # GPT: never a stale name
         key = setup_accounts.password_key(localpart)
         ours = found["ready"] or (key in env and _signs_in(localpart, env[key]))   # never close an account we don't hold
-        if not ours and key in env and _exists(f"@{localpart}:{SERVER_NAME}"):   # a password we can't confirm
+        state = "ours" if ours else _account(f"@{localpart}:{SERVER_NAME}") if key in env else MISSING
+        if state == LIVE:                     # a password we can't confirm, on an account that's there
             raise AccountError(f"I couldn't confirm {localpart}'s account just now; please try again")
         if ours:
             _deactivate(f"@{localpart}:{SERVER_NAME}")
+        closed = state != MISSING             # closed now, or before (its record couldn't be saved then)
         try:
             registry_removal.forget_agent(person, localpart)
         except OSError as e:
-            if ours:                          # closed already: say so, never "try again" as if nothing happened
+            if closed:                        # closed already: say so, never "try again" as if nothing happened
                 raise NotForgotten(f"closed {localpart}, but couldn't save agents.json: {e}") from e
             raise                             # nothing was closed: a plain failure, nothing changed
         if key in env:
@@ -63,7 +65,7 @@ def remove(person: str, agent: str) -> bool:
                 setup_accounts.save_env({k: v for k, v in load_env().items() if k != key})   # a fresh read: others stay
             except OSError as e:              # the account is closed already: a leftover password is harmless
                 log.error("removed %s, but couldn't drop its password from .env: %s", localpart, e)
-        return ours
+        return closed
 
 
 def prune(dead: set[str]) -> list[str]:
@@ -72,15 +74,21 @@ def prune(dead: set[str]) -> list[str]:
         return registry_removal.prune(dead)
 
 
-def _exists(user_id: str) -> bool:
-    """False only when Synapse says no such account (a set-up whose registration failed); True when it
-    exists or the answer is unclear, so nothing is forgotten on a guess (GPT re-check)."""
+MISSING, DEACTIVATED, LIVE = "missing", "deactivated", "live"
+
+
+def _account(user_id: str) -> str:
+    """MISSING only when Synapse says no such account (a set-up whose registration failed);
+    DEACTIVATED when it says so (an older record closed before its entry could be saved: GPT
+    re-check, batch 5+6); LIVE when it is there or the answer is unclear: nothing on a guess."""
     try:
         r = local_signup.admin_call("GET", f"/_synapse/admin/v2/users/{urllib.parse.quote(user_id)}", None)
-    except (SystemExit, OSError, ValueError) as e:   # unclear: treated as existing, so nothing is dropped
+    except (SystemExit, OSError, ValueError) as e:   # unclear: treated as live, so nothing is dropped
         log.warning("couldn't ask whether %s exists: %s", user_id, str(e)[:200])
-        return True
-    return not (r.get("_status") == 404 and r.get("errcode") == "M_NOT_FOUND")
+        return LIVE
+    if r.get("_status") == 404 and r.get("errcode") == "M_NOT_FOUND":
+        return MISSING
+    return DEACTIVATED if "_status" not in r and r.get("deactivated") is True else LIVE
 
 
 def _deactivate(user_id: str) -> None:

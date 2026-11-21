@@ -182,6 +182,8 @@ def credentials_for(person: str, agent: str | None = None, issued: float | None 
     a remote agent of theirs any more, or the code (`issued` then) predates its disconnect: a code
     taken just before a disconnect never picks up the new password (GPT review 24)."""
     person = registry.person_id(person)       # codes issued before full IDs hold a bare name
+    if agent is None and registry.first_removed(person):
+        return None                           # a code for their first agent, which was removed (GPT re-check)
     found = registry.find(person, agent)
     if found is None or found["agent"] != registry.REMOTE or (agent and found["localpart"] != agent):
         return None

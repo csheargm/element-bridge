@@ -117,18 +117,24 @@ class GitHubLink:
             flow["task"].cancel()
         return flow, asked
 
-    def forget_github_of(self, dead: set[str]) -> None:
+    def forget_github_of(self, dead: set[str]) -> bool:
         """Deactivated accounts (pm_remove.prune_registry): their GitHub link goes and a pending
-        sign-in is cancelled, so a late approval never brings it back (GPT review, batch 5+6)."""
+        sign-in is cancelled, so a late approval never brings it back (GPT review, batch 5+6). One
+        the disk refused stays out of memory and is tried again even if reactivated meanwhile.
+        True when one is still to be saved (the caller looks again soon)."""
         starting = self.__dict__.setdefault("_github_starting", {})
-        for person in sorted((set(github_link.links()) | set(github_link.FLOWS) | set(starting)) & dead):
+        unsaved = self.__dict__.setdefault("_github_unsaved", set())
+        for person in sorted((set(github_link.links()) | set(github_link.FLOWS) | set(starting)) & dead | unsaved):
             self.end_github_sign_in(person)
             try:
-                github_link.unlink(person)
-            except github.GitHubError as e:          # the disk refused: the next prune tries again
+                github_link.forget(person)
+            except github.GitHubError as e:          # out of memory already; on disk at the next try
+                unsaved.add(person)
                 log.error("couldn't drop deactivated %s's GitHub link: %s", person, e)
                 continue
+            unsaved.discard(person)
             log.warning("dropped deactivated %s's GitHub link", person)
+        return bool(unsaved)
 
     def disconnect_github(self, person: str) -> str:
         flow, asked = self.end_github_sign_in(person)

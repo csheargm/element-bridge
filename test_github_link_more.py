@@ -220,9 +220,8 @@ class QuietInstallWait(BindCase):
         self.assertEqual(self.said, [pm_settings.refusal(OTHER)])
 
 
-class BindRace(BindCase):
-    """GPT review (batch 5+6) #2: the link and the moderator check were read before the privacy check
-    and the state read, which await; the write must re-check both, read at that moment."""
+class BindRaceCase(BindCase):
+    """Anna connected, the App installed; her standing in the room as the server says it now (self.now)."""
 
     def setUp(self):
         super().setUp()
@@ -234,6 +233,11 @@ class BindRace(BindCase):
             p = mock.patch.object(room_state, name, value)
             p.start()
             self.addCleanup(p.stop)
+
+
+class BindRace(BindRaceCase):
+    """GPT review (batch 5+6) #2: the link and the moderator check were read before the privacy check
+    and the state read, which await; the write must re-check both, read at that moment."""
 
     def during_privacy_check(self, change):
         real = self.lp.close_for_private
