@@ -916,3 +916,50 @@ Rejected or deferred, with reasons:
   account) can still be removed: Synapse's admin API must say 404 M_NOT_FOUND, anything unclear keeps
   everything; pairing codes are revoked only once the removal succeeded (a refused one keeps them);
   a cmd-shim comment line, above or below, never counts: only the last non-comment line is read.
+
+## GPT review: batch 5+6 combined (Connect GitHub + small fixes, R15)
+
+Codex reviewed origin/master..integ/batch-5-6 (PR #5 and PR #6 merged together). Six findings, each
+verified in the code and fixed with a regression test:
+- **1 (P1). The public panel stopped rendering.** deploy/Caddyfile's @pm route lacked
+  /panel-github.js, so Element answered it and `githubCard()` was undefined. panel.SCRIPTS is now the
+  one list (script tags and routes come from it); test_panel.CardScripts requires the Caddyfile to
+  route each one, and a card whose script didn't load shows a note while the rest renders.
+- **2 (P1). A repo bind could commit after Disconnect GitHub or a demotion.** write_level re-checks
+  the requester (joined AND a moderator, read now: room_state.joined_moderator; and the same GitHub
+  link) as the last await before the state write; the install wait goes through it.
+  test_github_link_more.BindRace.
+- **3 (P2). Removing the last agent stranded the person.** The line stays as a tombstone
+  ("first_removed", agent "remote"); a new agent gets a new (named) account name, and "bring my own"
+  asks for it. test_remove_then_add.RemoveLastThenAdd.
+- **4 (P2). Pruning left a deactivated person's GitHub link and sign-in.** forget_github_of drops the
+  link and cancels the sign-in; finish_github saves only while its sign-in is current. An active
+  person removing an agent keeps theirs. test_remove_then_add.PruneDropsGitHub.
+- **5 (P2). A registry write failure.** A closed account whose record can't be saved is reported
+  closed (NotForgotten) and its codes revoked; a prune that can't save is logged and retried in 10
+  minutes, never crashing the poll. test_remove_then_add.SaveFails.
+- **6 (P2). cli_path returned the unresolved path.** It returns the absolute path it checked.
+  test_cli_path (relative PATH entry).
+
+Re-check (GPT, the same range, focused on these fixes): seven P2 points and two lower ones. Adopted,
+verified in the code, with tests in test_batch_recheck (each fails without its fix):
+- the requester is checked before close_for_private too (no privacy writes for someone who left);
+- Codes.revoke drops every matching code in memory before its one save; a failed save is logged;
+- an older record (no "ready") closed before NotForgotten is forgotten on retry: Synapse's answer
+  is read as missing / deactivated / live;
+- the federation hourly cap counts removed agents' creation times (kept 24 h);
+- a deactivated account's link leaves memory at once; one the disk refused is retried within 10
+  minutes even after a reactivation;
+- after the first agent was removed, registry.agent_of is the first live agent, and a code for the
+  removed first agent never redeems another one;
+- the panel shows "Add an agent" with no agents, and clicks work without panel-agents.js (Remove
+  refused then); cli_path resolves the target once and makes node's path absolute.
+Rejected, with reasons:
+- **onboard.py on a tombstoned person.** Operator-only, by hand; it fails loudly when Synapse refuses
+  the closed name. Restoring a removed account is a manual migration.
+- **customize.why_not_use counting tombstone lines as "other people".** It fails closed (no "Use it
+  myself" offered), as it already does for every remote person's line.
+- **Refusing new GitHub sign-ins for deactivated accounts.** A deactivated account can't sign in to
+  Matrix or get a console session, so it can't start one; one in flight is cancelled by the prune.
+- **send_code issuing a code after a NotForgotten removal.** The account is closed, so the sign-in it
+  would give can't log in; the record goes on the retry.
