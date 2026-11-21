@@ -96,7 +96,7 @@ class FindAndAsk(Base):
         self.assertIn("I've asked the owners of **final project**", self.said[-1][1])
         q, req = next(iter(self.lp._join_requests.items()))
         self.assertEqual((req["room"], req["person"], req["moderator"]), ("!fin", NEW, ANNA))
-        self.assertIn(f"newbie1 ({NEW}) asks to join **final project**", dict(self.said)[req["dm"]])
+        self.assertIn(f"{NEW} asks to join **final project**", dict(self.said)[req["dm"]])
         self.assertEqual(self.buttons[-2:], [(req["dm"], q, "👍"), (req["dm"], q, "👎")])
         asked = len(self.said)
         run(self.lp.on_project_reaction(self.lobby, click(NEW, "🙋", event)))                   # once

@@ -63,6 +63,13 @@ class ElementConfig(unittest.TestCase):
         config = json.loads(element_home.config_text(VALUES))
         self.assertIs(config["features"]["feature_ask_to_join"], True)
 
+    def test_a_newcomer_is_spared_the_introducing_sections_tip(self):
+        """Screen test: "Introducing Sections" came on top of Element's other pop-ups right after
+        sign-up. It is marked seen by default; nothing touches encryption (no "e2ee" key at all)."""
+        config = json.loads(element_home.config_text(VALUES))
+        self.assertEqual(config["setting_defaults"], {"releaseAnnouncementData": {"room_list_section": True}})
+        self.assertNotIn("e2ee", config)
+
     def test_every_url_element_loads_is_on_this_server(self):
         """No outside assets: the page, the logo and the background are all ours, under /hagency/."""
         config = element_home.element_config(VALUES)

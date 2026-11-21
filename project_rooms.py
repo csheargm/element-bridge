@@ -26,6 +26,7 @@ log = logging.getLogger("loop")
 LOBBY_LOCALPART = "lobby"
 LOBBY_ALIAS = f"#{LOBBY_LOCALPART}:{SERVER_NAME}"
 FRONT_DOORS = (WELCOME_ALIAS, LOBBY_ALIAS)    # @pm's own rooms: never a project room
+NOT_A_PROJECT = "The Hagency panel works in project rooms only. Open one of your project rooms to use it."
 VISIBILITY_EVENT = "xyz.hagencylabs.visibility"
 PRIVATE, LISTED, OPEN = "private", "listed", "open"
 VISIBILITIES = (PRIVATE, LISTED, OPEN)
@@ -36,6 +37,15 @@ WORDS = {PRIVATE: "private: people join by invite, or by asking me with the exac
                   "people ask to join and an owner lets them in"),
          OPEN: "open: listed, and anyone can join"}
 NOT_OPEN = "This room works on a private repo, so it can't be open to anyone; it can be listed (people ask to join)."
+
+
+FRONT_DOOR_IDS: set[str] = set()              # what FRONT_DOORS point to, looked up at each start (pm_welcome, pm_lobby)
+
+
+def is_front_door(room) -> bool:
+    """The Welcome room or the Lobby: no project settings, no Hagency panel. By the room the aliases
+    point to, and by its own main address (GPT review: a main address alone can be changed)."""
+    return getattr(room, "room_id", None) in FRONT_DOOR_IDS or getattr(room, "canonical_alias", None) in FRONT_DOORS
 
 
 async def join_rule(client: AsyncClient, room_id: str) -> str:

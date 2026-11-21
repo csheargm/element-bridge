@@ -24,6 +24,7 @@ import registry
 PORT = console.PORT
 HOST = os.environ.get("PANEL_HOST", "127.0.0.1")     # the public server's container: 0.0.0.0, behind Caddy
 WIDGET_ID = "hagency"
+WIDGET_KIND, LAYOUT_KIND = "im.vector.modular.widgets", "io.element.widgets.layout"   # the room state Element reads
 STATIC = Path(__file__).resolve().parent / "static"
 # The panel's card scripts, by the URL the page loads them from. The one list: the page's <script>
 # tags and the routes come from it, and deploy/Caddyfile's @pm route must name every one (test_panel).
@@ -31,6 +32,7 @@ SCRIPTS = {"panel-agents.js": STATIC / "panel_agents.js",      # "My agents"
            "panel-project.js": STATIC / "panel_project.js",    # "Who can join", "Run from another room"
            "panel-github.js": STATIC / "panel_github.js"}      # "Connect GitHub" (pm_github.py)
 REFRESH_MS = 3000
+SIGNIN_MS = 20000                 # no answer from Element by then: the panel says so instead of "Signing in…"
 HEADERS = {"Content-Security-Policy": f"frame-ancestors 'self' {ELEMENT_ORIGIN}; default-src 'self'; "
                                       "script-src 'unsafe-inline' 'self'; style-src 'unsafe-inline'",
            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
@@ -46,127 +48,8 @@ def local_host(request) -> bool:
     return request.host.split(":")[0] in console.allowed_hosts()
 log = logging.getLogger("loop")
 
-PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hagency</title>
-<style>
-:root{--bg:#f7f7f8;--card:#fff;--ink:#17191c;--muted:#6b7078;--line:#e4e6ea;--accent:#0b6e4f;--accent-soft:#e3f2ec;
---warn:#8a5a00;--warn-soft:#fff4dc;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif}
-@media (prefers-color-scheme:dark){:root{--bg:#15171a;--card:#1d2024;--ink:#e8eaed;--muted:#9aa0a8;--line:#2c3036;
---accent:#3fb68b;--accent-soft:#17352b;--warn:#f0b54a;--warn-soft:#3a2f17}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);padding:16px}
-.wrap{max-width:760px;margin:0 auto;display:grid;gap:12px}.stack{display:grid;gap:12px;min-width:0}
-header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;justify-content:space-between}
-h1{font-size:18px;margin:0;font-weight:650}.sub{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px}
-.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--card);
-border:1px solid var(--line);font-size:12px;color:var(--muted)}.chip.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.chip.role{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.card h2{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:650}
-.card.attn{border-color:var(--warn);background:var(--warn-soft)}.card.attn h2{color:var(--warn)}
-.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
-.set{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;padding:8px 0}
-.set+.set{border-top:1px solid var(--line)}.hint{color:var(--muted);font-size:12.5px;margin-top:6px}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
-.seg button{border:0;border-radius:0;margin:0;background:transparent;padding:5px 12px;color:var(--ink)}
-.seg button+button{border-left:1px solid var(--line)}.seg button.on{background:var(--accent);color:#fff}
-button{font:inherit;padding:5px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
-button:hover:not(:disabled){border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-.field{display:flex;gap:8px;flex-wrap:wrap}input{font:inherit;padding:5px 10px;border:1px solid var(--line);border-radius:8px;
-background:var(--bg);color:var(--ink);flex:1;min-width:12em}
-#msg:empty{display:none}#msg{padding:8px 12px;border-radius:8px;background:var(--accent-soft);color:var(--accent);white-space:pre-line}
-.board{font-size:13.5px}.board p{margin:4px 0}.board ul{margin:4px 0;padding-left:18px}.board a{color:var(--accent)}
-.agents{list-style:none;margin:0;padding:0}.agents li{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 0}
-.agents li+li{border-top:1px solid var(--line)}.agents b{font-weight:600}.muted{color:var(--muted)}
-footer{color:var(--muted);font-size:12px;text-align:center;padding:4px 0 8px}
-</style>
-<div class="wrap"><header><div><h1 id="title">Hagency</h1><div class="sub" id="sub"></div></div><div id="who"></div></header>
-<div id="me" class="muted">Signing in…</div><div id="msg"></div><div id="controls" class="stack"></div><div id="p" class="stack"></div>
-<footer>Change anything here or by telling @pm in the chat.</footer></div>
-__SCRIPTS__
-<script>
-const q = new URLSearchParams(location.search), room = q.get("room"), wid = q.get("widgetId");
-const ELEMENT = __ELEMENT_ORIGIN__;
-const embedded = window.parent !== window && !!wid;
-let session = sessionStorage.getItem("hagency-session");
-// A login code arrives after "#" (never sent to the server): take it, then wipe it at once.
-const linkCode = new URLSearchParams(location.hash.slice(1)).get("login");
-if (location.hash) history.replaceState(null, "", location.pathname + location.search);
-const $ = id => document.getElementById(id);
-const esc = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-async function post(path, body) {
-  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json",
-    "Authorization": "Bearer " + (session || "")}, body: JSON.stringify(body)}); return r.json(); }
-function signedIn(s) { session = s; sessionStorage.setItem("hagency-session", s); refresh(); }
-// Inside Element only: the Matrix widget API, talking to Element's exact origin and our parent frame.
-let openidRequest = null, gotCredentials = false;
-if (embedded) window.addEventListener("message", ev => {
-  const m = ev.data || {};
-  if (ev.origin !== ELEMENT || ev.source !== window.parent || m.widgetId !== wid) return;
-  if (m.api === "toWidget") {
-    const ack = {api: "toWidget", widgetId: wid, requestId: m.requestId, action: m.action, data: {},
-                 response: m.action === "capabilities" ? {capabilities: []} : {}};   // never echo credentials
-    window.parent.postMessage(ack, ELEMENT);
-    if (m.action === "capabilities" && !openidRequest) setTimeout(askOpenId, 300);
-    if (m.action === "openid_credentials" && openidRequest && m.data && m.data.state === "allowed")
-      gotToken(m.data.access_token);
-  } else if (m.api === "fromWidget" && m.requestId === openidRequest && m.response) {
-    if (m.response.state === "allowed") gotToken(m.response.access_token);
-    else if (m.response.state === "blocked") $("me").textContent = "Element didn't share who you are.";
-  }
-});
-function askOpenId() { openidRequest = "openid-" + crypto.randomUUID();
-  window.parent.postMessage({api: "fromWidget", widgetId: wid, requestId: openidRequest, action: "get_openid", data: {}}, ELEMENT); }
-async function gotToken(t) { if (gotCredentials) return; gotCredentials = true;
-  const r = await post("/auth/openid", {access_token: t}); r.session ? signedIn(r.session) : ($("me").textContent = r.error); }
-async function start() {
-  if (linkCode) { const r = await post("/auth/link", {code: linkCode});
-    return r.session ? signedIn(r.session) : ($("me").textContent = r.error); }
-  if (session) return refresh();
-  if (!embedded) $("me").innerHTML = 'Say <b>@pm send me my console link</b> in the room to sign in here.';
-}
-async function act(action, value, agent) { $("msg").textContent = "…";
-  const r = await post("/console/action", {room, action, value, agent: agent || ""});
-  $("msg").textContent = r.result === "ok" ? "Done." : (r.result || r.error); refresh(); }
-// A card whose script didn't load (a proxy that doesn't route it) shows a note; the rest of the panel still works.
-const card = (name, s) => typeof window[name] === "function" ? window[name](s)
-  : `<section class="card"><h2>Unavailable</h2><div class="muted">Part of this panel didn't load. Reload, or tell the server's owner.</div></section>`;
-// Remove's two clicks (panel_agents.js); without that script, nothing can arm a Remove: refused.
-const ok = b => typeof window.confirmed === "function" ? window.confirmed(b) : b.dataset.a !== "remove";
-const MODES = {off: "Paused: no new work is handed out and nothing is merged.",
-  assist: "Agents build and review; a person merges each change.",
-  autonomous: "Agents build, review and merge on their own."};
-const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
-function buttons(name, values, current, enabled) {
-  return `<span class="seg">` + values.map(v => `<button data-a="${esc(name)}" data-v="${esc(v)}" ${v === current ? 'class=on' : ''}
-    ${enabled ? '' : 'disabled'}>${esc(cap(v))}</button>`).join("") + `</span>`; }
-document.addEventListener("click", e => { const b = e.target.closest("button[data-a]");
-  if (b && ok(b)) act(b.dataset.a, b.dataset.a === "repo" ? $("repo").value.trim() : b.dataset.a === "add" ? $("newagent").value.trim()
-    : b.dataset.v, b.dataset.g); });
-async function refresh() {
-  if (!session) return;
-  const r = await fetch("console/state?room=" + encodeURIComponent(room), {headers: {"Authorization": "Bearer " + session}});
-  if (r.status === 401) { session = null; sessionStorage.removeItem("hagency-session"); return start(); }
-  const s = await r.json(); if (s.error) { $("me").textContent = s.error; return; }
-  if (document.activeElement && ["repo", "newagent"].includes(document.activeElement.id)) return;   // don't wipe what's being typed
-  $("me").textContent = "";
-  $("title").textContent = s.room;
-  $("sub").innerHTML = s.repo ? `<span class="chip code">${esc(s.repo)}</span>` : `<span class="chip">Pick a project repo</span>`;
-  $("who").innerHTML = `<span class="chip">${esc(s.user)}</span> <span class="chip role">${s.moderator ? "Owner / maintainer" : "Contributor"}</span>`;
-  let h = "";
-  if (s.waiting && s.waiting.mine) h += `<section class="card attn"><h2>Waiting for you</h2><div class="set"><div>${esc(cap(s.waiting.kind))}${
-    s.waiting.items.length ? ": " + s.waiting.items.map(esc).join(" · ") : ""}</div>
-    <button class="primary" data-a="approve" data-v="${esc(s.waiting.id)}">Approve 👍</button></div></section>`;
-  h += `<div class="grid"><section class="card"><h2>Mode</h2>${buttons("mode", ["off", "assist", "autonomous"], s.mode, s.moderator)}
-    <div class="hint">${esc(MODES[s.mode] || "")}${s.moderator ? "" : " Only the owner or a maintainer can change it."}</div></section>
-    <section class="card"><h2>${s.repo ? "Project repo" : "Pick a project repo"}</h2>${s.moderator ? `<div class="field"><input id=repo placeholder="owner/name"
-    value="${esc(s.repo || "")}"><button data-a="repo">Use for this room</button></div>` : `<div>${esc(s.repo || "None yet")}</div>`}
-    ${s.repo ? '<div class="hint"><button data-a="check">Check readiness</button></div>' : '<div class="hint">One GitHub repo per room.</div>'}</section></div>`;
-  h += card("projectCard", s) + card("githubCard", s) + card("agentCards", s);   // panel_project.js, panel_github.js, panel_agents.js
-  $("controls").innerHTML = h; $("p").innerHTML = s.html;      // s.html: server-escaped board (panel.render)
-}
-start(); setInterval(refresh, %d);
-</script>""" % REFRESH_MS
+PAGE = (STATIC / "panel.html").read_text(encoding="utf-8").replace("__REFRESH_MS__", str(REFRESH_MS))
+PAGE = PAGE.replace("__SIGNIN_MS__", str(SIGNIN_MS))
 PAGE = PAGE.replace("__SCRIPTS__", "".join(f'<script src="{name}"></script>' for name in SCRIPTS))
 
 
@@ -242,11 +125,34 @@ async def start(loop) -> web.AppRunner | None:
 
 async def add_to_room(client, room_id: str) -> bool:
     """Add the panel to the room as an Element widget, pinned at the top above the chat."""
-    resp = await client.room_put_state(room_id, "im.vector.modular.widgets",
+    resp = await client.room_put_state(room_id, WIDGET_KIND,
                                        {"type": "m.custom", "url": widget_url(), "name": "Hagency",
                                         "id": WIDGET_ID, "data": {}}, state_key=WIDGET_ID)
     if not hasattr(resp, "event_id"):
         return False
-    await client.room_put_state(room_id, "io.element.widgets.layout",       # pinned above the chat
+    await client.room_put_state(room_id, LAYOUT_KIND,                       # pinned above the chat
                                 {"widgets": {WIDGET_ID: {"container": "top", "index": 0, "width": 100, "height": 40}}})
+    return True
+
+
+async def remove_from_room(client, room_id: str) -> bool:
+    """Take the panel out of a room that isn't a project room (the Lobby, Welcome: screen test, where it
+    sat at "Signing in…"). True once the widget and its layout place are both gone (False: retried);
+    nothing is written for what isn't there."""
+    for kind, key in ((WIDGET_KIND, WIDGET_ID), (LAYOUT_KIND, "")):
+        found = await client.room_get_state_event(room_id, kind, key)
+        content = getattr(found, "content", None)
+        if not isinstance(content, dict):
+            if getattr(found, "status_code", None) != "M_NOT_FOUND":
+                return False                  # unreadable: never taken for "not there"
+            continue
+        places = content.get("widgets") if kind == LAYOUT_KIND else None
+        if kind == WIDGET_KIND and content.get("url"):
+            new = {}
+        elif isinstance(places, dict) and WIDGET_ID in places:     # GPT review: other widgets keep their places
+            new = {**content, "widgets": {k: v for k, v in places.items() if k != WIDGET_ID}}
+        else:
+            continue                          # removed already
+        if not hasattr(await client.room_put_state(room_id, kind, new, state_key=key), "event_id"):
+            return False
     return True

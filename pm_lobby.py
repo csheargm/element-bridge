@@ -40,6 +40,7 @@ class Lobby:
         """The Lobby exists: public, in the room directory, joinable from any server."""
         try:
             if lobby := await matrix_calls.room_of_alias(self.client, LOBBY_ALIAS):
+                project_rooms.FRONT_DOOR_IDS.add(lobby)
                 await self.publish_lobby(lobby)
                 return
         except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:   # unknown: never a second Lobby
@@ -47,6 +48,7 @@ class Lobby:
             return
         made = await self.client.room_create(alias=LOBBY_LOCALPART, name="Lobby", topic=LOBBY_TOPIC,
                                              preset=RoomPreset.public_chat, visibility=RoomVisibility.public)
+        project_rooms.FRONT_DOOR_IDS.update([made.room_id] if hasattr(made, "room_id") else [])   # GPT re-check
         if not hasattr(made, "room_id"):
             log.warning("couldn't create %s: %s", LOBBY_ALIAS, made)
 

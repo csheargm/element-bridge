@@ -124,7 +124,7 @@ class Projects(Finding, Joining):
         return " Your agent joins once it's connected on your computer." if mine else ""
 
     async def set_visibility(self, room: MatrixRoom, sender: str, value: str) -> str:
-        if getattr(room, "canonical_alias", None) in project_rooms.FRONT_DOORS or self.is_private_chat(room):
+        if project_rooms.is_front_door(room) or self.is_private_chat(room):
             return "Only project rooms have this setting."
         async with self.lock:                 # never between a private repo's bind and its closing
             try:                              # read now, under the lock: never a cached role or "no repo" on a failed read
@@ -144,6 +144,26 @@ class Projects(Finding, Joining):
             note = await room_address.follow(self.client, room.room_id, value != project_rooms.PRIVATE,
                                              room.display_name, repo if private else None)
         return f"This room is now {project_rooms.WORDS[value]}.{note}"
+
+    async def give_addresses(self) -> None:
+        """At start: listed and open rooms from before readable addresses existed get one (screen test:
+        "final project !5nbmn…" in the directory). The same rules as a visibility change (room_address.
+        follow): kept when the room has one, never a private repo's name, under the lock."""
+        for room_id, room in list(self.client.rooms.items()):
+            if project_rooms.is_front_door(room) or self.is_private_chat(room):
+                continue
+            try:
+                async with self.lock:
+                    if await project_rooms.visibility(self.client, room_id, strict=True) == project_rooms.PRIVATE:
+                        continue
+                    repo = (await room_state.binding_of(self.client, room_id, strict=True))[0]
+                    private = await project_rooms.repo_is_private(repo) if repo else False
+                    note = await room_address.follow(self.client, room_id, True, room.display_name, repo if private else None)
+            except Exception:                 # noqa: BLE001 - GPT review: one room's failure (unreadable, network,
+                log.exception("couldn't check %s's address", room_id)   # gh) never stops the others; next start retries
+                continue
+            if note:
+                log.info("address of %s:%s", room_id, note)
 
     async def close_for_private(self, room_id: str, repo: str) -> tuple[str | None, str]:
         """Before binding `repo` (under the lock): a room anyone can join (its real join rule, not my

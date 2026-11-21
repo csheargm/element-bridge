@@ -262,6 +262,7 @@ class Loop(Progress, Boards, Chat, Settings, Planner, Understanding, Follow, Voi
     async def poll_forever(self) -> None:
         """Check GitHub every POLL_S, or at once when kick() says something changed."""
         self.wake = asyncio.Event()
+        self.addressing = asyncio.create_task(self.guarded(self.give_addresses()))   # pm_projects.py: background, finishes on shutdown
         while True:
             await self.guarded(self.locked_tick())
             self.wake.clear()

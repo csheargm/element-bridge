@@ -31,6 +31,14 @@ WIDGET_LIFECYCLE = "io.element.element-web-modules.widget-lifecycle"
 # CONFIG_PRIORITISED; ConfigSettingsHandler reads "features", booleans). Screen test: a listed room only
 # offered Join, which Synapse refuses with 403 "You are not invited to this room".
 FEATURES = {"feature_ask_to_join": True}
+# Screen test: right after sign-up a newcomer got Element's "Introducing Sections" tip on top of the
+# rest. v1.12.35's ReleaseAnnouncementStore shows each feature not marked seen in the account setting
+# "releaseAnnouncementData", which has a config level (Settings.tsx: LEVELS_ACCOUNT_SETTINGS), so
+# setting_defaults marks it seen for everyone (ConfigSettingsHandler reads "setting_defaults").
+# Not configurable in v1.12.35, so left as they are: "Back up your chats" (DeviceListener: account
+# data only; turning recovery off would weaken encryption) and "Don't miss a reply" (RoomView and
+# Notifier: the browser's own permission and the push rules, no setting).
+SETTING_DEFAULTS = {"releaseAnnouncementData": {"room_list_section": True}}
 
 
 def pm_id(server_name: str) -> str:
@@ -43,6 +51,7 @@ def element_config(values: dict) -> dict:
     return {"default_server_config": {"m.homeserver": {"base_url": f"https://{values['MATRIX_DOMAIN']}",
                                                        "server_name": values["SERVER_NAME"]}},
             "disable_custom_urls": False, "disable_guests": True, "brand": BRAND, "features": FEATURES,
+            "setting_defaults": SETTING_DEFAULTS,
             "embedded_pages": {"home_url": f"{rooms}/home.html"},
             "branding": {"auth_header_logo_url": f"{rooms}/logo.svg", "welcome_background_url": f"{rooms}/background.svg"},
             WIDGET_LIFECYCLE: {"widget_permissions": {panel_url(values): {"preload_approved": True, "identity_approved": True}}}}

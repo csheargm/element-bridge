@@ -1058,3 +1058,39 @@ and Synapse only lets @pm delete aliases it made or in rooms it moderates); **�
 Matrix knock pending** (the knock stays visible to moderators in Element; only my buttons go, as
 the person was answered); **"ask" + never-connected agent** (the reply already says it joins once
 connected; pm_follow asks when they join).
+
+## GPT review of fix/screen-test-3 (panel in the Lobby, readable addresses, Element pop-ups, R15)
+GPT (Codex) on origin/master..HEAD: three high, four medium. Adopted, with tests:
+- **High: a front door was known only by its main address.** Also by the room `#lobby`/`#welcome`
+  resolve to at each start (project_rooms.FRONT_DOOR_IDS, filled by pm_welcome/pm_lobby).
+  test_front_doors (test_known_by_the_room_its_alias_points_to_…).
+- **High: HTTP waits could still sit at "Signing in…".** The watchdog now runs from the first step
+  (a link, a cached session, a token after Element's prompt) until the first view arrives.
+  test_panel_signin (test_a_view_that_never_comes_still_ends_in_a_clear_line).
+- **High: the address backfill ran before serving, and a non-StateUnreadable failure could stop the
+  start.** It runs as a background task once polling starts, each room isolated (logged in full).
+  test_room_address (test_at_start_one_rooms_failure_never_stops_the_others).
+- **Medium: overlapping polls; a late 401 of an old session cleared a new one.** One view request at
+  a time, and a 401 only counts for the session it was sent with.
+- **Medium: an expired link session replayed the used one-time code.** The code is used once.
+  test_panel_signin (test_a_one_time_link_is_never_sent_twice).
+- **Medium: front doors refused reads but not actions** ("mode off" has no moderator check).
+  console.act refuses too. test_front_doors (test_and_changes_nothing_there).
+- **Medium: a failed layout write left the Hagency place behind for good.** Both state events are
+  reconciled each time and a failed write is retried. test_front_doors (test_a_leftover_layout_place_is_cleaned_too).
+Rejected: **re-check a widget re-added after a clean start** (adding a widget to the Lobby or Welcome
+takes a moderator there, i.e. @pm or the server's admins; the next start removes it again).
+Noted: the Element setting test checks the generated config.json, not Element's rendering (no
+browser test harness for Element here); the setting's config level was read from v1.12.35's source.
+R4: panel.py would have gone over 300 lines; its page template moved verbatim to static/panel.html
+(panel.PAGE byte-identical, checked).
+Re-check (GPT, the fix commit): six points. Adopted, with tests:
+- **A stalled poll held the one-at-a-time lock and froze the panel.** Every request has a deadline
+  (AbortSignal.timeout) and ends in the clear line. test_panel_signin (test_a_stalled_poll_gives_up_…).
+- **The watchdog blamed Element on the standalone page.** Outside Element it names the server.
+- **Rooms @pm just created weren't registered by ID.** They are now. test_front_doors (test_the_lobby_found_or_made_…).
+- **The backfill task was outside the shutdown lifecycle.** It runs under guarded (in busy), so a
+  restart lets it finish instead of cutting an address update in half.
+Rejected: **a failed Welcome lookup skips the Lobby lookup** and **is_welcome_room checks only the
+main address** (both pre-existing; the address check still guards, the next start retries; out of
+scope, R8).
