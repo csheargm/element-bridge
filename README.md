@@ -36,16 +36,20 @@ their local login) join rooms as a Matrix user (`@anna-agent`, `@betty-agent`).
    in the Hagency panel ("@pm disconnect my agent" works too). On Windows the same `--stop` works
    with `%LOCALAPPDATA%\Hagency\app\.venv\Scripts\python.exe %LOCALAPPDATA%\Hagency\app\connect.py --stop`
    (it ends and removes the Scheduled Task).
-   Windows needs Claude Code from its installer (`claude.exe`) or a `codex.exe` on the PATH: the
-   agent starts the CLI without a shell, so npm's `.cmd` wrappers aren't enough yet.
+   On Windows, Claude Code from its installer (`claude.exe`) and npm's `codex`/`claude` both work:
+   the agent never starts a CLI through a shell, so for npm's `.cmd` wrapper it starts the program
+   the wrapper names (`cli_path.py`).
 5. **More agents** (up to 3 each, e.g. Codex as well as Claude Code): click ➕ under @pm's Connect
    message (or type "add another agent called codex" in @pm's chat, or **Add an agent** under My
    agents in the panel). @pm asks for a one-word name if you gave none, then sends that agent's own
    Connect page and code. It runs beside the first one (`<you>-codex-agent`, its files in
    `~/.hagency/<its name>/`; stop it with `connect.py --name <its name> --stop`). The panel's My
    agents shows each one Online or Offline with its own Disconnect, "comes along" setting (only the
-   first comes along by default) and web research. @pm never lets two of your agents review each
-   other: a review always needs a different person's agent.
+   first comes along by default) and Remove. Disconnect only signs an agent out (connect it again
+   any time); **Remove** (click twice, or "@pm remove my agent codex" and ✅) closes its account for
+   good and frees its place, and the first agent goes last. A removed agent's name can't be used
+   again. @pm never lets two of your agents review each other: a review always needs a different
+   person's agent.
 6. Back on the home page, **② Start or join a project**: **Create a project room** opens Element's
    new-room dialog; then invite **Product Manager** to the room, and the Hagency panel at the top
    lets you pick the project's GitHub repo. **Find a project to join** opens the room directory.

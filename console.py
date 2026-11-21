@@ -8,7 +8,7 @@ Who is looking:
 Either way the page gets a short-lived session bound to that Matrix user.
 
 What they can do goes through @pm's own code paths and checks (mode: owner/maintainer; my agent's
-follow-me and web grant: only my own agent; approve: only what I asked for), and each change is
+follow-me: only my own agent; approve: only what I asked for), and each change is
 also announced in the room. Nothing here bypasses the chat's rules.
 """
 import asyncio
@@ -24,6 +24,7 @@ from aiohttp import web
 
 import customize
 import github
+import github_link
 import github_setup
 import ownership
 import project_rooms
@@ -119,14 +120,19 @@ def redeem(code: str) -> tuple[str, str] | None:
 
 def my_agents(loop, room, room_id: str, user: str) -> list[dict]:
     """"My agents": each agent registered to exactly `user` (by full ID), the first first."""
-    grants, found = loop.grants_cache.get(room_id, {}), []
+    found = []
     for a in registry.agents_of(user):
         if registry.owns(user, a["localpart"]):
             aid = f"@{a['localpart']}:{SERVER_NAME}"
             found.append({"name": a["localpart"], "label": a["label"], "first": a["first"], "follow": a["follow"],
                           "remote": a["agent"] == registry.REMOTE, "online": loop.agent_online(a["localpart"]),
-                          "web": "web" in grants.get(aid, {}), "here": aid in room.users})
+                          "here": aid in room.users})
     return found
+
+
+def can_add(user: str, mine: list) -> bool:
+    """"Add an agent" shows: they have one, or removed their last (a new name then), and room for more."""
+    return (bool(mine) or registry.first_removed(user)) and len(registry.agents_of(user)) < registry.per_person()
 
 
 async def view(loop, room_id: str, user: str) -> dict:
@@ -138,13 +144,12 @@ async def view(loop, room_id: str, user: str) -> dict:
     agent = ownership.agent_id(user) if registry.owns(user, registry.agent_of(user)) else None   # by full ID
     waiting = loop.pending.get(room_id, {})
     mine = my_agents(loop, room, room_id, user)
-    return {"user": local, "agents": mine, "can_add": bool(mine) and len(registry.agents_of(user)) < registry.per_person(), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
+    return {"user": local, "agents": mine, "can_add": can_add(user, mine), "room": room.display_name, "repo": await room_state.repo_of(loop.client, room_id),
             "moderator": await room_state.is_moderator(loop.client, room, user),
             "mode": await loop.level(room_id), "agent": agent and agent.split(":")[0][1:],
             "visibility": await project_rooms.visibility(loop.client, room_id), "runs_in": await runs_in(loop, room_id, user),
-            "follow": registry.follow(user) if agent else None,
+            "follow": registry.follow(user) if agent else None, "github": github_link.status(user),   # pm_github.py
             "version": (customize.in_use().get(registry.local_name(user) or "") or "")[:7] if agent else None,
-            "web": bool(agent and "web" in loop.grants_cache.get(room_id, {}).get(agent, {})),
             "remote": bool(agent and registry.load().get(user, {}).get("agent") == registry.REMOTE),   # on their computer
             "online": loop.agent_online(agent.split(":")[0][1:]) if agent else None,
             "waiting": {"kind": waiting.get("kind") or "mode", "mine": waiting.get("by") == user,
@@ -180,12 +185,11 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
     if action == "follow" and value in registry.FOLLOW:
         done = await loop.set_follow(room, user, value, agent or None)
         return "ok" if done is not False else "that isn't one of your agents"
-    if action == "web" and value in ("on", "off"):
-        done = await loop.set_grant(room, user, "web", value == "on", agent or None)
-        return "ok" if done is not False else "that isn't one of your agents (or I couldn't save it)"
     if action == "add":                   # pm_agents.py: the Connect page goes to our private chat
         dm = await loop.private_room(user)
         return await loop.start_add(dm, user, value.strip() or None) if dm else "I couldn't open a private chat with you"
+    if action == "github":                # pm_github.py: Connect / Disconnect GitHub, for themselves only
+        return await loop.github_action(user, value)
     if action == "repo":
         return await loop.set_repo(room, user, value.strip())   # its own checks; also answered in the chat
     if action == "check":
@@ -200,6 +204,9 @@ async def act(loop, room_id: str, user: str, action: str, value: str, agent: str
             return "only agents this server runs can go back to the official version"
         customize.go_back(local)
         return "ok"
+    if action == "remove" and value == "sure":   # pm_remove.py: for good; the page asked twice first
+        done = await loop.remove_for_good(await loop.private_room(user) or room_id, user, agent or None)
+        return "ok" if done else "couldn't remove it (see my message)"
     if action == "disconnect":            # pm_presence.py: their own computer's agent signs out for good
         done = await loop.disconnect(await loop.private_room(user) or room_id, user, agent or None)
         return "ok" if done else "couldn't disconnect it (see my message)"

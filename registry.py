@@ -6,7 +6,9 @@ Older files keyed by bare names ("anna") mean people on this server: load() read
 A person may have several agents (ADR 0005). The line's own fields are their FIRST agent, as they
 always were (so every older file and writer stays valid: nothing to migrate on disk); further ones
 are listed under "more", each {"label", "localpart", "agent" (kind), "created", "dm", "follow"}.
-agents_of() gives all of them as one list, the first first."""
+agents_of() gives all of them as one list, the first first. Once the first agent is removed for good,
+the line stays with "first_removed" (its derived account name can never be registered again), so
+further agents, with new names, are all the person can add."""
 import json
 import os
 import re
@@ -24,6 +26,7 @@ NAME_RE = identity.NAME_RE          # a person here who can have an agent (anna,
 REMOTE = "remote"                    # their agent runs on their own computer (connect.py), not here
 FIRST_LABEL = "main"                 # what the first agent is called when its person never named it
 MORE = "more"                        # a person's further agents, in their line
+FIRST_GONE = "first_removed"         # their first agent was removed for good: only named ones from now on
 PER_PERSON_DEFAULT = 3
 LOCALPART_RE = re.compile(r"[a-z0-9._=-]{1,120}")   # a recorded agent account name (Matrix localpart characters)
 LOCK = threading.RLock()             # @pm's read-modify-writes of this file (its loop and set-up threads)
@@ -34,8 +37,8 @@ def load() -> dict:
         data = json.loads(PATH.read_text())
     except (OSError, ValueError):
         data = DEFAULT                    # not onboarded yet (or a damaged file): the two demo people
-    if not isinstance(data, dict) or not data:
-        data = DEFAULT
+    if not isinstance(data, dict):
+        data = DEFAULT                    # a saved {} (everyone removed or pruned) stays empty (GPT review)
     # Keep only well-formed entries: a damaged line must never crash @pm or confuse ownership. An old
     # bare key and its full ID together: merged, the full ID's fields winning.
     people = {}
@@ -74,8 +77,10 @@ FOLLOW = ("always", "ask", "never")
 
 def agent_of(person: str) -> str:
     """The localpart of `person`'s agent on this server (identity.agent_localpart unless recorded)."""
-    person = person_id(person)
-    return load().get(person, {}).get("agent_user") or identity.agent_localpart(person, SERVER_NAME)
+    person, people = person_id(person), load()
+    if first_removed(person, people) and agents_of(person, people):   # their first was removed: their first live one
+        return agents_of(person, people)[0]["localpart"]
+    return people.get(person, {}).get("agent_user") or identity.agent_localpart(person, SERVER_NAME)
 
 
 def owner_of(agent: str) -> str | None:
@@ -147,7 +152,7 @@ def _agents(person: str, info: dict) -> list[dict]:
              "ready": info.get("ready") is True,
              "follow": info.get("follow") if info.get("follow") in FOLLOW else "always",
              "disconnected": info.get("disconnected")}
-    found, labels = [first], {first["label"]}
+    found, labels = ([], set()) if info.get(FIRST_GONE) is True else ([first], {first["label"]})
     for e in info.get(MORE) if isinstance(info.get(MORE), list) else []:
         label = e.get("label") if isinstance(e, dict) else None
         if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label) or label in labels:
@@ -165,6 +170,19 @@ def agents_of(person: str, people: dict | None = None) -> list[dict]:
     person = person_id(person)
     people = load() if people is None else people
     return _agents(person, people[person]) if person in people else []
+
+
+def first_removed(person: str, people: dict | None = None) -> bool:
+    """Their first agent was removed for good: a new one gets a new name (a further agent's)."""
+    people = load() if people is None else people
+    return (people.get(person_id(person)) or {}).get(FIRST_GONE) is True
+
+
+def may_add_more(person: str) -> bool:
+    """`person` may add a named agent: their first one is theirs, or it was removed for good."""
+    person, people = person_id(person), load()
+    have = agents_of(person, people)
+    return first_removed(person, people) or bool(have) and owns(person, have[0]["localpart"])
 
 
 def find(person: str, agent: str | None) -> dict | None:
@@ -206,12 +224,14 @@ def add_agent(person: str, label: str, kind: str = REMOTE) -> dict:
 def _add_agent(person: str, label: str, kind: str) -> dict:
     data = load()
     have = agents_of(person, data)
-    if not have:
+    if not have and not first_removed(person, data):
         raise ValueError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
     if not isinstance(label, str) or not identity.LABEL_RE.fullmatch(label):
         raise ValueError("an agent's name is one short word: letters and digits, up to 9, starting with a letter")
     if any(a["label"] == label for a in have):
         raise ValueError(f"you already have an agent called {label}")
+    if label in (data[person].get(REMOVED) or []):   # its account was closed for good: the name can't come back
+        raise ValueError(f"you removed an agent called {label} earlier; please choose another name")
     if len(have) >= per_person():
         raise ValueError(f"you have {len(have)} agents, the most one person can have here")
     localpart = identity.agent_localpart(person, SERVER_NAME, label)
@@ -222,3 +242,7 @@ def _add_agent(person: str, label: str, kind: str) -> dict:
     data[person][MORE].append({"label": label, "agent": kind, "created": time.time()})
     save(data)
     return find(person, label)
+
+
+# --- removing agents (forget_agent, prune: registry_removal.py) ---
+REMOVED = "removed"                  # labels of further agents removed for good (their accounts can't come back)

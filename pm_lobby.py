@@ -9,9 +9,11 @@ Mixed into pm_welcome.Welcome (client, user_id, say, offer_thumb, offer_again, i
 import asyncio
 import logging
 
-from nio import MatrixRoom, ReactionEvent, RoomPreset, RoomResolveAliasResponse, RoomVisibility
+from aiohttp import ClientError
+from nio import MatrixRoom, ReactionEvent, RoomPreset, RoomVisibility
 
 import identity
+import matrix_calls
 import server_admins
 from bridge import ROOT, SERVER_NAME
 from project_rooms import LOBBY_ALIAS, LOBBY_LOCALPART
@@ -34,8 +36,11 @@ class Lobby:
 
     async def ensure_lobby(self) -> None:
         """The Lobby exists: public, in the room directory, joinable from any server."""
-        resp = await self.client.room_resolve_alias(LOBBY_ALIAS)
-        if isinstance(resp, RoomResolveAliasResponse):
+        try:
+            if await matrix_calls.room_of_alias(self.client, LOBBY_ALIAS):
+                return
+        except (RuntimeError, OSError, asyncio.TimeoutError, ClientError) as e:   # unknown: never a second Lobby
+            log.warning("couldn't check for the Lobby: %s", e)
             return
         made = await self.client.room_create(alias=LOBBY_LOCALPART, name="Lobby", topic=LOBBY_TOPIC,
                                              preset=RoomPreset.public_chat, visibility=RoomVisibility.public)

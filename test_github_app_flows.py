@@ -88,8 +88,9 @@ class Reads(AppCase):
         self.assertEqual(sorted(map(sorted, self.fake.tokens.values())), [[REPO.lower()], [OTHER.lower()]])
 
 
-class Binding(AppCase):
-    """A moderator binds a room to a repo the App isn't on yet: the install link, then @pm finishes."""
+class BindingSetup(AppCase):
+    """A room Anna moderates, its Matrix state faked; she is connected and may write (test_github_link
+    builds on this with the real checks)."""
 
     def setUp(self):
         super().setUp()
@@ -97,9 +98,11 @@ class Binding(AppCase):
             p = mock.patch.object(target, name, value)
             p.start()
             self.addCleanup(p.stop)
-        p = mock.patch("pm_settings.may_write", lambda user, repo: asyncio.sleep(0, True))
-        p.start()
-        self.addCleanup(p.stop)
+        for target, value in (("pm_settings.may_write", lambda user, repo: asyncio.sleep(0, True)),
+                              ("github_link.link_of", lambda user: {"login": "anna", "id": 1})):   # connected
+            p = mock.patch(target, value)
+            p.start()
+            self.addCleanup(p.stop)
         self.repo, self.said, self.written = None, [], []
         lp = self.lp = Loop.__new__(Loop)
         lp.user_id, lp.pending, lp.boards, lp.state, lp.generation, lp.busy = PM, {}, {}, {}, {}, set()
@@ -118,12 +121,17 @@ class Binding(AppCase):
         v.start()
         self.addCleanup(v.stop)
         for name, fn in (("is_moderator", lambda c, r, u: asyncio.sleep(0, u == ANNA)),
+                         ("joined_moderator", lambda c, rid, u: asyncio.sleep(0, u == ANNA)),   # at the write
                          ("repo_of", lambda c, rid: asyncio.sleep(0, self.repo)),
                          ("binding_of", lambda c, rid: asyncio.sleep(0, (self.repo, None)))):
             p = mock.patch.object(room_state, name, fn)
             p.start()
             self.addCleanup(p.stop)
         self.room = SimpleNamespace(room_id="!r", users={ANNA: None}, invited_users={}, display_name="r")
+
+
+class Binding(BindingSetup):
+    """A moderator binds a room to a repo the App isn't on yet: the install link, then @pm finishes."""
 
     def test_install_link_then_the_room_is_set_up_once_installed(self):
         async def flow():
@@ -244,7 +252,7 @@ class Binding(AppCase):
         asyncio.run(self.lp.set_repo(self.room, "@mallory:bridge.localhost", OTHER))
         asyncio.run(self.lp.set_repo(self.room, ANNA, "someone/private"))
         self.assertEqual(self.lp.install_watches, {})
-        self.assertTrue(all("apps/hagency-rooms" not in s for s in self.said))
+        self.assertEqual(self.said[-1], pm_settings.refusal("someone/private"))   # the same words for every refusal
         self.assertFalse(any("installation" in r[1] for r in self.fake.requests))
 
     def test_unconfigured_binds_as_before(self):

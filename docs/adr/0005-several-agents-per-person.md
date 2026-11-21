@@ -37,6 +37,11 @@ must stay as strict as before: by the owner's full ID.
 - On Windows, connect.ps1 registers only the first agent's Scheduled Task: a further agent there
   runs in a window (`connect.py --name <its name> --foreground`) until the installer learns more.
 - Agents this server runs (Hermes, onboard.py) stay one per person: further ones are remote.
-- Removing an agent (freeing a slot) is future work: Disconnect only signs it out. A reservation
-  whose set-up failed keeps its slot and is finished by asking for the same name again.
+- Removing an agent frees its slot (`agent_removal.py`, `pm_remove.py`): its account is
+  deactivated through the admin API, its password leaves `.env` and its entry leaves `agents.json`.
+  Synapse never re-registers a deactivated name, so the label is kept under "removed" and a new
+  agent needs a new name. The first agent goes last, with its person's line. Disconnect still only
+  signs an agent out. A reservation whose set-up failed keeps its slot and is finished by asking
+  for the same name again (or removed). @pm also forgets people whose every account here is
+  deactivated (Synapse's own list, read every 6 hours; nothing is forgotten if it can't be read).
 - A disconnect is recorded per agent; a code issued before it never yields the new password.

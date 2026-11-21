@@ -107,7 +107,7 @@ def check_owner_only(betty, room_id, anna_agent):
     msgs = api("GET", f"/_matrix/client/v3/rooms/{room_id}/messages?dir=b&limit=10", betty)["chunk"]
     replied = [m["content"]["body"] for m in answers_after(msgs, ev, anna_agent)]
     check("anna-agent declines betty by default (owner-only), saying why",
-          replied == ["I only take requests from Anna."], repr(replied))
+          replied == ["I only take requests from anna."], repr(replied))
 
 
 def check_encrypted_room_warning(token, agent):

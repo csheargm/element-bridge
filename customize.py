@@ -31,13 +31,13 @@ PY = str(ROOT / ".venv" / "bin" / "python")
 TEST_TIMEOUT_S = 600
 MAX_DIFF_FILES = 15
 # Code that decides who the agent obeys and what it may do: changes here get an extra red flag.
-SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "capabilities.py", "redact.py",
+SENSITIVE = {"bridge.py", "bridge_voice.py", "bridge_custom.py", "agents.py", "cli_path.py", "redact.py",
              "safe_fetch.py", "supervise.py", "customize.py", "lifecycle.py", "ownership.py", "github.py",
              "room_context.py", "room_state.py", "tasks.py", "registry.py", "saved_dict.py", "console.py",
              "pm_chat.py", "onboard.py", "setup_accounts.py", "panel.py", "hagency_mcp.py", "mcp_core.py",
              "mcp_custom.py", "hermes_profile.py", "bridge_config.py", "pairing.py", "remote_agent.py",
              "pm_welcome.py", "connect.py", "connect.sh", "connect.ps1", "connect_win.py", "connect_page.py",
-             "connect.js", "connect.html", "local_signup.py",
+             "connect.js", "connect.html", "local_signup.py", "agent_removal.py", "pm_remove.py",
              "requirements.txt", ".gitignore", "start.sh"}
 # Git-ignored things a live version shares with the official folder (passwords, sessions, state).
 SHARED = (".env", ".venv", ".gh", "data", "rooms", "logs", "agents.json")

@@ -837,3 +837,129 @@ Tests: test_joining.MyPrivateChat; test_welcome_e2e types it without "@pm" and w
 - (last re-check) Adopted: a network error while opening is handled like a refusal, and a listing
   that couldn't be taken back down is said ("set it to private again"). Not adopted: follow-me's
   room-name check for my chats (pre-existing, not part of this branch's addressing).
+
+## GPT review of Connect GitHub (R15, ADR 0007)
+
+Codex reviewed b21f5e0..46baf92 (11 points). Adopted, each verified in the code, with tests in
+test_github_link_more.py:
+- The code went to whatever chat the person typed in (a direct chat they made, where others could
+  be invited and read back): it now goes only to @pm's own private chat (`private_room`: only @pm
+  invites, history from the invite) and their own GitHub card.
+- The install wait after "App not installed" replied only for listed repos (a timeout naming the
+  repo, or a second answer once installed), which confirmed the name to someone without access: it
+  is now quiet unless it can bind.
+- Disconnect while GitHub was handing out a code didn't stop it: that code is now dropped unseen.
+- A Disconnect while the access check was in flight still let it pass: the link must be unchanged
+  after GitHub answers.
+- The permission check skipped the App token's renew-on-401; it now goes through `as_app`.
+- GitHub's own error text (stripped, but still free-form) could reach chat: only documented error
+  codes are named, anything else is "unexpected".
+- `slow_down` now takes GitHub's new interval when it gives one.
+- A link that couldn't be written to disk stayed in memory (and a failed unlink left memory and disk
+  apart): memory now matches the disk, and the person is told.
+- The panel's message line held the code and outlived the sign-in; repeat clicks re-sent it to the
+  chat: the line never holds the code now, and repeat clicks don't re-send it.
+Rejected or deferred:
+- Device-code phishing (someone else's code entered by the victim links the victim's GitHub to the
+  attacker): inherent to the device flow, which this change was asked to use. Documented in ADR 0007
+  with its real impact; the web flow (callback tied to the console session) is on the ROADMAP.
+- Install waits keep the first requester when a second moderator picks the same repo, and a retried
+  "discuss separately" choice loses `separate_from`: pre-existing install-wait behaviour (ADR 0004),
+  not changed here.
+- A monotonic deadline bounding the last token request: GitHub stops issuing tokens at expiry, and
+  each request is bounded by the 20 s HTTP timeout; a token that arrives is valid proof.
+- (re-check of the fixes, GPT) Adopted, with tests: each Connect click has its own pending marker,
+  so a click cancelled by Disconnect can't take over (or clear) a newer click's; a code isn't sent if
+  Disconnect came while the private chat was being opened; the bind re-checks, under the lock and
+  right before it writes, that the GitHub link the write check used is still the person's; a GitHub
+  error that isn't text counts as "unexpected". Rejected: the reply-timing difference between an
+  unlisted repo (no GitHub call) and a listed one (pre-existing since ADR 0004; padding the reply
+  time is out of scope).
+## GPT review of fix/small-bundle (names, retired web grants, Windows .cmd, Remove, quiet log)
+
+Codex reviewed master..fix/small-bundle (5 commits). Adopted, each verified in the code, with tests
+in test_remove_agent, test_cli_path and test_matrix_calls:
+- **1. A stale record could close a live account.** remove() now also requires the agent's
+  localpart to be the derived name (as credentials_for does), so a stale `agent_user` never reaches
+  the deactivate call.
+- **2. An inconclusive login dropped a live agent's entry and password.** A saved password we can't
+  confirm (wrong, or Synapse erroring) now changes nothing and asks to try again; only an agent with
+  no password and no "ready" (never set up) is forgotten without a deactivation.
+- **3. Prune raced removal.** agent_removal.prune runs registry.prune under the same WRITING lock as
+  set-ups and removals.
+- **4. Removing the last person brought the demo anna/betty back.** A saved `{}` stays empty; only a
+  missing or damaged file means the demo people.
+- **5 (part). A failed .env clean-up after the deactivation reported failure.** It is logged and the
+  removal counts (the password of a closed account is harmless).
+- **6. cmd-shim parsing.** Parts with a drive (":"), "." or empty are refused, the target must
+  resolve inside the wrapper's folder (no link out), the wrapper's last command line counts (not a
+  decoy above it), and node must be a node.exe (PATHEXT could find a node.cmd).
+- **7 (part). A stale armed Remove button.** The second click counts only for the same agent within
+  the 8 s window.
+- **8 (part). A proxy's 404 page made "the alias doesn't exist".** Only 404 M_NOT_FOUND does; any
+  other 404 is an error and no second Lobby/Welcome is created.
+- **9. Unanswered removal questions piled up.** Expired ones are evicted, and a new question for the
+  same agent replaces the old one.
+Rejected or deferred, with reasons:
+- **5 (rest). onboard.py writes agents.json/.env from another process.** Pre-existing (WRITING is
+  process-local everywhere); onboard runs by hand on the server. Deferred to a file lock.
+- **7 (rest). A server-side, single-use confirm token for the panel's Remove.** The console session
+  is a bearer token (no cookies, so no CSRF), so a request saying "sure" is the person's own; the
+  two clicks guard against a misclick, which the page does. The chat accepts every "OK" emoji
+  (intents.is_confirm_reaction), as every other @pm confirmation does.
+- **8 (rest). A 200 presence answer without "presence" is read as "can't say".** That is Synapse's
+  answer for a deactivated account (the case seen live); the agent is skipped once the
+  deactivated list is read. Its last Online/Offline stays shown until then.
+- **3 (rest). An account reactivated after the snapshot.** Pruning needs the person AND every agent
+  deactivated in one complete list; reactivation is a manual operator step (within 6 h).
+- (re-check, GPT) Adopted, with tests: a set-up whose registration failed (password saved, no
+  account) can still be removed: Synapse's admin API must say 404 M_NOT_FOUND, anything unclear keeps
+  everything; pairing codes are revoked only once the removal succeeded (a refused one keeps them);
+  a cmd-shim comment line, above or below, never counts: only the last non-comment line is read.
+
+## GPT review: batch 5+6 combined (Connect GitHub + small fixes, R15)
+
+Codex reviewed origin/master..integ/batch-5-6 (PR #5 and PR #6 merged together). Six findings, each
+verified in the code and fixed with a regression test:
+- **1 (P1). The public panel stopped rendering.** deploy/Caddyfile's @pm route lacked
+  /panel-github.js, so Element answered it and `githubCard()` was undefined. panel.SCRIPTS is now the
+  one list (script tags and routes come from it); test_panel.CardScripts requires the Caddyfile to
+  route each one, and a card whose script didn't load shows a note while the rest renders.
+- **2 (P1). A repo bind could commit after Disconnect GitHub or a demotion.** write_level re-checks
+  the requester (joined AND a moderator, read now: room_state.joined_moderator; and the same GitHub
+  link) as the last await before the state write; the install wait goes through it.
+  test_github_link_more.BindRace.
+- **3 (P2). Removing the last agent stranded the person.** The line stays as a tombstone
+  ("first_removed", agent "remote"); a new agent gets a new (named) account name, and "bring my own"
+  asks for it. test_remove_then_add.RemoveLastThenAdd.
+- **4 (P2). Pruning left a deactivated person's GitHub link and sign-in.** forget_github_of drops the
+  link and cancels the sign-in; finish_github saves only while its sign-in is current. An active
+  person removing an agent keeps theirs. test_remove_then_add.PruneDropsGitHub.
+- **5 (P2). A registry write failure.** A closed account whose record can't be saved is reported
+  closed (NotForgotten) and its codes revoked; a prune that can't save is logged and retried in 10
+  minutes, never crashing the poll. test_remove_then_add.SaveFails.
+- **6 (P2). cli_path returned the unresolved path.** It returns the absolute path it checked.
+  test_cli_path (relative PATH entry).
+
+Re-check (GPT, the same range, focused on these fixes): seven P2 points and two lower ones. Adopted,
+verified in the code, with tests in test_batch_recheck (each fails without its fix):
+- the requester is checked before close_for_private too (no privacy writes for someone who left);
+- Codes.revoke drops every matching code in memory before its one save; a failed save is logged;
+- an older record (no "ready") closed before NotForgotten is forgotten on retry: Synapse's answer
+  is read as missing / deactivated / live;
+- the federation hourly cap counts removed agents' creation times (kept 24 h);
+- a deactivated account's link leaves memory at once; one the disk refused is retried within 10
+  minutes even after a reactivation;
+- after the first agent was removed, registry.agent_of is the first live agent, and a code for the
+  removed first agent never redeems another one;
+- the panel shows "Add an agent" with no agents, and clicks work without panel-agents.js (Remove
+  refused then); cli_path resolves the target once and makes node's path absolute.
+Rejected, with reasons:
+- **onboard.py on a tombstoned person.** Operator-only, by hand; it fails loudly when Synapse refuses
+  the closed name. Restoring a removed account is a manual migration.
+- **customize.why_not_use counting tombstone lines as "other people".** It fails closed (no "Use it
+  myself" offered), as it already does for every remote person's line.
+- **Refusing new GitHub sign-ins for deactivated accounts.** A deactivated account can't sign in to
+  Matrix or get a console session, so it can't start one; one in flight is cancelled by the prune.
+- **send_code issuing a code after a NotForgotten removal.** The account is closed, so the sign-in it
+  would give can't log in; the record goes on the retry.

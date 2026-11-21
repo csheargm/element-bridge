@@ -92,6 +92,8 @@ def _provision(person: str) -> str:
         raise AccountError("for now an agent needs an account name of lowercase letters and digits")
     people = registry.load()
     info = people.get(person, {})
+    if registry.first_removed(person, people):   # its name is closed for good (pm_welcome.choose asks for a new one)
+        raise AccountError("you removed your first agent; say \"add another agent\" to get one with a new name")
     if person in people and info.get("agent") != registry.REMOTE:    # no "agent": a server-run default one
         raise AccountError("you already have an agent here, run by this server")
     agent = registry.agent_of(person)
@@ -114,8 +116,7 @@ def provision_more(person: str, label: str) -> str:
     account exists. Raises AccountError with a sentence for them. Blocking I/O."""
     with WRITING:
         person = registry.person_id(person)
-        first = registry.find(person, None)
-        if first is None or not registry.owns(person, first["localpart"]):
+        if not registry.may_add_more(person):   # none yet (or their first was removed: then new names only)
             raise AccountError("you don't have an agent here yet: get your first one with 🔌 Bring your own")
         found = registry.find(person, label)
         if found is None or found["first"]:   # new (an unfinished one with this name is finished instead)
@@ -181,6 +182,8 @@ def credentials_for(person: str, agent: str | None = None, issued: float | None 
     a remote agent of theirs any more, or the code (`issued` then) predates its disconnect: a code
     taken just before a disconnect never picks up the new password (GPT review 24)."""
     person = registry.person_id(person)       # codes issued before full IDs hold a bare name
+    if agent is None and registry.first_removed(person):
+        return None                           # a code for their first agent, which was removed (GPT re-check)
     found = registry.find(person, agent)
     if found is None or found["agent"] != registry.REMOTE or (agent and found["localpart"] != agent):
         return None

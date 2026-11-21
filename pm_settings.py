@@ -15,6 +15,7 @@ from nio import MatrixRoom, RoomPreset
 import console
 import github
 import github_app
+import github_link
 import github_setup
 import registry
 import room_state
@@ -37,14 +38,32 @@ INSTALL_RECHECK_S = 30        # after an install link: look again this often...
 INSTALL_RECHECKS = 20         # ...this many times (10 minutes), then the person asks again
 BUSY = "Work is still running on the current repo; say \"stop\" and let it finish first."
 KEEP = object()               # write_level: keep the room's "only discusses its repo" as it is
+NOT_MODERATOR = "Only the room owner or a maintainer can choose this room's repo."
 NEED_POWER = ("I can't save this room's settings yet: Matrix lets only moderators do that. Room owner, please "
               "make me a Moderator (Room settings → Roles & Permissions → @pm → Moderator), then ask again.")
 
 
+NOT_CONNECTED = ("First connect your GitHub account, so I know it's yours: click **Connect GitHub** in the Hagency "
+                 "panel, or say \"connect my github\" in our private chat. Then ask again.")
+
+
+def refusal(name: str) -> str:
+    if not github_app.configured():
+        return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
+                "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+    return (f"I can't use {name} for this room. This server must list it (its operator sets HAGENCY_REPOS), the "
+            f"Hagency Rooms GitHub App must be on it (read-only; the repo's owner clicks Install: "
+            f"{github_app.install_url()}), and your connected GitHub account must be able to write there. If the "
+            "App is being installed now, I'll finish setting up this room once it's there.")
+
+
 async def may_write(user: str, repo: str) -> bool:
-    """The person's own agent's GitHub account can write to `repo`: so binding a room to a repo needs
-    real access to it, not just a room of one's own (anyone can create a room). A read with that
-    agent's identity; nothing is changed."""
+    """The person can write to `repo`: so binding a room to a repo needs real access to it, not just a
+    room of one's own (anyone can create a room). With the GitHub App (the public server) that is the
+    GitHub account they connected (github_link.py, ADR 0007), read as the App; else their own agent's
+    GitHub identity (local dev: gh). Reads only; nothing is changed."""
+    if github_app.configured():
+        return await github_link.may_write(user, repo)
     agent = registry.agent_of(user)           # by full ID: @anna:elsewhere is not our anna
     if not registry.owns(user, agent):
         return False
@@ -70,8 +89,9 @@ class Settings(Projects):
         await self.offer_conflict_buttons(room.room_id, answer, await self.say(room.room_id, answer))   # pm_projects.py
         return answer
 
-    async def bind_checked(self, rid: str, sender: str, repo: str, separate_from: str | None) -> str:
-        """Under the lock: one project room per repo, a private repo's room never open, then bind."""
+    async def bind_checked(self, rid: str, sender: str, repo: str, separate_from: str | None, proof=None) -> str:
+        """Under the lock: one project room per repo, a private repo's room never open, then bind.
+        proof: the GitHub link the write check used; a Disconnect (or a new account) since then refuses."""
         if self.busy_on_other_repo(rid, repo):    # before anything changes (closing the room included)
             return BUSY
         try:
@@ -81,24 +101,49 @@ class Settings(Projects):
             return "I couldn't check the other rooms on this repo just now; please try again in a minute."
         if other and other != separate_from:
             return self.conflict_answer(rid, sender, repo, other)
+        problem = await self.requester_problem(rid, (sender, proof), repo)   # before the privacy writes too
+        if problem:
+            return problem
         refused, note = await self.close_for_private(rid, repo)
-        return refused or (await self.bind(rid, repo, other)) + note
+        return refused or (await self.bind(rid, repo, other, (sender, proof))) + note
+
+    async def requester_problem(self, rid: str, requester: tuple, repo: str) -> str | None:
+        """At the state write (GPT review, batch 5+6): the requester is still joined and a moderator,
+        read now (an install wait outlives a departure), and still has the GitHub link the write
+        check read (a Disconnect while @pm awaited the privacy check or the state read refuses)."""
+        sender, proof = requester
+        try:
+            if not await room_state.joined_moderator(self.client, rid, sender):
+                return NOT_MODERATOR
+        except room_state.StateUnreadable as e:  # never bind on a guess
+            log.warning("requester check before binding %s failed: %s", rid, e)
+            return "I couldn't check this room just now; please try again in a minute."
+        if github_app.configured() and github_link.link_of(sender) != proof:
+            return refusal(repo)
+        return None
 
     async def choose_repo(self, room: MatrixRoom, sender: str, name: str, separate_from: str | None = None) -> str:
         rid, repo = room.room_id, github.allowed_repo(name)
         if not await room_state.is_moderator(self.client, room, sender):
-            return "Only the room owner or a maintainer can choose this room's repo."
+            return NOT_MODERATOR
         if not github.REPO_RE.match(name):
             return "Tell me the repo as owner/name, e.g. \"@pm this room works on octocat/hello\"."
-        if repo is None or not await may_write(sender, repo):    # one answer for both: never confirms a name
-            return (f"I can't use {name} for this room: this server must be set up for it (its operator lists repos "
-                    "in HAGENCY_REPOS) and your agent's GitHub account must be able to write there.")
+        if github_app.configured() and github_link.link_of(sender) is None:
+            return NOT_CONNECTED                  # before the repo is looked at: says nothing about it
+        proof = dict(github_link.link_of(sender) or {}) or None   # what the write check reads (ADR 0007)
+        try:
+            allowed = repo is not None and await may_write(sender, repo)
+        except github_app.NotInstalled:           # access is read as the App: not until it's there
+            self.watch_install(room, sender, repo, quiet=True)
+            allowed = False
+        if not allowed:                           # one answer for each: never confirms a name
+            return refusal(name)
         missing = await self.app_missing(room, sender, repo)
         if missing:
             return missing
         self.stop_install_watch(rid)              # this choice is final: an older install wait ends
         async with self.lock:                     # the same lock as polling and results: nothing starts in between
-            binding = asyncio.ensure_future(self.bind_checked(rid, sender, repo, separate_from))
+            binding = asyncio.ensure_future(self.bind_checked(rid, sender, repo, separate_from, proof))
             try:
                 return await asyncio.shield(binding)
             except asyncio.CancelledError:        # an install wait cancelled mid-bind: the bind (Matrix state
@@ -112,16 +157,21 @@ class Settings(Projects):
                 return None
         except github.GitHubError as e:          # its text never carries the key or a token
             return f"I can't check {repo} on GitHub right now ({str(e)[:160]}); please try again in a minute."
-        watch = self.install_watches.get(room.room_id)
-        if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
-            self.stop_install_watch(room.room_id)
-            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo)))
+        self.watch_install(room, sender, repo)
         minutes = INSTALL_RECHECK_S * INSTALL_RECHECKS // 60
         return (f"One step first: install the Hagency Rooms GitHub App on {repo} (read-only; the repo's owner or "
                 f"an org admin clicks Install): {github_app.install_url()}\nI'll look again every "
                 f"{INSTALL_RECHECK_S} seconds for {minutes} minutes and finish setting up this room once it's there.")
 
-    async def await_install(self, room: MatrixRoom, sender: str, repo: str) -> None:
+    def watch_install(self, room: MatrixRoom, sender: str, repo: str, quiet: bool = False) -> None:
+        """quiet: their access isn't known yet (it's read as the App), so the wait says nothing unless
+        it can bind: a reply only for listed repos would confirm the name (GPT review, Connect GitHub)."""
+        watch = self.install_watches.get(room.room_id)
+        if watch is None or watch[0] != repo or watch[1].done():   # a newer choice replaces an older wait
+            self.stop_install_watch(room.room_id)
+            self.install_watches[room.room_id] = (repo, asyncio.create_task(self.await_install(room, sender, repo, quiet)))
+
+    async def await_install(self, room: MatrixRoom, sender: str, repo: str, quiet: bool = False) -> None:
         """After an install link: once the App is on `repo`, ask again for the person (every check
         re-runs: moderator, allowed repo, write access). The wait stays registered until it ends, so
         a newer choice in the room cancels it even during that last bind (GPT review, GitHub App)."""
@@ -134,13 +184,23 @@ class Settings(Projects):
                 except github.GitHubError as e:  # GitHub unreachable for a moment: the next look may work
                     log.warning("install re-check for %s: %s", repo, str(e)[:160])
             else:
+                if quiet:
+                    return
                 await self.say(room.room_id, f"I still don't see the Hagency Rooms app on {repo}. Once it's "
                                              f"installed, say \"@pm this room works on {repo}\" again.")
+                return
+            if quiet and not await self.may_bind_quietly(sender, repo):
                 return
             await self.set_repo(room, sender, repo)
         finally:
             if self.install_watches.get(room.room_id, ("", None))[1] is asyncio.current_task():
                 del self.install_watches[room.room_id]     # (a newer wait may have replaced this one)
+
+    async def may_bind_quietly(self, sender: str, repo: str) -> bool:
+        try:
+            return await may_write(sender, repo)
+        except github_app.NotInstalled:   # gone again already: stay quiet, they can ask again
+            return False
 
     def stop_install_watch(self, rid: str) -> None:
         watch = self.install_watches.get(rid)
@@ -152,12 +212,14 @@ class Settings(Projects):
     def busy_on_other_repo(self, rid: str, repo: str) -> bool:
         return any(v.get("room") == rid and v.get("repo") != repo and v["stage"] in ACTIVE for v in self.state.values())
 
-    async def bind(self, rid: str, repo: str, runs_in: str | None = None) -> str:
+    async def bind(self, rid: str, repo: str, runs_in: str | None = None, requester: tuple | None = None) -> str:
+        """requester: (who asked, their GitHub link then), re-checked at the state write."""
         if self.busy_on_other_repo(rid, repo):
             return BUSY
         current = await room_state.repo_of(self.client, rid)      # the binding itself, not the poll's cache
         keep = current == repo and runs_in is None
-        failed = await self.write_level(rid, None if keep else "off", repo, runs_in is not None)   # None: as it is, read under the lock
+        failed = await self.write_level(rid, None if keep else "off", repo, runs_in is not None,
+                                        requester=requester)      # None: as it is, read under the lock
         if failed:
             return failed
         if runs_in:                               # which room runs it: mine to know, not this room's state
@@ -210,7 +272,7 @@ class Settings(Projects):
         return await self.write_level(room_id, level, unbound_ok=level == "off")   # stopping never binds a room (anyone may stop)
 
     async def write_level(self, room_id: str, level: str | None, repo: str | None = None, discussion=KEEP,
-                          unbound_ok: bool = False) -> str | None:
+                          unbound_ok: bool = False, requester: tuple | None = None) -> str | None:
         """Write the room's level (and repo): callers have checked that a moderator asked. A room that only
         discusses a repo another room runs never leaves "off". Every binding write reads and writes under
         one short lock (not the poll's), so a "stop" can't write back a repo a rebind just replaced."""
@@ -223,6 +285,9 @@ class Settings(Projects):
             only_discusses = bound_discussion if discussion is KEEP else discussion
             if only_discusses and level != "off":
                 return RUN_ELSEWHERE
+            problem = requester and await self.requester_problem(room_id, requester, repo)   # the last await before the write
+            if problem:
+                return problem
             resp = await self.client.room_put_state(room_id, github.LEVEL_EVENT, room_state.content(level, repo, only_discusses))
         if not hasattr(resp, "event_id"):
             if getattr(resp, "status_code", "") == "M_FORBIDDEN":    # a room someone made: I joined at power 0

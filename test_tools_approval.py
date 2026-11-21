@@ -1,9 +1,7 @@
 """Unit tests: tools beyond the project, with the owner's say-so. Run: .venv/bin/python -m unittest test_tools_approval"""
 import asyncio
-import json
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,100 +9,51 @@ from unittest import mock
 
 os.environ.setdefault("HAGENCY_AGENT", "anna-agent")
 import agents  # noqa: E402
-import capabilities  # noqa: E402
-import github  # noqa: E402
 import intents  # noqa: E402
 import mcp_core as core  # noqa: E402
 import mcp_web  # noqa: E402
-import registry  # noqa: E402
 from loop import Loop  # noqa: E402
 
 S = "bridge.localhost"
 ANNA, BETTY, AGENT = f"@anna:{S}", f"@betty:{S}", f"@anna-agent:{S}"
-PM = capabilities.PM_ID
 
 
-class Grants(unittest.TestCase):
-    def state(self, sender, agent=AGENT, caps=("web",)):
-        return [{"type": capabilities.GRANTS_EVENT, "state_key": capabilities.key_for(agent), "sender": sender,
-                 "content": {"repo": github.REPO, "caps": {c: {} for c in caps}}}]
-
-    def test_trusted_only_from_pm_and_only_for_that_agent(self):
-        self.assertEqual(capabilities.caps_in(self.state(PM), AGENT), {"web"})
-        self.assertEqual(capabilities.caps_in(self.state("@mallory:x"), AGENT), set())
-        self.assertEqual(capabilities.caps_in(self.state(PM, agent=f"@betty-agent:{S}"), AGENT), set())
-
-    def test_grant_and_revoke(self):
-        self.assertIn("web", capabilities.record(set(), "web", ANNA, True)["caps"])
-        self.assertEqual(capabilities.record({"web"}, "web", ANNA, False)["caps"], {})
-
-    def test_phrases(self):
-        self.assertEqual(intents.classify("let my agent search the web here"), intents.GRANT_WEB)
-        self.assertEqual(intents.classify("stop letting my agent use the web"), intents.REVOKE_WEB)
+class RetiredWebSwitch(unittest.TestCase):
+    """ADR 0006 retired the per-room web grant: the owner's own turns always have the web, loop work
+    never does. The old phrases still reach @pm, which explains instead of pretending to switch."""
+    def test_phrases_are_recognised_but_change_nothing(self):
+        for text in ("let my agent search the web here", "stop letting my agent use the web",
+                     "enable web search for my agent", "can you enable web search for my agent?",
+                     "disable web search for my agent", "turn off web search for my agent"):
+            self.assertEqual(intents.classify(text), intents.WEB, text)
+        self.assertNotIn(intents.WEB, intents.SETTINGS)          # never asks for a 👍: nothing to confirm
         self.assertEqual(intents.classify("stop"), intents.OFF)
 
-    def test_either_word_order(self):
-        """Seen live: "enable web search for my agent" got "say it in so many words"."""
-        for text in ("enable web search for my agent", "please turn on web search for my agent",
-                     "can you enable web search for my agent?"):
-            self.assertEqual(intents.classify(text), intents.GRANT_WEB, text)
-        for text in ("disable web search for my agent", "turn off web search for my agent"):
-            self.assertEqual(intents.classify(text), intents.REVOKE_WEB, text)
+    def test_a_question_is_not_the_old_switch(self):
+        self.assertNotEqual(intents.classify("should I let my agent search the web?"), intents.WEB)
 
-    def test_a_question_or_a_quote_is_not_a_grant(self):
-        """GPT review 8: "should I let my agent search the web?" must not grant it."""
-        for text in ("should I let my agent search the web?", '"let my agent search the web" said betty'):
-            self.assertNotEqual(intents.classify(text), intents.GRANT_WEB, text)
-
-
-class PmGrants(unittest.TestCase):
-    def setUp(self):
-        path = Path(tempfile.mkdtemp()) / "agents.json"
-        path.write_text(json.dumps({"anna": {}, "betty": {}}))
-        p = mock.patch.object(registry, "PATH", path)
-        p.start()
-        self.addCleanup(p.stop)
-        self.lp = Loop.__new__(Loop)
-        self.lp.room_repos = {}
-        self.lp.grants_cache = {}
-        self.said, self.written, self.planted = [], [], []
+    def test_pm_explains_and_writes_no_state(self):
+        lp, said = Loop.__new__(Loop), []
 
         async def say(room_id, body, *a, **k):
-            self.said.append(body)
-
-        async def get_state(room_id):
-            return SimpleNamespace(events=self.planted)
-
-        async def put_state(room_id, kind, content, state_key=""):
-            self.written.append((state_key, content))
-            return SimpleNamespace(event_id="$s")
-        self.lp.say = say
-        self.lp.client = SimpleNamespace(room_get_state=get_state, room_put_state=put_state)
-
-    def test_an_owner_grants_for_their_own_agent_only(self):
-        asyncio.run(self.lp.set_grant(SimpleNamespace(room_id="!r"), BETTY, "web", True))
-        key, content = self.written[-1]
-        self.assertEqual((key, list(content["caps"])), (f"agent:@betty-agent:{S}", ["web"]))   # never an "@" key
-        self.assertIn("each web request is shown here", self.said[-1])
-
-    def test_a_planted_grant_is_never_republished(self):
-        """GPT review 8: @pm used to read the whole grants map and republish it under its own name."""
-        self.planted = [{"type": capabilities.GRANTS_EVENT, "state_key": f"agent:@betty-agent:{S}", "sender": "@mallory:x",
-                         "content": {"repo": github.REPO, "caps": {"web": {}, "everything": {}}}}]
-        asyncio.run(self.lp.set_grant(SimpleNamespace(room_id="!r"), BETTY, "web", False))
-        self.assertEqual(self.written[-1][1]["caps"], {})
-
-    def test_remote_lookalikes_cant_grant(self):
-        asyncio.run(self.lp.set_grant(SimpleNamespace(room_id="!r"), "@anna:evil.example", "web", True))
-        self.assertEqual(self.written, [])
+            said.append(body)
+        lp.say, lp.client = say, SimpleNamespace(room_put_state=mock.AsyncMock())
+        asyncio.run(lp.act(SimpleNamespace(room_id="!r"), BETTY, intents.WEB))
+        self.assertIn("no web switch", said[-1])
+        lp.client.room_put_state.assert_not_called()
+        self.assertFalse(hasattr(lp, "set_grant"))
 
 
 class WebTools(unittest.TestCase):
-    def test_refused_without_the_owners_grant(self):
-        with mock.patch.object(mcp_web, "owners_room", lambda: "!r"), \
-                mock.patch.object(capabilities, "granted", lambda *a: set()), mock.patch.object(core, "token", lambda: "t"):
-            self.assertIn("hasn't allowed web access", asyncio.run(mcp_web.fetch_page("https://example.com"))["error"])
-            self.assertIn("hasn't allowed", asyncio.run(mcp_web.web_search("x"))["error"])
+    def test_the_owners_room_needs_no_grant(self):
+        """ADR 0006: no per-room grant gates the hagency web tools; the owner's room is enough."""
+        with mock.patch.object(mcp_web, "owners_room", lambda: "!r"), mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(mcp_web.LOOP_ONLY_ENV, None)
+            self.assertEqual(asyncio.run(mcp_web.web_room()), ("!r", None))
+
+    def test_loop_work_never_has_the_web(self):
+        with mock.patch.object(mcp_web, "owners_room", lambda: "!r"), mock.patch.dict(os.environ, {mcp_web.LOOP_ONLY_ENV: "1"}):
+            self.assertIn("no web access", asyncio.run(mcp_web.web_search("x"))["error"])
 
     def test_refused_when_the_room_is_ambiguous(self):
         with mock.patch.object(mcp_web, "owners_room", lambda: None):

@@ -24,18 +24,26 @@ class Render(unittest.TestCase):
         self.loop = SimpleNamespace(client=SimpleNamespace(rooms={"!r": room}), room_repos={},
                                     boards={"!r": {"text": "📋 **Project status** — loop: **assist**\n\n**Now**\n\n- #7 building"}},
                                     pending={"!r": {"kind": "plan", "by": f"@anna:{S}", "until": time.time() + 60}},
-                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}},
-                                    grants_cache={"!r": {f"@anna-agent:{S}": {"web": {"by": f"@anna:{S}"}}}})
+                                    last_plans={"!r": {"items": [{"title": "<script>alert(1)</script>", "criteria": ["x"]}]}})
 
     def test_shows_status_waiting_plan_and_whose_agent_is_whose(self):
         page = panel.render(self.loop, "!r")
         self.assertIn("<strong>Now</strong>", page)
         self.assertNotIn("<strong>Project status</strong>", page)     # the board's title line repeats the header
         self.assertIn("a plan · anna clicks 👍", page)
-        self.assertIn("<b>anna-agent</b> <span class=muted>· Anna's agent</span>", page)
-        self.assertIn("<span class=chip>comes along: always</span> <span class=chip>uses: web</span>", page)
-        self.assertIn("<b>betty-agent</b> <span class=muted>· Betty's agent <span class=muted>(owner not here: idle)", page)
-        self.assertIn("<span class=chip>uses: project only</span>", page)
+        self.assertIn("<b>anna-agent</b> <span class=muted>· anna's agent</span>", page)
+        self.assertIn("<span class=chip>comes along: always</span></div>", page)
+        self.assertNotIn("uses:", page)                                # ADR 0006: no per-room web grant
+        self.assertIn("<b>betty-agent</b> <span class=muted>· betty's agent <span class=muted>(owner not here: idle)", page)
+
+    def test_owner_names_are_shown_as_written(self):
+        """Seen live: the owner "cx" showed as "Cx". A display name is used as set, escaped."""
+        room = self.loop.client.rooms["!r"]
+        registry.PATH.write_text(json.dumps({"anna": {}, "betty": {"follow": "ask"}, "cx": {}}))
+        room.users[f"@cx:{S}"], room.users[f"@cx-agent:{S}"] = 0, 0
+        self.assertIn("· cx's agent", panel.render(self.loop, "!r"))
+        room.users[f"@anna:{S}"] = SimpleNamespace(display_name="Anna <b>B</b>")
+        self.assertIn("· Anna &lt;b&gt;B&lt;/b&gt;'s agent", panel.render(self.loop, "!r"))
 
     def test_everything_people_wrote_is_escaped(self):
         self.assertNotIn("<script>", panel.render(self.loop, "!r"))
@@ -69,6 +77,36 @@ class PageScript(unittest.TestCase):
             f.write(script)
         done = subprocess.run([node, "--check", f.name], capture_output=True, text=True)
         self.assertEqual(done.returncode, 0, done.stderr[-500:])
+
+
+class CardScripts(unittest.TestCase):
+    """GPT review (batch 5+6): Caddy didn't route /panel-github.js to @pm, so Element's 404 page came
+    back, githubCard was undefined and the whole panel (mode, repo, Remove) stopped rendering."""
+    def test_every_card_script_the_page_loads_is_routed_to_pm_by_caddy(self):
+        import re
+        caddy = (Path(__file__).resolve().parent / "deploy" / "Caddyfile").read_text()
+        routed = re.search(r"@pm path ([^\n]+)", caddy).group(1).split()
+        loaded = re.findall(r'<script src="([^"]+)"></script>', panel.PAGE)
+        self.assertEqual(sorted(loaded), sorted(panel.SCRIPTS))
+        for name in loaded:
+            self.assertIn(f"/{name}", routed, f"{name} isn't in the Caddyfile's @pm route")
+            self.assertTrue(panel.SCRIPTS[name].is_file())
+
+    def test_a_card_whose_script_is_missing_degrades_and_the_rest_renders(self):
+        import re
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        card = re.search(r"^const card = .*?</section>`;$", panel.PAGE, re.S | re.M).group(0)
+        script = ("const window = {projectCard: s => 'P' + s.n};\n" + card +
+                  "\nprocess.stdout.write(card('projectCard', {n: 1}) + '|' + card('githubCard', {}));")
+        done = subprocess.run([node, "-e", script], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr[-500:])
+        shown, missing = done.stdout.split("|")
+        self.assertEqual(shown, "P1")
+        self.assertIn("didn't load", missing)
 
 
 class Widget(unittest.TestCase):

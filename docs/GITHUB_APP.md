@@ -18,7 +18,10 @@ works (`./start.sh`).
 3. **Description:** `Read-only access for @pm, the project coordinator in Hagency Rooms.`
 4. **Homepage URL:** `https://www.hagencylabs.xyz`
 5. **Identifying and authorizing users:** leave **Callback URL** empty. Leave **Request user
-   authorization (OAuth) during installation** unticked.
+   authorization (OAuth) during installation** unticked. Tick **Enable Device Flow**: that is how
+   people connect their GitHub account (Connect GitHub, below). An App that already exists: open
+   its settings page (**https://github.com/settings/apps/hagency-rooms**), tick **Enable Device
+   Flow** under *Identifying and authorizing users*, and click **Save changes**.
 6. **Post installation:** leave **Setup URL** empty.
 7. **Webhook:** untick **Active**. @pm polls for now, so it needs no webhook. If you add webhooks
    later, the URL will be `https://rooms.hagencylabs.xyz/github/webhook` (not served yet) and the
@@ -46,7 +49,8 @@ works (`./start.sh`).
 
     Start with **Only on this account**. You can change it later under *Advanced → Make public*.
 11. Click **Create GitHub App**. On the App's **General** page, write down the **App ID**, a
-    number near the top. It isn't secret.
+    number near the top, and the **Client ID** (it starts with `Iv`). Neither is secret. Don't
+    generate a client secret: @pm doesn't need one.
 12. Under **Private keys**, click **Generate a private key**. Your browser downloads
     `hagency-rooms.<date>.private-key.pem`. This file is the App's password: never paste it into
     chat or commit it.
@@ -75,8 +79,12 @@ Then in `~/hagency/app/deploy/.env` on the VM, set these. Use plain values: no q
 ```
 GITHUB_APP_ID=<the App ID from step 1.11>
 GITHUB_APP_SLUG=hagency-rooms
+GITHUB_APP_CLIENT_ID=<the Client ID from step 1.11>
 HAGENCY_REPOS=owner/repo,owner/other-repo
 ```
+
+Without `GITHUB_APP_CLIENT_ID` nobody can connect a GitHub account, so nobody can choose a room's
+repo on the server.
 
 Then deploy as usual (`deploy/deploy.sh` from your computer).
 
@@ -88,10 +96,11 @@ Then deploy as usual (`deploy/deploy.sh` from your computer).
   user (`PM_UID`) with mode 600. A bad key stops the deploy before anything changes, and @pm keeps
   running.
 - `deploy/docker-compose.yml` mounts `deploy/secrets/` **read-only** into @pm's container at
-  `/run/hagency-github/`. It passes `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `HAGENCY_REPOS` and
-  `GITHUB_APP_PRIVATE_KEY_PATH=/run/hagency-github/github-app.pem` through to @pm.
-- `deploy/envfile.py` checks the three values (digits, a slug, `owner/name` pairs). All three are
-  optional, so an empty `GITHUB_APP_ID` leaves @pm without GitHub reads on the server.
+  `/run/hagency-github/`. It passes `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
+  `HAGENCY_REPOS` and `GITHUB_APP_PRIVATE_KEY_PATH=/run/hagency-github/github-app.pem` through to @pm.
+- `deploy/envfile.py` checks the four values (digits, a slug, a Client ID starting with `Iv`,
+  `owner/name` pairs). All four are optional, so an empty `GITHUB_APP_ID` leaves @pm without GitHub
+  reads on the server.
 - `deploy/secrets/` is git-ignored. `deploy.sh` replaces only the commit's files, so the key
   survives deploys.
 
@@ -112,11 +121,21 @@ Then deploy as usual (`deploy/deploy.sh` from your computer).
 Generate a new key on the App's page (step 1.12), replace `secrets/github-app.pem` on the VM the
 same way, deploy, then delete the old key on the App's page.
 
-## Not done yet
+## Connect GitHub: who may choose a room's repo (ADR 0007)
 
-The rule that only people with write access can bind a room to a repo still checks the person's
-own agent identity (`pm_settings.may_write`). Agents run on people's computers, so on the public
-server that check can't pass yet. Fixing it needs a proven link from a Matrix user to a GitHub
-username, for example a GitHub sign-in. Once that link exists, `may_write` uses
-`github_app.permission(repo, login)` (the collaborator permission endpoint, read as the App).
-docs/ROADMAP.md tracks this.
+Only people with write access to a repo (write, maintain or admin) can bind a room to it. On the
+public server @pm learns which GitHub account is yours with GitHub's device flow:
+
+1. In the room's **Hagency** panel, the **GitHub** card: click **Connect GitHub**. (Or say
+   "connect my github" to @pm; in a project room @pm sends the code to your private chat.)
+2. The card and your private chat with @pm show a code and **https://github.com/login/device**.
+   Open the link, enter the code, and approve **Hagency Rooms**. The code works for 15 minutes.
+3. The card now says **GitHub: @your-login ✓**. **Disconnect GitHub** (or "disconnect my github")
+   forgets it.
+
+@pm uses the token GitHub gives it once, to ask who approved (`GET /user`), and drops it. It keeps
+only your login and GitHub account id (`data/github-links.json`). When you choose a repo, @pm reads
+your access as the App (`GET /repos/{owner}/{repo}/collaborators/{login}/permission`) and checks the
+account id GitHub reports, so a renamed username taken by someone else doesn't pass. The owner must
+tick **Enable Device Flow** on the App (step 1.5) and the operator must set `GITHUB_APP_CLIENT_ID`
+(step 3). Local dev (no `GITHUB_APP_ID`) keeps checking your agent's own `gh` login.

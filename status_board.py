@@ -17,7 +17,6 @@ from pathlib import Path
 import markdown
 from nio import RoomGetStateEventResponse, RoomSendResponse
 
-import capabilities
 import github
 from loop_progress import num
 import panel
@@ -99,11 +98,6 @@ class Boards:
             repo = await room_state.repo_of(self.client, room_id)
             if repo is None:
                 continue                      # not a project room (no repo yet)
-            state = await self.client.room_get_state(room_id)
-            events = getattr(state, "events", []) or []
-            agents_with = {capabilities.agent_from_key(ev.get("state_key", "")) for ev in events
-                           if ev.get("type") == capabilities.GRANTS_EVENT}
-            self.grants_cache[room_id] = {a: {c: {} for c in capabilities.caps_in(events, a)} for a in agents_with}
             items = {k: v for k, v in self.state.items() if v.get("room") == room_id and v.get("repo") == repo}
             text = render(items, await self.level(room_id), self.open_issues.get(room_id, []), now, repo)
             board = self.boards.get(room_id, {})

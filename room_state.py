@@ -109,6 +109,13 @@ async def standing(client: AsyncClient, room_id: str, user: str) -> dict:
     return found
 
 
+async def joined_moderator(client: AsyncClient, room_id: str, user: str) -> bool:
+    """Joined AND a moderator, read now (standing): a departed person's power-level entry, or a
+    creator who left, doesn't count. Raises StateUnreadable."""
+    now = await standing(client, room_id, user)
+    return now["membership"] == "join" and now["moderator"]
+
+
 async def discussion_of(client: AsyncClient, room_id: str) -> bool:
     """This room only discusses its repo (another room runs it)."""
     return is_discussion(await read_binding(client, room_id))

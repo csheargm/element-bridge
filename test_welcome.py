@@ -8,12 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import matrix_calls
 import pm_welcome
 import registry
 import remote_agent
 import room_state
 from loop import Loop
-from nio import RoomResolveAliasError, RoomResolveAliasResponse
 
 S = "bridge.localhost"
 NEW, ANNA, PM = f"@newbie1:{S}", f"@anna:{S}", f"@pm:{S}"
@@ -167,13 +167,15 @@ class Greeting(Base):
         self.assertEqual(self.said, [])
 
     def test_welcome_room_is_created_by_pm_when_missing(self):
-        self.lp.client = mock.Mock(room_resolve_alias=mock.AsyncMock(return_value=RoomResolveAliasError("not found")),
-                                   room_create=mock.AsyncMock(return_value=SimpleNamespace(room_id="!w")))
+        alias = mock.patch.object(matrix_calls, "room_of_alias", mock.AsyncMock(return_value=None))   # a 404
+        alias.start()
+        self.addCleanup(alias.stop)
+        self.lp.client = mock.Mock(room_create=mock.AsyncMock(return_value=SimpleNamespace(room_id="!w")))
         self.run_(self.lp.ensure_welcome_room())
         kw = self.lp.client.room_create.call_args_list[0].kwargs
         self.assertEqual((kw["alias"], kw["preset"].value), ("welcome", "private_chat"))
         self.assertEqual(kw["topic"], "Start here 👉 open 'Product Manager' on the left")
-        self.lp.client.room_resolve_alias = mock.AsyncMock(return_value=RoomResolveAliasResponse("#welcome:x", "!w", []))
+        matrix_calls.room_of_alias.return_value = "!w"
         self.lp.client.room_create.reset_mock()
         self.lp.client.rooms = {}
         self.run_(self.lp.ensure_welcome_room())
@@ -182,8 +184,10 @@ class Greeting(Base):
     def test_people_who_joined_while_i_was_down_are_welcomed_at_start(self):
         """GPT review 21: a join during a restart or cold start is never lost."""
         welcome = SimpleNamespace(users={NEW: None, ANNA: None, PM: None, f"@x:{S}": None}, invited_users={f"@x:{S}": None})
-        self.lp.client = mock.Mock(rooms={"!w": welcome}, room_put_state=mock.AsyncMock(),
-                                   room_resolve_alias=mock.AsyncMock(return_value=RoomResolveAliasResponse("#w", "!w", [])))
+        alias = mock.patch.object(matrix_calls, "room_of_alias", mock.AsyncMock(return_value="!w"))
+        alias.start()
+        self.addCleanup(alias.stop)
+        self.lp.client = mock.Mock(rooms={"!w": welcome}, room_put_state=mock.AsyncMock())
         self.run_(self.lp.ensure_welcome_room())
         self.lp.private_room.assert_awaited_once_with(NEW)      # not anna (has an agent), not an invitee
         self.run_(self.lp.ensure_welcome_room())

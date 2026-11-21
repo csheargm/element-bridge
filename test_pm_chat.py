@@ -180,24 +180,26 @@ class Talk(unittest.TestCase):
     def test_spoken_words_never_approve_or_change_settings_by_themselves(self):
         """GPT review 14: a transcript may hold someone else's voice or a misheard word."""
         self.lp.file_plan, self.lp.offer_thumb = mock.AsyncMock(), mock.AsyncMock()
-        self.lp.set_grant = mock.AsyncMock()
+        self.lp.set_follow = mock.AsyncMock()
         self.lp.pending["!r"] = {"kind": "plan", "event_id": "$p", "until": time.time() + 60, "by": ANNA,
                                  "items": [], "agent": "@anna-agent:x"}
         self.spoken("okay, go ahead")
         self.assertIn("click 👍", self.said[-1])
         self.lp.file_plan.assert_not_called()
-        self.spoken("let my agent search the web here")          # a plan is waiting: one question at a time
+        self.spoken("always bring my agent")                    # a plan is waiting: one question at a time
         self.assertIn("answer my question above first", self.said[-1])
         self.lp.pending.clear()
-        self.spoken("let my agent search the web here")
-        self.assertIn("Let your agent search the web", self.said[-1])
-        self.lp.set_grant.assert_not_called()
+        self.spoken("always bring my agent")
+        self.assertIn("Bring your agent along", self.said[-1])
+        self.lp.set_follow.assert_not_called()
 
-    def test_a_quoted_grant_only_asks(self):
-        self.lp.offer_thumb, self.lp.set_grant = mock.AsyncMock(), mock.AsyncMock()
-        self.tell(ANNA, '@pm allow Betty to quote "let my agent search the web"')
-        self.lp.set_grant.assert_not_called()
-        self.assertIn("Click 👍 below", self.said[-1])
+    def test_the_retired_web_switch_is_explained_never_set(self):
+        """ADR 0006: the owner's agent always has the web when they ask it; there's no switch."""
+        self.lp.offer_thumb, self.lp.client.room_put_state = mock.AsyncMock(), mock.AsyncMock()
+        self.tell(ANNA, '@pm let my agent search the web here')
+        self.assertIn("no web switch", self.said[-1])
+        self.lp.client.room_put_state.assert_not_called()
+        self.lp.offer_thumb.assert_not_called()
 
     def test_ok_in_a_reply_to_the_agents_message_approves(self):
         """Seen live: anna replied "@Product Manager: ok" to her agent's message; Element puts the
@@ -340,15 +342,15 @@ class Brain(Talk):
 
     def test_a_setting_the_rules_miss_is_asked_with_one_click(self):
         """the owner: "the agent should understand me" — not "say it in so many words"."""
-        self.decision = ("grant_web", "Sure")
-        granted = []
-        self.lp.set_grant = mock.AsyncMock(side_effect=lambda room, who, cap, on: granted.append((who, cap, on)))
+        self.decision = ("follow_always", "Sure")
+        followed = []
+        self.lp.set_follow = mock.AsyncMock(side_effect=lambda room, who, value: followed.append((who, value)))
         self.lp.offer_thumb = mock.AsyncMock()
-        self.tell(BETTY, "@pm my agent should be able to look things up online")
-        self.assertIn("Let your agent search the web", self.said[-1])
-        self.assertEqual(granted, [])                       # not before the person's own 👍
+        self.tell(BETTY, "@pm my agent should be with me wherever I work")
+        self.assertIn("Bring your agent along", self.said[-1])
+        self.assertEqual(followed, [])                      # not before the person's own 👍
         self.react(BETTY, "👍", self.lp.pending["!r"]["event_id"])
-        self.assertEqual(granted, [(BETTY, "web", True)])
+        self.assertEqual(followed, [(BETTY, "always")])
 
     def test_stop_never_waits_for_the_model(self):
         self.tell(BETTY, "@pm stop")

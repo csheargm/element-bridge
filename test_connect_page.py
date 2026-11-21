@@ -163,8 +163,9 @@ class WindowsInstaller(unittest.TestCase):
         self.assertIn("'\"{0}\" --home \"{1}\"' -f $runner, $HagencyHome", self.text)
 
     def test_only_a_cli_the_bridge_can_start_is_picked(self):
-        """GPT review: an npm .cmd wrapper passes Get-Command but not the bridge's shell-less start."""
-        self.assertIn('Get-Command "$Name.exe" -CommandType Application', self.text)
+        """GPT review: a .ps1 wrapper passes Get-Command but not the bridge's shell-less start. npm's
+        .cmd wrapper is fine now: cli_path.py starts the program it wraps, without a shell."""
+        self.assertIn('Get-Command "$Name.exe", "$Name.cmd" -CommandType Application', self.text)
 
     def test_the_folder_lock_needs_no_admin(self):
         """GPT review: Set-Acl also writes the audit list (admin only); SetAccessControl writes the DACL."""
